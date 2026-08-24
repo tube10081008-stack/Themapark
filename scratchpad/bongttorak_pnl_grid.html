@@ -1,0 +1,320 @@
+<title>봉뜨락 손익 민감도</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;900&display=swap">
+<style>
+  :root {
+    color-scheme: light;
+    --page:        #f9f9f7;
+    --surface:     #fcfcfb;
+    --ink:         #0b0b0b;
+    --ink-2:       #52514e;
+    --ink-muted:   #898781;
+    --grid:        #e1e0d9;
+    --baseline:    #c3c2b7;
+    --border:      rgba(11,11,11,0.10);
+    --pole-loss:   #e34948;
+    --pole-profit: #2a78d6;
+    --mid:         #f0efec;
+    --ok-text:     #006300;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page:        #0d0d0d;
+      --surface:     #1a1a19;
+      --ink:         #ffffff;
+      --ink-2:       #c3c2b7;
+      --ink-muted:   #898781;
+      --grid:        #2c2c2a;
+      --baseline:    #383835;
+      --border:      rgba(255,255,255,0.10);
+      --pole-loss:   #e66767;
+      --pole-profit: #3987e5;
+      --mid:         #383835;
+      --ok-text:     #0ca30c;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page:        #0d0d0d;
+    --surface:     #1a1a19;
+    --ink:         #ffffff;
+    --ink-2:       #c3c2b7;
+    --ink-muted:   #898781;
+    --grid:        #2c2c2a;
+    --baseline:    #383835;
+    --border:      rgba(255,255,255,0.10);
+    --pole-loss:   #e66767;
+    --pole-profit: #3987e5;
+    --mid:         #383835;
+    --ok-text:     #0ca30c;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--ink);
+    font-family: "Noto Sans KR", -apple-system, "Malgun Gothic", sans-serif;
+    padding: 40px 20px 64px;
+  }
+
+  .wrap {
+    max-width: 760px;
+    margin: 0 auto;
+  }
+
+  .eyebrow {
+    font-size: 12.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--ink-muted);
+    margin: 0 0 6px;
+  }
+
+  h1 {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin: 0 0 10px;
+    text-wrap: balance;
+  }
+
+  .lede {
+    font-size: 14.5px;
+    line-height: 1.6;
+    color: var(--ink-2);
+    margin: 0 0 4px;
+    max-width: 62ch;
+  }
+
+  .formula {
+    font-size: 13px;
+    color: var(--ink-muted);
+    margin: 2px 0 28px;
+  }
+  .formula code {
+    font-family: inherit;
+    background: var(--mid);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+  }
+
+  .axis-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-muted);
+    letter-spacing: 0.02em;
+  }
+  .col-axis {
+    text-align: center;
+    margin-bottom: 8px;
+  }
+  .grid-row { display: flex; }
+  .row-axis {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    text-align: center;
+    padding-right: 10px;
+    flex: 0 0 auto;
+  }
+
+  .table-scroll {
+    overflow-x: auto;
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 560px;
+    table-layout: fixed;
+  }
+
+  th, td {
+    font-variant-numeric: tabular-nums;
+  }
+
+  thead th {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ink-2);
+    text-align: center;
+    padding: 0 6px 10px;
+    border-bottom: 1px solid var(--baseline);
+  }
+  thead th:first-child { width: 92px; }
+
+  tbody th {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--ink-2);
+    text-align: right;
+    padding: 0 12px 0 0;
+    border-right: 1px solid var(--baseline);
+    white-space: nowrap;
+  }
+
+  tbody td {
+    text-align: right;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 16px 12px;
+    border: 3px solid var(--surface);
+    border-radius: 6px;
+    position: relative;
+    white-space: nowrap;
+  }
+
+  tbody tr + tr th,
+  tbody tr + tr td {
+    padding-top: 16px;
+  }
+
+  td.breakeven::after {
+    content: "손익분기 근접";
+    position: absolute;
+    inset: 3px;
+    border: 1.5px dashed currentColor;
+    border-radius: 4px;
+    opacity: 0.55;
+    pointer-events: none;
+  }
+  td.breakeven {
+    font-weight: 700;
+  }
+
+  .legend {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid var(--grid);
+  }
+  .legend-label {
+    font-size: 12px;
+    color: var(--ink-muted);
+    white-space: nowrap;
+  }
+  .legend-bar {
+    flex: 1 1 auto;
+    height: 10px;
+    border-radius: 5px;
+    background: linear-gradient(90deg, var(--pole-loss), var(--mid) 50%, var(--pole-profit));
+    border: 1px solid var(--border);
+  }
+
+  .foot {
+    margin-top: 22px;
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--ink-muted);
+  }
+  .foot strong { color: var(--ink-2); }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">리틀포레스트 봉뜨락 · 재무 시나리오</p>
+  <h1>객단가 × 연간 방문객, 손익 민감도</h1>
+  <p class="lede">2시간 기준 객단가와 연간 방문객수 조합에 따라 연간 손익이 어떻게 갈리는지 보여주는 그리드입니다. 붉은색이 짙을수록 적자 폭이 크고, 파란색이 짙을수록 흑자 폭이 큽니다.</p>
+  <p class="formula">산식: <code>손익 = 객단가 × 연간 방문객 − 연간 고정비(241,300,000원)</code></p>
+
+  <div class="card">
+    <div class="col-axis axis-label">연간 방문객수 (명)</div>
+    <div class="grid-row">
+      <div class="row-axis axis-label">객단가 (원 · 2시간 기준)</div>
+      <div class="table-scroll">
+        <table id="grid">
+          <thead>
+            <tr>
+              <th></th>
+              <th>15,000</th>
+              <th>20,000</th>
+              <th>25,000</th>
+              <th>30,000</th>
+            </tr>
+          </thead>
+          <tbody id="grid-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span class="legend-label">최대 적자<br>−121,300,000</span>
+      <div class="legend-bar"></div>
+      <span class="legend-label" style="text-align:right">최대 흑자<br>+178,700,000</span>
+    </div>
+
+    <p class="foot">
+      <strong>가정</strong>: 연간 고정비 2억 4,130만 원(사용료 VAT포함 4,730만 + 보험 400만 + 유지관리 2,500만 + 인건비 1억 5,000만 + 기타 1,500만, 모두 가정치). 점선 표시 셀은 고정비 대비 ±1,000만 원 이내로, 실질적 손익분기 구간입니다. 실제 인건비·보험료·객단가로 반드시 재계산이 필요합니다.
+    </p>
+  </div>
+</div>
+
+<script>
+  const prices = [8000, 10000, 12000, 14000];
+  const visitors = [15000, 20000, 25000, 30000];
+  const fixedCost = 241300000;
+  const maxAbs = 178700000;
+
+  function hexToRgb(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  function mix(hexA, hexB, t) {
+    const a = hexToRgb(hexA), b = hexToRgb(hexB);
+    const c = a.map((v, i) => Math.round(v + (b[i] - v) * t));
+    return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+  }
+  function relLuminance(hex) {
+    const [r, g, b] = hexToRgb(hex).map(v => {
+      v /= 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  }
+  function toHex(rgbStr) {
+    const [r, g, b] = rgbStr.match(/\d+/g).map(Number);
+    return "#" + [r, g, b].map(v => v.toString(16).padStart(2, "0")).join("");
+  }
+
+  const root = getComputedStyle(document.documentElement);
+  const poleLoss = root.getPropertyValue("--pole-loss").trim();
+  const poleProfit = root.getPropertyValue("--pole-profit").trim();
+  const mid = root.getPropertyValue("--mid").trim();
+
+  const tbody = document.getElementById("grid-body");
+  prices.forEach(p => {
+    const tr = document.createElement("tr");
+    const th = document.createElement("th");
+    th.textContent = p.toLocaleString("ko-KR") + "원";
+    tr.appendChild(th);
+
+    visitors.forEach(v => {
+      const value = p * v - fixedCost;
+      const t = Math.min(Math.abs(value) / maxAbs, 1);
+      const bgHex = value < 0 ? mix(mid, poleLoss, t) : mix(mid, poleProfit, t);
+      const lum = relLuminance(toHex(bgHex));
+      const textColor = lum < 0.42 ? "#ffffff" : "var(--ink)";
+
+      const td = document.createElement("td");
+      td.style.background = bgHex;
+      td.style.color = textColor;
+      const sign = value > 0 ? "+" : (value === 0 ? "" : "−");
+      td.textContent = sign + Math.abs(value).toLocaleString("ko-KR");
+      if (Math.abs(value) <= 10000000) td.classList.add("breakeven");
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+</script>
