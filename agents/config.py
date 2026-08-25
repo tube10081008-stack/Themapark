@@ -39,6 +39,28 @@ SEASON_TARGETS = {
 # 민원 대응 기한 — 사용허가 특수조건 제12조 (발생 시 3일 이내 서면 통보)
 COMPLAINT_DEADLINE_DAYS = 3
 
+# ── 인력 배치 기준 (자체 기준) ────────────────────────────────────
+# 봉화군 계약서에는 안전요원 수를 규정한 조항이 없다. 아래는 짚코스터·네트어드벤처의
+# 위험 특성을 감안해 스스로 정한 기준이며, 계약 의무가 아니라 운영 원칙이다.
+# (참고: 목포 플레이파크 공고문에는 '기구 1종당 1명 이상' 조건이 있었다)
+STAFFING_TIERS = [
+    (30,   {"안전요원": 2, "매표": 1, "총원": 3}),
+    (70,   {"안전요원": 2, "매표": 2, "총원": 4}),
+    (120,  {"안전요원": 3, "매표": 2, "총원": 5}),
+    (9999, {"안전요원": 4, "매표": 3, "총원": 7}),
+]
+
+# 요일 계수를 신뢰하려면 요일당 최소 관측 일수
+FORECAST_MIN_SAMPLES = 3
+
+
+def staffing_for(visitors: float) -> dict:
+    """예상 방문객에 따른 권장 인력."""
+    for threshold, plan in STAFFING_TIERS:
+        if visitors <= threshold:
+            return plan
+    return STAFFING_TIERS[-1][1]
+
 
 def season_target(month: int) -> tuple[str, int]:
     """해당 월의 (구분, 일평균 목표 방문객)."""
