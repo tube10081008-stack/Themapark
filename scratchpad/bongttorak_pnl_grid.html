@@ -226,8 +226,8 @@
 <div class="wrap">
   <p class="eyebrow">리틀포레스트 봉뜨락 · 재무 시나리오</p>
   <h1>객단가 × 연간 방문객, 손익 민감도</h1>
-  <p class="lede">2시간 기준 객단가와 연간 방문객수 조합에 따라 연간 손익이 어떻게 갈리는지 보여주는 그리드입니다. 붉은색이 짙을수록 적자 폭이 크고, 파란색이 짙을수록 흑자 폭이 큽니다. 총괄운영책임자 영입에 따른 인건비 상향(연 5,500만 원 기본급)이 반영된 기준입니다.</p>
-  <p class="formula">산식: <code>손익 = 객단가 × 연간 방문객 − 연간 고정비(261,300,000원)</code></p>
+  <p class="lede">2시간 기준 객단가와 연간 방문객수 조합에 따라 연간 손익이 어떻게 갈리는지 보여주는 그리드입니다. 붉은색이 짙을수록 적자 폭이 크고, 파란색이 짙을수록 흑자 폭이 큽니다. 운영담당을 20대 경력자로 채용하는 인력 구성(인건비 연 1억 1,800만 원)이 반영된 기준입니다.</p>
+  <p class="formula">산식: <code>손익 = 객단가 × 연간 방문객 − 연간 고정비(209,300,000원)</code></p>
 
   <div class="card">
     <div class="col-axis axis-label">연간 방문객수 (명)</div>
@@ -251,21 +251,21 @@
     </div>
 
     <div class="legend">
-      <span class="legend-label">최대 적자<br>−141,300,000</span>
+      <span class="legend-label">최대 적자<br>−89,300,000</span>
       <div class="legend-bar"></div>
-      <span class="legend-label" style="text-align:right">최대 흑자<br>+228,700,000</span>
+      <span class="legend-label" style="text-align:right">최대 흑자<br>+280,700,000</span>
     </div>
 
     <p class="foot">
-      <strong>가정</strong>: 연간 고정비 2억 6,130만 원(사용료 VAT포함 4,730만 + 보험 400만 + 유지관리 2,500만 + 인건비 1억 7,000만 + 기타 1,500만). 인건비는 총괄운영책임자 기본급 5,500만 원을 포함한 5인 기준이며, 마일스톤·KPI·이익공유 등 변동보상은 성과 발생 시에만 지출되므로 제외했습니다. 점선 표시 셀은 ±1,000만 원 이내로 실질적 손익분기 구간입니다. 실제 견적으로 반드시 재계산이 필요합니다.</p>
+      <strong>가정</strong>: 연간 고정비 2억 930만 원(사용료 VAT포함 4,730만 + 보험 400만 + 유지관리 2,500만 + 인건비 1억 1,800만 + 기타 1,500만). 인건비는 운영담당 2,800만 + 안전요원 2인 5,400만 + 매표 2,400만 + 미화 파트타임 1,200만 기준이며, 사업주 본인 인건비와 마일스톤·KPI·이익공유 등 변동보상은 제외했습니다. 점선 표시 셀은 ±1,000만 원 이내로 실질적 손익분기 구간입니다. 실제 견적으로 반드시 재계산이 필요합니다.</p>
   </div>
 </div>
 
 <script>
   const prices = [8000, 10000, 12000, 14000];
   const visitors = [15000, 20000, 25000, 30000, 35000];
-  const fixedCost = 261300000;
-  const maxAbs = 228700000;
+  const fixedCost = 209300000;
+  const maxAbs = 280700000;
 
   function hexToRgb(hex) {
     const n = parseInt(hex.slice(1), 16);
