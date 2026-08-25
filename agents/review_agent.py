@@ -18,14 +18,20 @@ from pydantic import BaseModel
 
 from client import cached_system, get_client, handle_api_error, text_of
 from config import MODEL_QUALITY, MODEL_VOLUME, system_prompt
-from faq_agent import ESCALATE_KEYWORDS
+from faq_agent import DISPUTE_KEYWORDS, SAFETY_KEYWORDS
 from store import append, load, parse_date
 
 PLATFORMS = ["네이버", "구글", "카카오", "인스타", "기타"]
 
 # 답글을 자동 생성하지 않고 사람에게 넘기는 주제.
-# faq_agent 의 목록을 그대로 쓰고, 공개 리뷰에서만 문제되는 항목을 더한다.
-REVIEW_BLOCK_KEYWORDS = ESCALATE_KEYWORDS + ["위생", "벌레", "식중독", "차별", "폭언", "성희롱"]
+#
+# faq_agent 의 라우팅 계열('사장', '책임자', '불만' 등)은 **일부러 뺐다.**
+# "사장님이 친절하셨어요" 같은 호평까지 차단되면 분류 통계에서 통째로 빠진다.
+# 안전·분쟁 계열에 공개 리뷰에서만 문제되는 항목을 더한다.
+REVIEW_BLOCK_KEYWORDS = (
+    SAFETY_KEYWORDS + DISPUTE_KEYWORDS
+    + ["위생", "벌레", "식중독", "차별", "폭언", "성희롱"]
+)
 
 CATEGORIES = ["시설", "안전", "직원응대", "요금", "청결", "혼잡", "예약", "기타"]
 

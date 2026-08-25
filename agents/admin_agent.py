@@ -12,7 +12,7 @@ from datetime import date, timedelta
 
 from client import cached_system, get_client, handle_api_error, text_of
 from config import MODEL_QUALITY, system_prompt
-from store import DATA_DIR, load, parse_date, save
+from store import load, parse_date, save
 
 # (키, 설명, 기준일 앵커, 오프셋(일), 근거)
 #   앵커: contract=계약체결일, open=영업개시일, expiry=사용기간 만료일
@@ -65,11 +65,17 @@ def cmd_setup(args) -> None:
     if args.expiry:
         d["expiry"] = parse_date(args.expiry).isoformat()
 
-    if d.get("contract") and not d.get("expiry"):
-        # 사용허가 기간 5년 (계약서 제3조①)
+    # 계약일이 바뀌면 만료일도 다시 계산한다. 그대로 두면 연장신청 기한이 틀어진다.
+    if d.get("contract") and not args.expiry:
         c = date.fromisoformat(d["contract"])
-        d["expiry"] = c.replace(year=c.year + 5).isoformat()
-        print(f"만료일을 계약일 + 5년으로 자동 설정: {d['expiry']} (계약서 제3조①)")
+        try:
+            expiry = c.replace(year=c.year + 5)
+        except ValueError:
+            # 2/29 계약 → 5년 뒤에 2/29 가 없으므로 2/28 로 내린다
+            expiry = c.replace(year=c.year + 5, day=28)
+        if d.get("expiry") != expiry.isoformat():
+            d["expiry"] = expiry.isoformat()
+            print(f"만료일을 계약일 + 5년으로 설정: {d['expiry']} (계약서 제3조①)")
 
     save("contract", [d])
     print("계약 기준일 저장됨:")

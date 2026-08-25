@@ -1,6 +1,6 @@
 # 봉뜨락 운영 에이전트
 
-리틀 포레스트 봉뜨락 운영을 돕는 AI 에이전트 9종입니다.
+리틀 포레스트 봉뜨락 운영을 돕는 AI 에이전트 11종입니다.
 
 ### Tier 1 — 매출을 만드는 것
 
@@ -26,7 +26,14 @@
 | `review_agent.py` | 리뷰 분류·답글 초안 | Haiku 4.5 + Opus 5 | 공개 답글은 되돌릴 수 없어 초안 품질이 중요 |
 | `admin_agent.py` | 봉화군 제출·승인 문서·기한 | Opus 5 (초안만) | 사전승인·증빙 제출 기한을 놓치면 계약 위반 |
 
-**Tier 2·3은 대부분 AI가 아닙니다.** 기한 계산·상태 관리·집계·예측은 전부 순수
+### 상시 — 사업을 지탱하는 것
+
+| 파일 | 역할 | 모델 | 왜 필요한가 |
+|---|---|---|---|
+| `cashflow_agent.py` | 현금흐름 예측 | Opus 5 (브리핑만) | 손익과 현금은 다르다. 사용료 4,730만원은 연 1회 일시납이라 그 달에 큰 구멍이 난다 |
+| `emergency_agent.py` | 비상대응 플레이북 | Opus 5 (문서 생성만) | 사고 시 AI에게 물어볼 시간이 없다. **사전에** 인쇄해 비치하는 용도 |
+
+**Tier 2·3과 상시 도구는 대부분 AI가 아닙니다.** 기한 계산·상태 관리·집계·예측은 전부 순수
 파이썬이라 API 키 없이 동작하고, AI는 문서 초안과 코멘트에만 개입합니다. 계약 준수가
 걸린 계산을 모델 판단에 맡기지 않기 위한 설계입니다.
 
@@ -201,6 +208,55 @@ python3 admin_agent.py sales 2026-11-01 2026-11-30
 '회계연도 3개월 전 사업계획서 제출' 같은 조항은 봉화 계약에 없으므로 넣지 않았습니다.
 다른 지자체 조건을 섞지 마십시오.
 
+### 10. 현금흐름
+
+```bash
+# 보유 현금·일시납 월 설정 (최초 1회, API 불필요)
+python3 cashflow_agent.py setup --cash 50000000 --fee-month 9 --insurance-month 9 --date 2026-09-08
+
+# 비정기 지출 기록 (API 불필요)
+python3 cashflow_agent.py expense 30000000 "초기 인테리어·집기" -d 2026-10-15
+
+# 월별 예측
+python3 cashflow_agent.py project -m 12
+python3 cashflow_agent.py project --raw        # 표만 (API 불필요)
+
+# 현금 소진 시점 (API 불필요)
+python3 cashflow_agent.py runway
+```
+
+**과거 실적은 수입으로 다시 더하지 않습니다.** 이미 보유 현금에 반영돼 있기 때문입니다.
+`daily.json` 기록은 요일계수(예측 정확도)를 뽑는 데만 씁니다. 기준일이 속한 달은
+남은 날짜분만 계산하며 `잔여` 로 표시됩니다.
+
+사용료·보험료 납부월을 설정하지 않으면 **연 5,130만원의 일시 지출이 예측에서
+빠지므로**, 그 경우 경고가 먼저 출력됩니다.
+
+### 11. 비상대응 플레이북
+
+```bash
+# 긴급연락처 등록 (API 불필요)
+python3 emergency_agent.py contact -n "봉화소방서" -p "119" -r 소방
+python3 emergency_agent.py contact                     # 목록
+
+# 플레이북 생성 → 인쇄해서 비치
+python3 emergency_agent.py playbook fall               # 추락
+python3 emergency_agent.py playbook all                # 전 시나리오
+
+# 훈련 기록 (API 불필요)
+python3 emergency_agent.py drill fire -p "홍길동, 김철수"
+python3 emergency_agent.py drill                       # 기록 조회
+```
+
+시나리오: `fall`(추락) `injury`(골절·염좌) `unconscious`(의식불명) `fire`(화재)
+`missing`(미아) `trapped`(고립) `blackout`(정전)
+
+**응급처치 방법은 문서에 담지 않습니다.** 심폐소생술 절차나 지혈법 같은 의료 행위는
+119와 의료진의 영역이고, 플레이북은 "누구에게 어떤 순서로 알리고 무엇을 기록하는가"만
+다룹니다. 부상 정도를 판단하는 기준도 넣지 않습니다.
+
+실제 사고 시에는 **이 도구를 실행하지 말고 인쇄물을 보고 움직이십시오.**
+
 ## 데이터 저장
 
 Tier 2·3 기록은 `data/` 폴더에 JSON으로 쌓입니다.
@@ -210,6 +266,10 @@ Tier 2·3 기록은 `data/` 폴더에 JSON으로 쌓입니다.
 - `data/daily.json` — 일별 실적
 - `data/reviews.json` — 리뷰 및 답글 상태
 - `data/contract.json` — 계약 기준일
+- `data/cash.json` — 보유 현금·납부월 설정
+- `data/expenses.json` — 비정기 지출
+- `data/contacts.json` — 긴급연락처
+- `data/drills.json` — 비상훈련 기록
 
 저장할 때마다 `.bak` 백업을 남기고 원자적으로 교체하므로, 쓰는 도중 중단돼도
 원본이 남습니다. **`data/` 폴더는 정기적으로 별도 백업하십시오** — 점검일지는
@@ -234,6 +294,11 @@ PHONE = "054-000-0000"
 
 `faq_agent.py` 는 아래 주제가 문의에 포함되면 **API를 호출하지 않고 즉시 사람에게
 넘깁니다.**
+
+키워드는 세 묶음(`SAFETY_KEYWORDS` / `DISPUTE_KEYWORDS` / `ROUTING_KEYWORDS`)으로
+나뉘어 있습니다. 문의는 세 묶음을 모두 쓰지만, **공개 리뷰는 앞의 두 묶음만** 씁니다.
+라우팅 계열('사장', '책임자')을 리뷰에 적용하면 "사장님이 친절하셨어요" 같은 호평까지
+차단돼 분류 통계에서 통째로 빠지기 때문입니다.
 
 - 안전·사고 (사고, 부상, 골절, 응급, 119 …)
 - 다치다·추락·충돌·끼임의 **모든 활용형** (다쳤/다칠/다치/다침, 떨어졌/떨어질,
@@ -261,8 +326,9 @@ PHONE = "054-000-0000"
 
 ```bash
 python3 test_escalation.py   # 문의 이관 로직 (21건)
-python3 test_tier2.py        # 점검 기한 · 민원 3일 기한 · 계절 목표 (15건)
-python3 test_tier3.py        # 요일계수 · 계절전환 · 인력구간 · 리뷰차단 (18건)
+python3 test_tier2.py        # 점검 기한 · 민원 3일 기한 · 계절 목표 (16건)
+python3 test_tier3.py        # 요일계수 · 계절전환 · 인력구간 · 리뷰차단 (19건)
+python3 test_cashflow.py     # 현금 이중계상 · 일시납 · 비상 시나리오 (38건)
 ```
 
 ### 한국어 활용형 주의

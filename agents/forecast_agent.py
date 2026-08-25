@@ -54,6 +54,8 @@ def weekday_coefficients(rows: list[dict]) -> tuple[dict[int, float], dict[int, 
 
 
 def forecast(days: int, as_of: date | None = None) -> dict:
+    if days < 1:
+        raise SystemExit("오류: 예측 일수는 1 이상이어야 합니다.")
     start = (as_of or date.today()) + timedelta(days=1)
     rows = sorted(load("daily"), key=lambda r: r["date"])
     coef, samples, overall = weekday_coefficients(rows)

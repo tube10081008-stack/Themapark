@@ -23,8 +23,13 @@ import safety_agent  # noqa: E402
 failures: list[str] = []
 
 
+passed = 0
+
+
 def check(label: str, actual, expected) -> None:
+    global passed
     if actual == expected:
+        passed += 1
         print(f"[통과] {label}")
     else:
         print(f"[실패] {label} — 기대 {expected!r}, 실제 {actual!r}")
@@ -87,8 +92,8 @@ def main() -> int:
     test_safety_status()
     test_complaint_deadline()
     test_season_targets()
-    total = 15
-    print(f"\n{total - len(failures)}/{total} 통과")
+    total = passed + len(failures)
+    print(f"\n{passed}/{total} 통과")
     if failures:
         print("실패: " + ", ".join(failures), file=sys.stderr)
         return 1

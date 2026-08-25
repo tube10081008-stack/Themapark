@@ -20,8 +20,13 @@ from config import staffing_for  # noqa: E402
 failures: list[str] = []
 
 
+passed = 0
+
+
 def check(label: str, actual, expected) -> None:
+    global passed
     if actual == expected:
+        passed += 1
         print(f"[통과] {label}")
     else:
         print(f"[실패] {label} — 기대 {expected!r}, 실제 {actual!r}")
@@ -29,7 +34,9 @@ def check(label: str, actual, expected) -> None:
 
 
 def close(label: str, actual: float, expected: float, tol: float = 0.03) -> None:
+    global passed
     if abs(actual - expected) <= tol:
+        passed += 1
         print(f"[통과] {label} ({actual:.2f})")
     else:
         print(f"[실패] {label} — 기대 {expected:.2f}±{tol}, 실제 {actual:.2f}")
@@ -54,7 +61,7 @@ def test_weekday_coefficients() -> None:
 
     # 표본이 부족한 요일은 전체 평균으로 대체
     few = [r for r in rows if date.fromisoformat(r["date"]).weekday() in (0, 5)][:3]
-    coef2, samples2, overall2 = forecast_agent.weekday_coefficients(few)
+    coef2, _, overall2 = forecast_agent.weekday_coefficients(few)
     check("표본 부족 요일은 전체평균 대체", coef2[2], overall2)
 
     # 데이터가 전혀 없으면 계수 1.0 (계절 목표를 그대로 씀)
@@ -119,8 +126,8 @@ def main() -> int:
     test_seasonality()
     test_staffing()
     test_review_blocking()
-    total = 18
-    print(f"\n{total - len(failures)}/{total} 통과")
+    total = passed + len(failures)
+    print(f"\n{passed}/{total} 통과")
     if failures:
         print("실패: " + ", ".join(failures), file=sys.stderr)
         return 1
