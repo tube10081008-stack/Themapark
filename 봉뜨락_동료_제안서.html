@@ -1,0 +1,598 @@
+<title>봉뜨락 합류 제안</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    color-scheme: light;
+    --ground:      #F1F3EF;
+    --surface:     #FBFCFA;
+    --surface-2:   #E7EBE5;
+    --ink:         #151A17;
+    --ink-2:       #454E48;
+    --ink-3:       #7A8478;
+    --line:        #C9D1C7;
+    --line-soft:   #DCE2DA;
+    --accent:      #C4491A;
+    --accent-soft: #F0DCD2;
+    --moss:        #5E7365;
+    --cable:       #A8B4A6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground:      #131916;
+      --surface:     #1A211D;
+      --surface-2:   #222A25;
+      --ink:         #EFF2ED;
+      --ink-2:       #BCC5BB;
+      --ink-3:       #8B958A;
+      --line:        #2E3832;
+      --line-soft:   #232B26;
+      --accent:      #F0793E;
+      --accent-soft: #3A2318;
+      --moss:        #9DB0A2;
+      --cable:       #3C483F;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground:      #131916;
+    --surface:     #1A211D;
+    --surface-2:   #222A25;
+    --ink:         #EFF2ED;
+    --ink-2:       #BCC5BB;
+    --ink-3:       #8B958A;
+    --line:        #2E3832;
+    --line-soft:   #232B26;
+    --accent:      #F0793E;
+    --accent-soft: #3A2318;
+    --moss:        #9DB0A2;
+    --cable:       #3C483F;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Sans KR", -apple-system, "Malgun Gothic", sans-serif;
+    font-weight: 400;
+    font-size: 16px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 0 24px 120px;
+  }
+
+  /* ── 케이블: 왼쪽을 따라 흐르는 한 줄 ───────────────── */
+  .spine {
+    position: relative;
+    padding-left: 40px;
+  }
+  .spine::before {
+    content: "";
+    position: absolute;
+    left: 5px; top: 0; bottom: 0;
+    width: 1px;
+    background: var(--cable);
+  }
+  .station { position: relative; }
+  .station::before {
+    content: "";
+    position: absolute;
+    left: -40px; top: 14px;
+    width: 11px; height: 11px;
+    border-radius: 50%;
+    background: var(--ground);
+    border: 1.5px solid var(--cable);
+  }
+  .station.mark::before {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  /* ── 표지 ─────────────────────────────────────────── */
+  header {
+    padding: 88px 0 64px;
+  }
+  .eyebrow {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 22px;
+  }
+  h1 {
+    font-family: "Gowun Batang", serif;
+    font-weight: 700;
+    font-size: clamp(34px, 6.2vw, 52px);
+    line-height: 1.28;
+    letter-spacing: -0.015em;
+    margin: 0 0 26px;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-size: 18px;
+    line-height: 1.8;
+    color: var(--ink-2);
+    margin: 0;
+    max-width: 60ch;
+  }
+  .byline {
+    margin-top: 44px;
+    padding-top: 22px;
+    border-top: 1px solid var(--line);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    color: var(--ink-3);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 26px;
+  }
+
+  /* ── 섹션 ─────────────────────────────────────────── */
+  section { padding: 44px 0; }
+  section + section { border-top: 1px solid var(--line-soft); }
+
+  h2 {
+    font-family: "Gowun Batang", serif;
+    font-weight: 700;
+    font-size: clamp(23px, 3.4vw, 29px);
+    line-height: 1.4;
+    letter-spacing: -0.01em;
+    margin: 0 0 20px;
+    text-wrap: balance;
+  }
+  h3 {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    margin: 32px 0 10px;
+    color: var(--ink);
+  }
+  p { margin: 0 0 18px; max-width: 64ch; }
+  p:last-child { margin-bottom: 0; }
+  strong { font-weight: 600; color: var(--ink); }
+  em { font-style: normal; color: var(--accent); font-weight: 500; }
+
+  ul { margin: 0 0 18px; padding-left: 0; list-style: none; max-width: 64ch; }
+  li {
+    position: relative;
+    padding-left: 20px;
+    margin-bottom: 11px;
+  }
+  li::before {
+    content: "";
+    position: absolute;
+    left: 2px; top: 12px;
+    width: 6px; height: 1.5px;
+    background: var(--moss);
+  }
+
+  /* ── 큰 수치 ──────────────────────────────────────── */
+  .figures {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    background: var(--line-soft);
+    border: 1px solid var(--line-soft);
+    margin: 30px 0;
+  }
+  .fig {
+    background: var(--surface);
+    padding: 22px 20px;
+  }
+  .fig .n {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 27px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--accent);
+    display: block;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+  }
+  .fig .k {
+    font-size: 12.5px;
+    color: var(--ink-3);
+    margin-top: 7px;
+    display: block;
+    line-height: 1.5;
+  }
+
+  /* ── 표 ───────────────────────────────────────────── */
+  .scroll { overflow-x: auto; margin: 26px 0; }
+  table {
+    width: 100%;
+    min-width: 440px;
+    border-collapse: collapse;
+    font-size: 14.5px;
+  }
+  th, td {
+    text-align: left;
+    padding: 13px 14px 13px 0;
+    border-bottom: 1px solid var(--line-soft);
+    vertical-align: top;
+  }
+  th {
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    border-bottom-color: var(--line);
+    padding-bottom: 9px;
+  }
+  td.num, th.num {
+    text-align: right;
+    font-family: "IBM Plex Mono", monospace;
+    font-variant-numeric: tabular-nums;
+    padding-right: 0;
+  }
+  td.hi { color: var(--accent); font-weight: 600; }
+  tbody tr:last-child td { border-bottom: none; }
+
+  /* ── 유찰 사다리 ──────────────────────────────────── */
+  .ladder { margin: 26px 0; display: flex; flex-direction: column; gap: 7px; }
+  .rung {
+    display: grid;
+    grid-template-columns: 58px 1fr 92px;
+    align-items: center;
+    gap: 14px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .rung .r { color: var(--ink-3); }
+  .rung .bar {
+    height: 7px;
+    background: var(--surface-2);
+    position: relative;
+  }
+  .rung .bar i {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--cable);
+    display: block;
+  }
+  .rung.last .bar i { background: var(--accent); }
+  .rung .v { text-align: right; color: var(--ink-2); }
+  .rung.last .v { color: var(--accent); font-weight: 600; }
+
+  /* ── 인용 / 강조 블록 ─────────────────────────────── */
+  .pull {
+    font-family: "Gowun Batang", serif;
+    font-size: clamp(20px, 3vw, 25px);
+    line-height: 1.62;
+    color: var(--ink);
+    border-left: 2px solid var(--accent);
+    padding: 4px 0 4px 24px;
+    margin: 34px 0;
+    max-width: 56ch;
+    text-wrap: balance;
+  }
+
+  .note {
+    background: var(--surface);
+    border: 1px solid var(--line-soft);
+    padding: 22px 24px;
+    margin: 26px 0;
+    font-size: 14.5px;
+    line-height: 1.72;
+    color: var(--ink-2);
+  }
+  .note p { max-width: none; }
+  .note .lab {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    display: block;
+    margin-bottom: 10px;
+  }
+  .note.warn { border-left: 2px solid var(--accent); }
+  .note.warn .lab { color: var(--accent); }
+
+  /* ── 마무리 ───────────────────────────────────────── */
+  .close {
+    margin-top: 64px;
+    padding: 40px 0 0;
+    border-top: 2px solid var(--ink);
+  }
+  .close h2 { margin-bottom: 18px; }
+  .sig {
+    margin-top: 36px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    color: var(--ink-3);
+    line-height: 1.9;
+  }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  a:focus-visible, :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+
+  @media (max-width: 620px) {
+    .spine { padding-left: 26px; }
+    .spine::before { left: 3px; }
+    .station::before { left: -26px; width: 9px; height: 9px; top: 12px; }
+    .rung { grid-template-columns: 48px 1fr 82px; gap: 10px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="page">
+
+  <header>
+    <p class="eyebrow">합류 제안 · 운영담당</p>
+    <h1>40억짜리 놀이시설을<br>같이 열어보지 않을래</h1>
+    <p class="standfirst">
+      경상북도 봉화군에 실내 짚코스터가 있는 어린이 놀이시설이 하나 있다.
+      군이 40억을 들여 지었고, 여섯 번 입찰에 부쳤는데 여섯 번 다 아무도 들어오지 않았다.
+      일곱 번째에 우리가 받았다. 이제 문을 열어야 한다.
+    </p>
+    <div class="byline">
+      <span>리틀 포레스트 봉뜨락</span>
+      <span>경북 봉화군 봉화읍 유록길 22</span>
+      <span>2026.08</span>
+    </div>
+  </header>
+
+  <div class="spine">
+
+    <section class="station mark">
+      <h2>먼저, 제안부터</h2>
+      <p>
+        현장 운영을 처음부터 같이 만들 사람을 찾고 있다. 짜여진 매뉴얼을 받아 실행하는
+        자리가 아니라, <strong>매뉴얼을 쓰는 자리</strong>다. 프로그램 기획, 요금 설계,
+        인력 채용, 마케팅까지 실질 결정권을 갖는다.
+      </p>
+      <p>
+        대신 솔직하게 말하면, 지금 이 사업은 <em>아직 아무것도 증명되지 않았다.</em>
+        이 문서는 그 미검증 상태까지 포함해서 보여주려고 쓴 것이다. 좋은 것만 적어서
+        데려온 사람은 오래 못 버틴다.
+      </p>
+    </section>
+
+    <section class="station">
+      <h2>이 시설이 뭐냐면</h2>
+
+      <div class="figures">
+        <div class="fig"><span class="n">13m</span><span class="k">짚코스터 높이<br>길이 150m</span></div>
+        <div class="fig"><span class="n">658㎡</span><span class="k">실내놀이시설장</span></div>
+        <div class="fig"><span class="n">40억</span><span class="k">군이 투입한<br>조성 사업비</span></div>
+        <div class="fig"><span class="n">0곳</span><span class="k">경북 북부의<br>경쟁 시설</span></div>
+      </div>
+
+      <p>
+        핵심은 <strong>짚코스터가 실내에 있다</strong>는 점이다. 야외 짚라인은 흔하다.
+        비 오면 못 타고, 눈 오면 닫고, 미세먼지 심하면 손님이 안 온다. 여긴 그게 없다.
+        높이 13m, 길이 150m를 사계절 내내 돌린다.
+      </p>
+      <p>
+        여기에 네트어드벤처와 658㎡ 실내놀이시설장이 붙는다. 토지 6,223㎡, 건물 1,222㎡.
+        전시실, 휴게공간, 수유실, 락커룸, 매표소가 다 갖춰진 신축 건물이다.
+        내부 공사를 새로 할 일이 거의 없다는 뜻이다.
+      </p>
+
+      <div class="pull">
+        비 오는 날 아이 데리고 갈 데가 없다는 건, 경북 북부 부모들에게 매년 반복되는 문제다.
+      </div>
+    </section>
+
+    <section class="station">
+      <h2>왜 여섯 번이나 유찰됐나</h2>
+      <p>
+        이걸 숨기고 시작할 수는 없다. 봉화군은 이 시설을 여섯 번 입찰에 부쳤고,
+        매번 가격을 10%씩 깎았다. 법정 하한선인 <strong>최초가의 50%</strong>까지 내려간
+        일곱 번째에야 낙찰됐다. 그게 우리다.
+      </p>
+
+      <div class="ladder">
+        <div class="rung"><span class="r">1회</span><span class="bar"><i style="width:100%"></i></span><span class="v">8,298만</span></div>
+        <div class="rung"><span class="r">2회</span><span class="bar"><i style="width:100%"></i></span><span class="v">8,298만</span></div>
+        <div class="rung"><span class="r">3회</span><span class="bar"><i style="width:90%"></i></span><span class="v">7,469만</span></div>
+        <div class="rung"><span class="r">4회</span><span class="bar"><i style="width:80%"></i></span><span class="v">6,639만</span></div>
+        <div class="rung"><span class="r">5회</span><span class="bar"><i style="width:70%"></i></span><span class="v">5,809만</span></div>
+        <div class="rung"><span class="r">6회</span><span class="bar"><i style="width:60%"></i></span><span class="v">4,979만</span></div>
+        <div class="rung last"><span class="r">7회</span><span class="bar"><i style="width:50%"></i></span><span class="v">4,300만 낙찰</span></div>
+      </div>
+
+      <p>
+        여섯 번 유찰의 이유를 찾으려고 봉화를 조사했다. 결론은 <strong>관광객이 없어서가
+        아니었다</strong>는 것이다.
+      </p>
+      <ul>
+        <li>봉화은어축제 — 매년 7월 말 9일간, 방문객 <strong>24만 명</strong>. 개최지 내성천은 이 시설과 같은 읍내다.</li>
+        <li>백두대간협곡열차 — 개통 후 누적 110만 명. 연평균 9만 명 이상이 봉화를 찾는다.</li>
+        <li>상권을 안동·영주까지 넓히면 생활권 인구 <strong>약 28만 명</strong>. 봉화군 단독의 10배다.</li>
+      </ul>
+      <p>
+        그럼 왜 아무도 안 들어왔을까. 우리 판단은 이렇다.
+        기존 사업자들이 확신하지 못한 건 "사람이 오느냐"가 아니라
+        <em>"등산객과 축제 손님을 놀이시설 손님으로 바꿀 수 있느냐"</em>였다.
+        전환율의 문제지 수요의 문제가 아니다.
+      </p>
+      <p>
+        이건 좋은 소식이자 나쁜 소식이다. 좋은 건 — 만들어야 할 수요가 이미 근처를 지나간다는 것.
+        나쁜 건 — <strong>그걸 바꾸는 게 정확히 우리가 해야 할 일</strong>이라는 것.
+        누가 대신 해주지 않는다.
+      </p>
+    </section>
+
+    <section class="station">
+      <h2>네가 맡게 될 자리</h2>
+      <p>
+        직함은 <strong>운영담당</strong>. 실질적으로는 현장을 총괄한다.
+        조직은 다섯 명이다. 안전요원 둘, 매표 하나, 미화 하나, 그리고 너.
+        안전과 대외 책임은 사업주가 관리책임자로 직접 진다 —
+        <strong>스무 살짜리에게 짚코스터 안전의 최종 책임을 지우지 않는다.</strong>
+        대신 그 외의 것들은 네가 정한다.
+      </p>
+      <ul>
+        <li><strong>프로그램 기획</strong> — 회차 운영, 연령별 구성, 시즌 콘텐츠</li>
+        <li><strong>요금·패키지 설계</strong> — 가족 패키지, 단체 요금, 시즌권</li>
+        <li><strong>단체 유치</strong> — 경북 북부 유치원·초등학교 체험학습</li>
+        <li><strong>마케팅</strong> — 블로그·SNS·맘카페, 은어축제 연계</li>
+        <li><strong>인력 운영</strong> — 성수기 탄력 인력 채용과 배치</li>
+      </ul>
+
+      <div class="note">
+        <span class="lab">현실적인 이야기</span>
+        <p>
+          다섯 명짜리 조직이다. 매표소에서 표도 팔고, 단체 전화도 받고,
+          주말엔 현장에 계속 서 있어야 한다. 기획만 하는 자리가 아니다.
+          대신 그만큼 사업 전체가 어떻게 굴러가는지 몸으로 알게 된다.
+          대기업 테마파크에서 이걸 배우려면 훨씬 오래 걸린다.
+        </p>
+      </div>
+    </section>
+
+    <section class="station mark">
+      <h2>보상은 이렇게 짰다</h2>
+      <p>
+        솔직히 말하면 <strong>시작 급여는 높지 않다.</strong> 첫해에 이익이 안 나는 사업이라
+        그럴 수가 없다. 대신 이익이 나기 시작하면 네 몫이 계단식으로 커지도록 짰다.
+      </p>
+
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr><th>구성</th><th>내용</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>기본급</td><td>연 2,800만원 <span style="color:var(--ink-3)">(월 약 233만원)</span></td></tr>
+            <tr><td>마일스톤</td><td>목표 개장일 달성 100만원 · <strong>연간 중대사고 0건 200만원</strong></td></tr>
+            <tr><td>성과급</td><td>방문객 목표 90% 이상 150만 / 100% 이상 300만 / 120% 이상 500만</td></tr>
+            <tr><td>이익공유</td><td><strong>영업이익의 5% → 10% → 15%</strong> (1~2년차 / 3년차 / 4~5년차), 상한 없음</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        이익공유 비율이 연차에 따라 올라가는 게 핵심이다.
+        <em>오래 버틸수록 몫이 커진다.</em> 그리고 상한을 두지 않았다.
+        사업이 잘 되면 그만큼 다 가져간다.
+      </p>
+
+      <h3>5년 뒤 실수령 (시나리오별)</h3>
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr><th>시나리오</th><th class="num">1년차</th><th class="num">3년차</th><th class="num">5년차</th><th class="num">5년차 월환산</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>보수</td><td class="num">3,100만</td><td class="num">3,697만</td><td class="num">4,361만</td><td class="num hi">363만</td></tr>
+            <tr><td>기본</td><td class="num">3,434만</td><td class="num">4,567만</td><td class="num">6,101만</td><td class="num hi">508만</td></tr>
+            <tr><td>낙관</td><td class="num">3,874만</td><td class="num">5,727만</td><td class="num">8,101만</td><td class="num hi">675만</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note warn">
+        <span class="lab">이 숫자에 대해</span>
+        <p>
+          위 표는 <strong>약속이 아니라 추정</strong>이다. 방문객 수와 객단가를 가정해서
+          계산한 값이고, 그 가정이 틀리면 숫자도 틀린다. 특히 보수 시나리오조차
+          5년차에 연 25,000명이 와야 나오는 숫자다. 지금은 아무도 안 와봤다.
+        </p>
+      </div>
+
+      <h3>그 외</h3>
+      <ul>
+        <li><strong>주거 제공</strong> — 봉화 이주 부담을 회사가 진다. 기본급이 낮은 만큼 실질 처우에서 차지하는 비중이 크다.</li>
+        <li><strong>자격 취득 지원</strong> — 유원시설 안전관리 관련 자격 비용 지원</li>
+        <li><strong>승진 경로</strong> — 운영담당 → 관리책임자 트랙</li>
+        <li><strong>법인 전환 시 지분 5%</strong> — 3년 이상 근속 조건. 사업 양도 시에도 같은 비율로 적용된다.</li>
+      </ul>
+    </section>
+
+    <section class="station">
+      <h2>알고 들어와야 할 것들</h2>
+      <p>
+        여기까지 읽고 마음이 기울었다면, 이 부분을 특히 봐줬으면 한다.
+        나중에 "이런 얘긴 없었잖아"가 되면 서로 손해다.
+      </p>
+
+      <h3>1. 봉화는 작은 동네다</h3>
+      <p>
+        봉화군 인구 약 2.8만 명, 봉화읍 8,783명. 서울이나 대구에서 살던 리듬으로는
+        답답할 수 있다. 안동까지 나가야 웬만한 게 있다.
+      </p>
+
+      <h3>2. 계절 편차가 크다</h3>
+      <p>
+        여름 성수기와 겨울 비수기의 목표 방문객 차이가 5배 가까이 난다.
+        7~8월엔 정신없이 바쁘고, 1~2월엔 하루 20~30명을 놓고 씨름하게 된다.
+        비수기를 어떻게 채우느냐가 이 사업의 진짜 승부처다.
+      </p>
+
+      <h3>3. 안전이 가장 무거운 부담이다</h3>
+      <p>
+        높이 13m 짚코스터와 네트 구조물이다. 국내 유사 시설에서
+        안전요원 과실로 아동이 사망한 사례가 실제로 있었다.
+        안전에 관해서는 매출보다 우선한다는 원칙을 계약에 명문화할 생각이고,
+        <strong>안전상 운행을 멈추는 판단에 어떤 불이익도 주지 않는다.</strong>
+      </p>
+
+      <h3>4. 첫 1~2년은 적자일 수 있다</h3>
+      <p>
+        보수적으로 잡으면 2년차까지 누적 3천만원 가까운 영업손실을 본다.
+        급여는 나가지만 회사는 돈을 못 버는 구간이 있다는 뜻이다.
+        이 기간을 버틸 자금은 준비해뒀지만, 분위기가 마냥 좋진 않을 것이다.
+      </p>
+    </section>
+
+    <section class="station mark">
+      <h2>그럼에도 권하는 이유</h2>
+      <p>
+        스물몇 살에 <strong>40억짜리 시설의 운영을 처음부터 설계해본 사람</strong>은 드물다.
+        큰 조직에 들어가면 그중 한 조각만 오래 맡는다. 여기서는 티켓 가격을 정하는 것부터
+        비수기에 학교 버스를 불러오는 것까지 전부 겪는다. 잘 되든 안 되든 그 경험은 남는다.
+      </p>
+      <p>
+        그리고 이 시설은 봉화군이 <strong>"체류형 관광도시" 전환의 3대 핵심사업</strong>으로
+        내건 곳이다. 군도 성공시켜야 할 이유가 있어서, 공동 마케팅이나 행정 지원을
+        요청할 명분이 있다. 완전히 혼자 싸우는 판은 아니다.
+      </p>
+
+      <div class="pull">
+        여섯 번 유찰된 시설을 살려낸 사람. 그 이력은 어디서든 팔린다.
+      </div>
+    </section>
+
+    <div class="close station mark">
+      <h2>한 번 보러 오지 않을래</h2>
+      <p>
+        문서로 읽는 것과 서서 올려다보는 건 다르다.
+        13m 짚코스터 아래 서보고, 658㎡ 놀이시설장을 걸어보고,
+        봉화읍이 어떤 동네인지 직접 보고 판단했으면 한다.
+      </p>
+      <p>
+        오는 길에 답을 정해오지 않아도 된다. 궁금한 걸 최대한 많이 물어봐 줬으면 좋겠다.
+        특히 <strong>이 문서에서 미심쩍은 부분</strong>을 짚어주면 고맙겠다.
+      </p>
+      <div class="sig">
+        리틀 포레스트 봉뜨락<br>
+        경상북도 봉화군 봉화읍 유록길 22<br>
+        <span style="color:var(--ink-2)">연락처 · 방문 일정은 따로 전달합니다</span>
+      </div>
+    </div>
+
+  </div>
+</div>
