@@ -1,0 +1,21 @@
+# 봉뜨락 업무로그 — Netlify 설정
+# 빌드 단계가 없다(npm install 도, 번들링도 없음). 그래서 zip 을 그대로 끌어다 놓아도 뜬다.
+
+[build]
+  publish = "public"
+
+[functions]
+  directory = "netlify/functions"
+
+# 화면은 /api/... 로만 부르고, 실제 함수는 하나다.
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "no-referrer"
