@@ -405,26 +405,53 @@ async function sheetsRequest(env, path, init = {}) {
       throw new UserError('시트에 접근할 수 없습니다. 서비스 계정 이메일을 시트에 편집자로 공유했는지 확인하세요.', 500);
     }
     if (response.status === 404) throw new UserError('시트를 찾을 수 없습니다. SHEET_ID 를 확인하세요.', 500);
+    if (/Unable to parse range/i.test(detail)) {
+      throw new UserError(
+        `"${env.SHEET_NAME || '업무로그'}" 시트 탭을 찾지 못했습니다. 스프레드시트 아래쪽 탭 이름을 확인하거나, ` +
+        'SHEET_NAME 환경변수를 실제 탭 이름으로 맞춰주세요.',
+        500
+      );
+    }
     throw new UserError(`구글 시트 오류(${response.status}): ${detail}`, 500);
   }
   return safeJsonSoft(body) ?? {};
 }
 
-/** 헤더가 없으면 먼저 깔아준다. 첫 실행에서 손으로 준비할 게 없도록. */
-async function ensureHeader(env, sheetName) {
-  const range = `${encodeURIComponent(`${sheetName}!A1:H1`)}`;
+/** A1 표기의 시트 이름은 따옴표로 감싼다 — 한글·공백 이름에서 range 파싱이 깨지지 않도록. */
+export function quoteRange(sheetName, a1) {
+  return `'${String(sheetName).replace(/'/g, "''")}'!${a1}`;
+}
+
+/** 탭과 헤더가 없으면 만들어 준다. 새 스프레드시트에는 '시트1' 하나뿐인 경우가 대부분이다. */
+let ensuredSheet = '';
+
+async function ensureSheet(env, sheetName) {
+  if (ensuredSheet === sheetName) return;   // 같은 인스턴스에서 두 번 확인하지 않는다
+
+  const meta = await sheetsRequest(env, '?fields=sheets.properties.title');
+  const titles = (meta.sheets ?? []).map((sheet) => sheet.properties?.title);
+  if (!titles.includes(sheetName)) {
+    await sheetsRequest(env, ':batchUpdate', {
+      method: 'POST',
+      body: JSON.stringify({ requests: [{ addSheet: { properties: { title: sheetName } } }] }),
+    });
+  }
+
+  const range = encodeURIComponent(quoteRange(sheetName, 'A1:H1'));
   const current = await sheetsRequest(env, `/values/${range}`);
-  if (current.values?.[0]?.length) return;
-  await sheetsRequest(env, `/values/${range}?valueInputOption=RAW`, {
-    method: 'PUT',
-    body: JSON.stringify({ values: [HEADERS] }),
-  });
+  if (!current.values?.[0]?.length) {
+    await sheetsRequest(env, `/values/${range}?valueInputOption=RAW`, {
+      method: 'PUT',
+      body: JSON.stringify({ values: [HEADERS] }),
+    });
+  }
+  ensuredSheet = sheetName;
 }
 
 async function appendRows(env, rows) {
   const sheetName = env.SHEET_NAME || '업무로그';
-  await ensureHeader(env, sheetName);
-  const range = encodeURIComponent(`${sheetName}!A1`);
+  await ensureSheet(env, sheetName);
+  const range = encodeURIComponent(quoteRange(sheetName, 'A1'));
   await sheetsRequest(env, `/values/${range}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
     method: 'POST',
     body: JSON.stringify({ values: rows }),
