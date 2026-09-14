@@ -26,7 +26,7 @@ vm.createContext(sandbox);
 vm.runInContext(source, sandbox, { filename: 'Code.gs' });
 
 // 함수 선언은 샌드박스 전역에 올라오지만, const 상수는 그렇지 않아 따로 꺼낸다.
-const { parseModelJson, normalizeItems, normalizeItem, normalizeDue, itemToRow } = sandbox;
+const { parseModelJson, normalizeItems, normalizeItem, normalizeDue, itemToRow, thinkingConfig } = sandbox;
 const HEADERS = vm.runInContext('HEADERS', sandbox);
 const MAX_ITEMS = vm.runInContext('MAX_ITEMS', sandbox);
 
@@ -102,6 +102,23 @@ check('배열이 아니면 빈 배열', () => eq(normalizeItems({ a: 1 }), []));
 check('한 번에 ' + MAX_ITEMS + '건을 넘지 않는다', () => {
   const many = Array.from({ length: 80 }, () => ({ category: 'TODO', summary: '가' }));
   assert.strictEqual(normalizeItems(many).length, MAX_ITEMS);
+});
+
+console.log('thinkingConfig');
+check('기본값은 3.x 용 thinkingLevel: low', () => {
+  eq(thinkingConfig(null, null), { thinkingLevel: 'low' });
+  eq(thinkingConfig('', ''), { thinkingLevel: 'low' });
+});
+check('대문자·공백 섞인 레벨도 받아들인다', () => {
+  eq(thinkingConfig(' HIGH ', null), { thinkingLevel: 'high' });
+});
+check('예산이 지정되면 2.5 계열용 thinkingBudget 만 보낸다', () => {
+  eq(thinkingConfig('low', '0'), { thinkingBudget: 0 });
+  eq(thinkingConfig('high', '512'), { thinkingBudget: 512 });
+});
+check('해석할 수 없는 값이면 thinkingConfig 자체를 생략', () => {
+  assert.strictEqual(thinkingConfig('off', null), null);
+  assert.strictEqual(thinkingConfig(null, 'off'), null);
 });
 
 console.log('itemToRow');

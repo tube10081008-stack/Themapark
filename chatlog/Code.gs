@@ -13,15 +13,21 @@
  * 설정은 전부 스크립트 속성(파일 > 프로젝트 설정 > 스크립트 속성)에 둔다. README 참고.
  *   GEMINI_API_KEY          (필수) aistudio.google.com 에서 발급
  *   SHEET_ID                (권장) 적재할 스프레드시트 ID. 없으면 이 스크립트가 붙은 시트를 쓴다
- *   GEMINI_MODEL            (선택) 기본 gemini-2.5-flash
- *   GEMINI_THINKING_BUDGET  (선택) 기본 0 = 사고과정 off(속도 우선). 미지원 모델이면 자동으로 빼고 재시도
+ *   GEMINI_MODEL            (선택) 기본 gemini-3.7-flash
+ *   GEMINI_THINKING_LEVEL   (선택) low/medium/high. 기본 low(속도 우선). Gemini 3.x 용
+ *   GEMINI_THINKING_BUDGET  (선택) 숫자. 2.5 계열 모델을 쓸 때만. 지정하면 level 대신 이쪽을 보낸다
  *   ACCESS_CODE             (선택) 설정하면 화면에서 이 코드를 입력해야 동작한다
  */
 
 const PROPS = PropertiesService.getScriptProperties();
 
 const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
-const DEFAULT_MODEL = 'gemini-2.5-flash';
+
+// 2026-09 기준. gemini-2.5-flash 는 폐기 예정(2026-10-16 종료)이라 기본값으로 쓰지 않는다.
+// 3.7 Flash 는 짧은 입력·대량 처리에 권장되는 모델이라 이 용도(단톡방 몇 줄 분류)에 맞는다.
+// 더 싸게: gemini-3.5-flash-lite / 더 똑똑하게: gemini-3.8-flash — GEMINI_MODEL 속성으로 교체.
+const DEFAULT_MODEL = 'gemini-3.7-flash';
+const THINKING_LEVELS = ['low', 'medium', 'high'];
 
 const SHEET_NAME = '업무로그';
 const HEADERS = ['타임스탬프', '분류', '핵심 요약', '담당자', '마감일', '우선순위', '상태', '원문 맥락'];
@@ -192,11 +198,11 @@ function callGemini_(input) {
       temperature: 0.2,
     },
   };
-  const budget = PROPS.getProperty('GEMINI_THINKING_BUDGET');
-  const thinkingBudget = budget === null || budget === undefined || budget === '' ? 0 : Number(budget);
-  if (!isNaN(thinkingBudget)) {
-    payload.generationConfig.thinkingConfig = { thinkingBudget: thinkingBudget };
-  }
+  const thinking = thinkingConfig(
+    PROPS.getProperty('GEMINI_THINKING_LEVEL'),
+    PROPS.getProperty('GEMINI_THINKING_BUDGET')
+  );
+  if (thinking) payload.generationConfig.thinkingConfig = thinking;
 
   let lastError = '';
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -212,7 +218,8 @@ function callGemini_(input) {
 
     if (code === 200) return extractText_(body);
 
-    // thinkingConfig 를 모르는 모델이면 그 항목만 빼고 즉시 다시 시도한다.
+    // 모델마다 thinking 파라미터가 달라(3.x=thinkingLevel, 2.5=thinkingBudget) 400 이 날 수 있다.
+    // 그때는 그 항목만 빼고 즉시 다시 시도한다 — 분류 자체는 사고과정 없이도 된다.
     if (code === 400 && /thinking/i.test(body) && payload.generationConfig.thinkingConfig) {
       delete payload.generationConfig.thinkingConfig;
       continue;
@@ -266,6 +273,23 @@ function extractText_(body) {
   const text = parts.map(function (p) { return p.text || ''; }).join('').trim();
   if (!text) throw new Error('Gemini 응답이 비어 있습니다.');
   return text;
+}
+
+/**
+ * 사고(thinking) 설정을 만든다.
+ * Gemini 3.x 는 thinkingLevel(low/medium/high), 2.5 계열은 thinkingBudget(숫자)을 받고
+ * 둘을 같이 보내면 400 이 난다. 그래서 하나만 넣는다 — 예산이 지정돼 있으면 그쪽이 우선.
+ * 'off' 처럼 해석할 수 없는 값이면 아예 보내지 않는다(모델 기본값에 맡김).
+ */
+function thinkingConfig(level, budget) {
+  const budgetText = String(budget == null ? '' : budget).trim();
+  if (budgetText !== '') {
+    const amount = Number(budgetText);
+    return isNaN(amount) ? null : { thinkingBudget: amount };
+  }
+  const levelText = String(level == null ? '' : level).trim().toLowerCase() || 'low';
+  if (THINKING_LEVELS.indexOf(levelText) === -1) return null;
+  return { thinkingLevel: levelText };
 }
 
 // ── 정규화 (순수 함수 — test_code.js 에서 그대로 테스트한다) ─────────
