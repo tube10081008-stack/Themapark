@@ -458,6 +458,33 @@ async function appendRows(env, rows) {
   });
 }
 
+/** 시트에 쌓인 행을 읽어 온다. 화면의 '원장' 탭이 이걸 그린다. */
+async function readRows(env) {
+  const sheetName = env.SHEET_NAME || '업무로그';
+  const range = encodeURIComponent(quoteRange(sheetName, 'A2:H2000'));
+  let data;
+  try {
+    data = await sheetsRequest(env, `/values/${range}`);
+  } catch (error) {
+    // 아직 탭이 없는 상태는 오류가 아니라 '비어 있음'이다.
+    if (/탭을 찾지 못했습니다|Unable to parse range/i.test(error.message)) return [];
+    throw error;
+  }
+  return (data.values ?? [])
+    .filter((row) => row[2])            // 요약이 비면 빈 줄
+    .map((row) => ({
+      ts: row[0] ?? '',
+      tag: row[1] ?? '',
+      summary: row[2] ?? '',
+      owner: row[3] ?? '',
+      due: row[4] ?? '',
+      priority: row[5] ?? '',
+      status: row[6] ?? '',
+      context: row[7] ?? '',
+    }))
+    .reverse();                         // 최근 것이 위로
+}
+
 // ── 요청 처리 ───────────────────────────────────────────────────────
 
 function checkAccess(env, code) {
@@ -472,6 +499,9 @@ const json = (data, status = 200) =>
     headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
   });
 
+const sheetUrl = (env) =>
+  env.SHEET_ID ? `https://docs.google.com/spreadsheets/d/${env.SHEET_ID}/edit` : '';
+
 export default async function handler(request) {
   const env = process.env;
   const action = new URL(request.url).pathname.split('/').filter(Boolean).pop();
@@ -480,7 +510,7 @@ export default async function handler(request) {
     if (action === 'config') {
       return json({
         needsAccessCode: Boolean(String(env.ACCESS_CODE || '').trim()),
-        sheetUrl: env.SHEET_ID ? `https://docs.google.com/spreadsheets/d/${env.SHEET_ID}/edit` : '',
+        sheetUrl: sheetUrl(env),
         owners: OWNERS,
         priorities: PRIORITIES,
         statuses: STATUSES,
@@ -503,7 +533,14 @@ export default async function handler(request) {
       }
       const started = Date.now();
       const items = normalizeItems(parseModelJson(await callModel(text, env)));
-      return json({ items, elapsedMs: Date.now() - started });
+
+      // 자동 전송: 분류와 적재를 한 번의 왕복으로 끝낸다.
+      let saved = 0;
+      if (payload.autosave && items.length) {
+        await appendRows(env, items.map((item) => itemToRow(item, kstParts().stamp)));
+        saved = items.length;
+      }
+      return json({ items, saved, elapsedMs: Date.now() - started, sheetUrl: sheetUrl(env) });
     }
 
     if (action === 'append') {
@@ -511,10 +548,11 @@ export default async function handler(request) {
       if (!items.length) throw new UserError('전송할 항목이 없습니다.');
       const { stamp } = kstParts();
       await appendRows(env, items.map((item) => itemToRow(item, stamp)));
-      return json({
-        count: items.length,
-        sheetUrl: env.SHEET_ID ? `https://docs.google.com/spreadsheets/d/${env.SHEET_ID}/edit` : '',
-      });
+      return json({ count: items.length, sheetUrl: sheetUrl(env) });
+    }
+
+    if (action === 'rows') {
+      return json({ rows: await readRows(env), sheetUrl: sheetUrl(env) });
     }
 
     return json({ error: '알 수 없는 요청입니다.' }, 404);
