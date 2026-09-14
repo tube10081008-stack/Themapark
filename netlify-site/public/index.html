@@ -109,6 +109,18 @@
   .ledger-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 22px 0 8px; }
   .ledger-head h2 { font-size: 15px; margin: 0; }
 
+  .diag { font-size: 13px; }
+  .diag h3 { font-size: 13px; margin: 0 0 6px; }
+  .diag dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 0 0 10px; }
+  .diag dt { color: var(--muted); }
+  .diag dd { margin: 0; word-break: break-all; }
+  .diag table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  .diag th, .diag td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); }
+  .diag th { color: var(--muted); font-weight: 500; }
+  .diag td.num { text-align: right; }
+  .diag .flag { color: var(--danger); font-weight: 600; margin-top: 8px; }
+  .diag .ok { color: var(--accent); font-weight: 600; margin-top: 8px; }
+
   .toast {
     position: fixed; left: 16px; right: 16px; bottom: 16px;
     background: var(--accent); color: var(--accent-text);
@@ -165,6 +177,12 @@
   </div>
   <div class="tabs" id="tabs"></div>
   <div class="ledger" id="ledger"><div class="empty">불러오는 중…</div></div>
+
+  <div class="ledger-head">
+    <h2>연결 상태</h2>
+    <button class="small" id="diag">확인</button>
+  </div>
+  <div class="card diag" id="diagBox" hidden></div>
 </div>
 
 <div class="toast" id="toast" hidden></div>
@@ -227,6 +245,11 @@
     el.hidden = false;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { el.hidden = true; }, 7000);
+  }
+
+  /** 기록된 위치(예: 업무로그!A52:H54)를 사람이 확인할 수 있게 덧붙인다. */
+  function where(range) {
+    return range ? '(' + String(range).replace(/'/g, '') + ')' : '';
   }
 
   function setBusy(state, message) {
@@ -379,7 +402,7 @@
       setBusy(false);
       payload.forEach(function (item) { item.sent = true; });
       renderPending();
-      toast('Google 시트에 ' + result.count + '건의 업무가 성공적으로 등록되었습니다.', result.sheetUrl);
+      toast('Google 시트에 ' + result.count + '건의 업무가 성공적으로 등록되었습니다. ' + where(result.savedRange), result.sheetUrl);
       if (pending.every(function (item) { return item.sent; })) $('input').value = '';
       loadRows();
     }).catch(function (e) {
@@ -507,6 +530,83 @@
     });
   }
 
+  // ── 연결 상태 진단 ──────────────────────────────────────────────
+  $('diag').addEventListener('click', function () {
+    var box = $('diagBox');
+    box.hidden = false;
+    box.textContent = '확인하는 중…';
+    api('diag').then(function (info) { renderDiag(info); }).catch(function (e) {
+      box.textContent = '확인하지 못했습니다 — ' + e.message;
+    });
+  });
+
+  function renderDiag(info) {
+    var box = $('diagBox');
+    box.textContent = '';
+
+    var dl = document.createElement('dl');
+    [
+      ['쓰는 스프레드시트', info.spreadsheetTitle + ' (…' + info.sheetIdTail + ')'],
+      ['쓰는 탭', info.configuredTab + (info.configuredTabExists ? '' : ' — 아직 없음')],
+      ['서비스 계정', info.serviceAccount],
+      ['모델', info.provider]
+    ].forEach(function (pair) {
+      var dt = document.createElement('dt');
+      dt.textContent = pair[0];
+      var dd = document.createElement('dd');
+      dd.textContent = pair[1];
+      dl.append(dt, dd);
+    });
+    box.append(dl);
+
+    var table = document.createElement('table');
+    var head = document.createElement('tr');
+    ['탭 이름', '데이터', '첫 행'].forEach(function (label) {
+      var th = document.createElement('th');
+      th.textContent = label;
+      head.append(th);
+    });
+    table.append(head);
+
+    (info.tabs || []).forEach(function (tabInfo) {
+      var tr = document.createElement('tr');
+      var name = document.createElement('td');
+      name.textContent = tabInfo.title + (tabInfo.title === info.configuredTab ? ' ←' : '');
+      var rowsCell = document.createElement('td');
+      rowsCell.className = 'num';
+      rowsCell.textContent = tabInfo.dataRows + '행';
+      var header = document.createElement('td');
+      header.textContent = tabInfo.header || '(비어 있음)';
+      tr.append(name, rowsCell, header);
+      table.append(tr);
+    });
+    box.append(table);
+
+    // 도구가 쓰는 탭은 비어 있는데 다른 탭에 기록이 있으면, 그게 바로 원인이다.
+    var target = (info.tabs || []).filter(function (t) { return t.title === info.configuredTab; })[0];
+    var elsewhere = (info.tabs || []).filter(function (t) {
+      return t.title !== info.configuredTab && t.dataRows > 0;
+    });
+    var note = document.createElement('div');
+    if (!target || target.dataRows === 0) {
+      if (elsewhere.length) {
+        note.className = 'flag';
+        note.textContent =
+          '⚠ "' + info.configuredTab + '" 탭은 비어 있고 "' + elsewhere[0].title + '" 탭에 ' +
+          elsewhere[0].dataRows + '행이 있습니다. Netlify 환경변수 SHEET_NAME 을 "' + elsewhere[0].title +
+          '" 으로 바꾸고 재배포하거나, 시트에서 탭 이름을 "' + info.configuredTab + '" 으로 바꾸세요.';
+      } else {
+        note.className = 'flag';
+        note.textContent = '⚠ 이 스프레드시트에는 아직 기록이 없습니다. 위 제목이 대표님이 보고 계신 파일이 맞는지 확인해주세요.';
+      }
+    } else {
+      note.className = 'ok';
+      note.textContent = '✓ "' + info.configuredTab + '" 탭에 ' + target.dataRows + '행이 있습니다. 마지막 기록: ' +
+        (target.lastSummary || '(없음)');
+    }
+    box.append(note);
+  }
+
   // ── 분류 ────────────────────────────────────────────────────────
   $('run').addEventListener('click', function () {
     var text = $('input').value.trim();
@@ -538,7 +638,7 @@
       if (result.saved) {
         $('input').value = '';
         $('hint').textContent = seconds + '초 만에 ' + result.saved + '건을 정리해 시트에 넣었습니다.';
-        toast('Google 시트에 ' + result.saved + '건의 업무가 성공적으로 등록되었습니다.', result.sheetUrl);
+        toast('Google 시트에 ' + result.saved + '건의 업무가 성공적으로 등록되었습니다. ' + where(result.savedRange), result.sheetUrl);
         loadRows();
       } else {
         $('hint').textContent = pending.length + '건을 ' + seconds + '초에 정리했습니다. 확인 후 전송하세요.';

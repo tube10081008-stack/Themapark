@@ -452,24 +452,30 @@ async function appendRows(env, rows) {
   const sheetName = env.SHEET_NAME || '업무로그';
   await ensureSheet(env, sheetName);
   const range = encodeURIComponent(quoteRange(sheetName, 'A1'));
-  await sheetsRequest(env, `/values/${range}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+  const result = await sheetsRequest(env, `/values/${range}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
     method: 'POST',
     body: JSON.stringify({ values: rows }),
   });
+
+  // 구글이 200 을 주면서 아무것도 쓰지 않는 경우가 있다(권한·범위 문제).
+  // 기록됐다고 화면에 알리기 전에 '몇 행이 어디에' 들어갔는지 응답으로 확인한다.
+  const updatedRows = result.updates?.updatedRows ?? 0;
+  const updatedRange = result.updates?.updatedRange ?? '';
+  if (updatedRows < rows.length) {
+    throw new UserError(
+      `시트에 기록되지 않았습니다 (요청 ${rows.length}행 / 기록 ${updatedRows}행). ` +
+      '아래 「연결 상태 확인」으로 어느 시트·탭에 쓰고 있는지 확인해주세요.',
+      500
+    );
+  }
+  return { updatedRows, updatedRange };
 }
 
 /** 시트에 쌓인 행을 읽어 온다. 화면의 '원장' 탭이 이걸 그린다. */
 async function readRows(env) {
   const sheetName = env.SHEET_NAME || '업무로그';
   const range = encodeURIComponent(quoteRange(sheetName, 'A2:H2000'));
-  let data;
-  try {
-    data = await sheetsRequest(env, `/values/${range}`);
-  } catch (error) {
-    // 아직 탭이 없는 상태는 오류가 아니라 '비어 있음'이다.
-    if (/탭을 찾지 못했습니다|Unable to parse range/i.test(error.message)) return [];
-    throw error;
-  }
+  const data = await sheetsRequest(env, `/values/${range}`);   // 실패는 그대로 화면에 보여준다
   return (data.values ?? [])
     .filter((row) => row[2])            // 요약이 비면 빈 줄
     .map((row) => ({
@@ -484,6 +490,47 @@ async function readRows(env) {
     }))
     .reverse();                         // 최근 것이 위로
 }
+
+/**
+ * 연결 상태 진단. "전송했다는데 시트에 없다" 같은 상황에서 추측을 없애기 위한 것.
+ * 어느 스프레드시트(제목!)의 어떤 탭에 몇 행이 있는지, 도구가 쓰는 탭은 무엇인지 보여준다.
+ */
+async function diagnostics(env) {
+  const configuredTab = env.SHEET_NAME || '업무로그';
+  const meta = await sheetsRequest(
+    env,
+    '?fields=properties.title,sheets.properties(title,hidden)'
+  );
+
+  const tabs = [];
+  for (const sheet of (meta.sheets ?? []).slice(0, 8)) {
+    const title = sheet.properties?.title ?? '';
+    const values = await sheetsRequest(env, `/values/${encodeURIComponent(quoteRange(title, 'A1:H2000'))}`);
+    const grid = values.values ?? [];
+    const hasHeader = looksLikeHeader(grid[0]);
+    const body = grid.filter((row, index) => !(index === 0 && hasHeader) && String(row[2] ?? '').trim());
+    tabs.push({
+      title,
+      hidden: Boolean(sheet.properties?.hidden),
+      dataRows: body.length,
+      header: (grid[0] ?? []).slice(0, 4).join(' | '),
+      lastSummary: body.length ? String(body[body.length - 1][2]) : '',
+    });
+  }
+
+  return {
+    spreadsheetTitle: meta.properties?.title ?? '',
+    spreadsheetUrl: sheetUrl(env),
+    sheetIdTail: String(env.SHEET_ID || '').slice(-8),
+    configuredTab,
+    configuredTabExists: tabs.some((tab) => tab.title === configuredTab),
+    serviceAccount: String(env.GOOGLE_SERVICE_ACCOUNT_EMAIL || ''),
+    provider: resolveProvider(env.LLM_PROVIDER, env.SAKANA_API_KEY, env.GEMINI_API_KEY) || '(키 없음)',
+    tabs,
+  };
+}
+
+const looksLikeHeader = (row) => Boolean(row && String(row[0] ?? '').includes('타임스탬프'));
 
 // ── 요청 처리 ───────────────────────────────────────────────────────
 
@@ -536,19 +583,25 @@ export default async function handler(request) {
 
       // 자동 전송: 분류와 적재를 한 번의 왕복으로 끝낸다.
       let saved = 0;
+      let savedRange = '';
       if (payload.autosave && items.length) {
-        await appendRows(env, items.map((item) => itemToRow(item, kstParts().stamp)));
-        saved = items.length;
+        const written = await appendRows(env, items.map((item) => itemToRow(item, kstParts().stamp)));
+        saved = written.updatedRows;
+        savedRange = written.updatedRange;
       }
-      return json({ items, saved, elapsedMs: Date.now() - started, sheetUrl: sheetUrl(env) });
+      return json({ items, saved, savedRange, elapsedMs: Date.now() - started, sheetUrl: sheetUrl(env) });
     }
 
     if (action === 'append') {
       const items = normalizeItems(payload.items);   // 화면에서 온 값도 다시 검사한다
       if (!items.length) throw new UserError('전송할 항목이 없습니다.');
       const { stamp } = kstParts();
-      await appendRows(env, items.map((item) => itemToRow(item, stamp)));
-      return json({ count: items.length, sheetUrl: sheetUrl(env) });
+      const written = await appendRows(env, items.map((item) => itemToRow(item, stamp)));
+      return json({ count: written.updatedRows, savedRange: written.updatedRange, sheetUrl: sheetUrl(env) });
+    }
+
+    if (action === 'diag') {
+      return json(await diagnostics(env));
     }
 
     if (action === 'rows') {
