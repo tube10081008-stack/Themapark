@@ -1,0 +1,452 @@
+<!-- 봉뜨락 업무로그 입력기 — Apps Script HtmlService 로 서빙되는 단일 화면.
+     외부 CDN을 쓰지 않는다: 현장 네트워크가 느려도 첫 화면이 뜨는 편이 낫다. -->
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f7f5;
+    --card: #ffffff;
+    --line: #e2e5e0;
+    --text: #1d2220;
+    --muted: #6b7570;
+    --accent: #2f6b4f;
+    --accent-text: #ffffff;
+    --danger: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a;
+      --card: #1d2125;
+      --line: #2e343a;
+      --text: #e8ece9;
+      --muted: #9aa5a0;
+      --accent: #4f9e78;
+      --accent-text: #0e1512;
+      --danger: #f2b8b5;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    padding: 0 0 96px;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 16px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  h1 { font-size: 18px; margin: 0; letter-spacing: -0.2px; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  a { color: var(--accent); }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+  textarea, input, select, button {
+    font: inherit;
+    color: inherit;
+  }
+  textarea, input[type="text"], input[type="date"], input[type="password"], select {
+    width: 100%;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+  }
+  textarea#input { min-height: 190px; resize: vertical; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .row > * { flex: 1 1 140px; min-width: 0; }
+  label.f { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  button {
+    border: 1px solid var(--line);
+    background: var(--card);
+    border-radius: 10px;
+    padding: 11px 14px;
+    cursor: pointer;
+  }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: transparent; font-weight: 600; }
+  button.link { border: none; background: none; color: var(--danger); padding: 11px 6px; }
+  button[disabled] { opacity: 0.55; cursor: default; }
+  .actions { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
+  .actions .primary { flex: 1; }
+  .chip {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: rgba(127, 127, 127, 0.16);
+  }
+  .chip.DECISION { background: rgba(179, 38, 30, 0.16); color: #b3261e; }
+  .chip.TODO { background: rgba(47, 107, 79, 0.18); color: var(--accent); }
+  .chip.INFO { background: rgba(40, 96, 160, 0.16); color: #2b6cb0; }
+  .chip.IDEA { background: rgba(154, 106, 20, 0.18); color: #8a6100; }
+  @media (prefers-color-scheme: dark) {
+    .chip.DECISION { color: #f2b8b5; }
+    .chip.INFO { color: #8fb8e8; }
+    .chip.IDEA { color: #e3bd72; }
+  }
+  .item-head { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+  .item.sent { opacity: 0.55; }
+  .badge-sent { font-size: 12px; color: var(--accent); font-weight: 600; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .err { color: var(--danger); font-size: 13px; margin-top: 10px; white-space: pre-wrap; }
+  .bulkbar {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    background: var(--card);
+    border-top: 1px solid var(--line);
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  }
+  .bulkbar .wrap { padding: 0; display: flex; gap: 8px; align-items: center; }
+  .toast {
+    position: fixed; left: 16px; right: 16px; bottom: 84px;
+    background: var(--accent); color: var(--accent-text);
+    border-radius: 12px; padding: 13px 15px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+    font-weight: 600;
+  }
+  .toast a { color: var(--accent-text); text-decoration: underline; font-weight: 700; }
+  .spinner {
+    width: 15px; height: 15px; border-radius: 50%;
+    border: 2px solid rgba(127, 127, 127, 0.35); border-top-color: var(--accent);
+    display: inline-block; animation: spin 0.8s linear infinite; vertical-align: -2px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  [hidden] { display: none !important; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>봉뜨락 업무로그</h1>
+      <div class="sub">단톡방 대화 → 자동 분류 → 구글 시트</div>
+    </div>
+    <a id="sheetLink" href="#" target="_blank" rel="noopener" hidden>시트 열기 ↗</a>
+  </header>
+
+  <div class="card" id="gate" hidden>
+    <label class="f" for="accessCode">접근 코드</label>
+    <input type="password" id="accessCode" autocomplete="off" inputmode="text" placeholder="공유받은 코드를 입력하세요">
+    <div class="hint">이 기기에만 저장됩니다.</div>
+  </div>
+
+  <div class="card">
+    <textarea id="input" placeholder="단톡방 대화를 복사해서 붙여넣거나 회의 내용을 적으세요."></textarea>
+    <div class="actions">
+      <button class="primary" id="run">AI로 자동 분류</button>
+      <button id="mic" hidden title="음성 입력">🎤</button>
+      <button id="clear">지우기</button>
+    </div>
+    <div class="hint" id="hint">분류 결과를 확인·수정한 뒤 시트로 보냅니다.</div>
+    <div class="err" id="error" hidden></div>
+  </div>
+
+  <div id="results"></div>
+</div>
+
+<div class="bulkbar" id="bulkbar" hidden>
+  <div class="wrap">
+    <span class="sub" id="bulkCount"></span>
+    <button class="primary" id="sendAll" style="flex:1">전체 시트 전송</button>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script>
+  var CONFIG = null;
+  var items = [];
+  var busy = false;
+
+  function $(id) { return document.getElementById(id); }
+
+  function showError(message) {
+    var box = $('error');
+    box.textContent = message || '';
+    box.hidden = !message;
+  }
+
+  function showToast(message, url) {
+    var toast = $('toast');
+    toast.textContent = message;
+    if (url) {
+      toast.appendChild(document.createTextNode(' '));
+      var link = document.createElement('a');
+      link.href = url;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = '시트 열기 ↗';
+      toast.appendChild(link);
+    }
+    toast.hidden = false;
+    clearTimeout(showToast.timer);
+    showToast.timer = setTimeout(function () { toast.hidden = true; }, 7000);
+  }
+
+  function accessCode() {
+    return $('accessCode').value.trim();
+  }
+
+  function setBusy(state, label) {
+    busy = state;
+    $('run').disabled = state;
+    $('sendAll').disabled = state;
+    document.querySelectorAll('.send-one').forEach(function (b) { b.disabled = state; });
+    if (label) {
+      $('hint').innerHTML = '<span class="spinner"></span> ' + label;
+    } else {
+      $('hint').textContent = '분류 결과를 확인·수정한 뒤 시트로 보냅니다.';
+    }
+  }
+
+  // ── 초기화 ──────────────────────────────────────────────────────
+  google.script.run
+    .withSuccessHandler(function (config) {
+      CONFIG = config;
+      if (config.sheetUrl) {
+        $('sheetLink').href = config.sheetUrl;
+        $('sheetLink').hidden = false;
+      }
+      if (config.needsAccessCode) {
+        $('gate').hidden = false;
+        $('accessCode').value = localStorage.getItem('bt_access_code') || '';
+        $('accessCode').addEventListener('change', function () {
+          localStorage.setItem('bt_access_code', accessCode());
+        });
+      }
+      var draft = localStorage.getItem('bt_draft');
+      if (draft && !$('input').value) $('input').value = draft;
+    })
+    .withFailureHandler(function (e) { showError(e.message || String(e)); })
+    .getConfig();
+
+  $('input').addEventListener('input', function () {
+    localStorage.setItem('bt_draft', $('input').value);
+  });
+
+  $('clear').addEventListener('click', function () {
+    $('input').value = '';
+    localStorage.removeItem('bt_draft');
+    items = [];
+    render();
+    showError('');
+  });
+
+  // ── 1단계: 분류 ─────────────────────────────────────────────────
+  $('run').addEventListener('click', function () {
+    var text = $('input').value.trim();
+    showError('');
+    if (!text) { showError('먼저 대화 내용을 붙여넣어 주세요.'); return; }
+    if (CONFIG && CONFIG.needsAccessCode && !accessCode()) { showError('접근 코드를 입력해주세요.'); return; }
+
+    var started = Date.now();
+    var tick = setInterval(function () {
+      setBusy(true, 'AI가 정리하는 중… ' + ((Date.now() - started) / 1000).toFixed(1) + '초');
+    }, 100);
+    setBusy(true, 'AI가 정리하는 중…');
+
+    google.script.run
+      .withSuccessHandler(function (result) {
+        clearInterval(tick);
+        setBusy(false);
+        items = (result.items || []).map(function (item) {
+          item.sent = false;
+          return item;
+        });
+        render();
+        if (!items.length) {
+          showError('정리할 업무를 찾지 못했습니다. 인사말뿐이거나 내용이 너무 짧을 수 있습니다.');
+        } else {
+          $('hint').textContent = items.length + '건을 ' + (result.elapsedMs / 1000).toFixed(1) + '초에 정리했습니다. 확인 후 전송하세요.';
+        }
+      })
+      .withFailureHandler(function (e) {
+        clearInterval(tick);
+        setBusy(false);
+        showError(e.message || String(e));
+      })
+      .classify(text, accessCode());
+  });
+
+  // ── 2단계: 미리보기 카드 ────────────────────────────────────────
+  function field(labelText, control) {
+    var wrap = document.createElement('div');
+    var label = document.createElement('label');
+    label.className = 'f';
+    label.textContent = labelText;
+    wrap.appendChild(label);
+    wrap.appendChild(control);
+    return wrap;
+  }
+
+  function select(options, value, onChange, labels) {
+    var el = document.createElement('select');
+    options.forEach(function (option) {
+      var node = document.createElement('option');
+      node.value = option;
+      node.textContent = labels ? labels[option] || option : option;
+      el.appendChild(node);
+    });
+    el.value = value;
+    el.addEventListener('change', function () { onChange(el.value); });
+    return el;
+  }
+
+  function render() {
+    var box = $('results');
+    box.textContent = '';
+    items.forEach(function (item, index) {
+      box.appendChild(renderItem(item, index));
+    });
+    var pending = items.filter(function (i) { return !i.sent; }).length;
+    $('bulkbar').hidden = pending === 0;
+    $('bulkCount').textContent = '미전송 ' + pending + '건';
+  }
+
+  function renderItem(item, index) {
+    var card = document.createElement('div');
+    card.className = 'card item' + (item.sent ? ' sent' : '');
+
+    var head = document.createElement('div');
+    head.className = 'item-head';
+    var chip = document.createElement('span');
+    chip.className = 'chip ' + item.category;
+    chip.textContent = CONFIG.categoryTag[item.category] || item.category;
+    head.appendChild(chip);
+    if (item.sent) {
+      var badge = document.createElement('span');
+      badge.className = 'badge-sent';
+      badge.textContent = '✓ 시트 전송 완료';
+      head.appendChild(badge);
+    }
+    card.appendChild(head);
+
+    var summary = document.createElement('textarea');
+    summary.rows = 2;
+    summary.value = item.summary;
+    summary.addEventListener('input', function () { item.summary = summary.value; });
+    card.appendChild(field('핵심 요약', summary));
+
+    var row1 = document.createElement('div');
+    row1.className = 'row';
+    row1.appendChild(field('분류', select(CONFIG.categories, item.category, function (v) {
+      item.category = v;
+      render();
+    }, CONFIG.categoryTag)));
+    row1.appendChild(field('담당자', select(CONFIG.owners, item.owner, function (v) { item.owner = v; })));
+    card.appendChild(row1);
+
+    var row2 = document.createElement('div');
+    row2.className = 'row';
+    var due = document.createElement('input');
+    due.type = 'date';
+    due.value = item.due_date === CONFIG.noDue ? '' : item.due_date;
+    due.addEventListener('change', function () { item.due_date = due.value || CONFIG.noDue; });
+    row2.appendChild(field('마감일 (비우면 미정)', due));
+    row2.appendChild(field('우선순위', select(CONFIG.priorities, item.priority, function (v) { item.priority = v; })));
+    row2.appendChild(field('상태', select(CONFIG.statuses, item.status, function (v) { item.status = v; })));
+    card.appendChild(row2);
+
+    var context = document.createElement('textarea');
+    context.rows = 2;
+    context.value = item.context;
+    context.addEventListener('input', function () { item.context = context.value; });
+    card.appendChild(field('원문 맥락', context));
+
+    if (!item.sent) {
+      var actions = document.createElement('div');
+      actions.className = 'actions';
+      var send = document.createElement('button');
+      send.className = 'primary send-one';
+      send.textContent = '승인 및 시트 전송';
+      send.disabled = busy;
+      send.addEventListener('click', function () { sendItems([index]); });
+      var drop = document.createElement('button');
+      drop.className = 'link';
+      drop.textContent = '제외';
+      drop.addEventListener('click', function () {
+        items.splice(index, 1);
+        render();
+      });
+      actions.appendChild(send);
+      actions.appendChild(drop);
+      card.appendChild(actions);
+    } else {
+      // 이미 전송된 카드는 잠근다 — 여기서 고쳐도 시트는 바뀌지 않으므로 오해를 막는다.
+      card.querySelectorAll('textarea, select, input').forEach(function (el) { el.disabled = true; });
+    }
+    return card;
+  }
+
+  // ── 3단계: 시트 전송 + 피드백 ───────────────────────────────────
+  function sendItems(indexes) {
+    var payload = indexes.map(function (i) { return items[i]; }).filter(function (item) { return item && !item.sent; });
+    if (!payload.length) return;
+    showError('');
+    if (CONFIG && CONFIG.needsAccessCode && !accessCode()) { showError('접근 코드를 입력해주세요.'); return; }
+    setBusy(true, '시트에 저장하는 중…');
+
+    google.script.run
+      .withSuccessHandler(function (result) {
+        setBusy(false);
+        payload.forEach(function (item) { item.sent = true; });
+        render();
+        showToast('Google 시트에 ' + result.count + '건의 업무가 성공적으로 등록되었습니다.', result.sheetUrl);
+        if (items.every(function (item) { return item.sent; })) {
+          $('input').value = '';
+          localStorage.removeItem('bt_draft');
+        }
+      })
+      .withFailureHandler(function (e) {
+        setBusy(false);
+        showError(e.message || String(e));
+      })
+      .appendItems(payload, accessCode());
+  }
+
+  $('sendAll').addEventListener('click', function () {
+    var indexes = [];
+    items.forEach(function (item, i) { if (!item.sent) indexes.push(i); });
+    sendItems(indexes);
+  });
+
+  // ── (선택) 음성 입력 — 지원 브라우저에서만 버튼이 보인다 ────────
+  (function () {
+    var Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Recognition) return;
+    var mic = $('mic');
+    mic.hidden = false;
+    var recognition = null;
+    var listening = false;
+
+    mic.addEventListener('click', function () {
+      if (listening && recognition) { recognition.stop(); return; }
+      recognition = new Recognition();
+      recognition.lang = 'ko-KR';
+      recognition.interimResults = false;
+      recognition.continuous = true;
+      recognition.onstart = function () { listening = true; mic.textContent = '⏹'; };
+      recognition.onend = function () { listening = false; mic.textContent = '🎤'; };
+      recognition.onerror = function (event) {
+        listening = false;
+        mic.textContent = '🎤';
+        showError('음성 인식 오류: ' + event.error + ' (직접 입력해주세요)');
+      };
+      recognition.onresult = function (event) {
+        var text = '';
+        for (var i = event.resultIndex; i < event.results.length; i++) {
+          if (event.results[i].isFinal) text += event.results[i][0].transcript + ' ';
+        }
+        if (!text) return;
+        var input = $('input');
+        input.value = (input.value ? input.value.trim() + '\n' : '') + text.trim();
+        localStorage.setItem('bt_draft', input.value);
+      };
+      recognition.start();
+    });
+  })();
+</script>
