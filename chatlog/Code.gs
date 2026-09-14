@@ -11,8 +11,14 @@
  * 사람이 카드에서 고친 뒤 보내야 시트가 신뢰할 만한 원장이 된다.
  *
  * 설정은 전부 스크립트 속성(파일 > 프로젝트 설정 > 스크립트 속성)에 둔다. README 참고.
- *   GEMINI_API_KEY          (필수) aistudio.google.com 에서 발급
  *   SHEET_ID                (권장) 적재할 스프레드시트 ID. 없으면 이 스크립트가 붙은 시트를 쓴다
+ *
+ *   모델은 둘 중 하나. 키를 넣은 쪽이 자동으로 선택된다(LLM_PROVIDER 로 강제 가능).
+ *   GEMINI_API_KEY          Gemini 키 — aistudio.google.com
+ *   SAKANA_API_KEY          Sakana Fugu 키 — console.sakana.ai (OpenAI 호환)
+ *   LLM_PROVIDER            (선택) gemini | sakana. 비우면 있는 키로 자동 판별
+ *   SAKANA_MODEL            (선택) 기본 fugu (fugu-ultra / fugu-max / fugu-cyber)
+ *   LLM_BASE_URL            (선택) OpenAI 호환 엔드포인트. 기본 https://api.sakana.ai/v1
  *   GEMINI_MODEL            (선택) 기본 gemini-3.7-flash
  *   GEMINI_THINKING_LEVEL   (선택) low/medium/high. 기본 low(속도 우선). Gemini 3.x 용
  *   GEMINI_THINKING_BUDGET  (선택) 숫자. 2.5 계열 모델을 쓸 때만. 지정하면 level 대신 이쪽을 보낸다
@@ -28,6 +34,11 @@ const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models
 // 더 싸게: gemini-3.5-flash-lite / 더 똑똑하게: gemini-3.8-flash — GEMINI_MODEL 속성으로 교체.
 const DEFAULT_MODEL = 'gemini-3.7-flash';
 const THINKING_LEVELS = ['low', 'medium', 'high'];
+
+// Sakana Fugu 는 OpenAI 호환 API(POST {base}/chat/completions, Bearer 인증)라
+// 같은 어댑터로 다른 OpenAI 호환 엔드포인트도 쓸 수 있다. LLM_BASE_URL 로 교체.
+const SAKANA_BASE_URL = 'https://api.sakana.ai/v1';
+const DEFAULT_SAKANA_MODEL = 'fugu';
 
 const SHEET_NAME = '업무로그';
 const HEADERS = ['타임스탬프', '분류', '핵심 요약', '담당자', '마감일', '우선순위', '상태', '원문 맥락'];
@@ -81,6 +92,15 @@ const SYSTEM_PROMPT = [
   '- Resolve relative dates ("내일", "다음 주 월요일") against TODAY given in the user message, and output YYYY-MM-DD.',
   '- If there is no deadline, output "미정" for due_date. Never invent a deadline.',
   '- Do not add markdown code fences. Return raw JSON only.',
+].join('\n');
+
+// Gemini 는 responseSchema 로 형식을 강제하지만, OpenAI 호환 경로는 말로 시켜야 한다.
+const JSON_FORMAT_NOTE = [
+  '',
+  'Return a single JSON object of this exact shape:',
+  '{"items":[{"category":"DECISION|TODO|INFO|IDEA","summary":"<Korean>","owner":"성현|지연|주성|공통|미지정",',
+  '"due_date":"YYYY-MM-DD or 미정","context":"<Korean>","priority":"HIGH|MEDIUM|LOW"}]}',
+  'If nothing is actionable, return {"items":[]}.',
 ].join('\n');
 
 // Gemini 구조화 출력 스키마. JSON 모드(responseMimeType)와 함께 써야 파싱이 안정적이다.
@@ -139,7 +159,7 @@ function classify(text, accessCode) {
   }
 
   const started = Date.now();
-  const raw = callGemini_(input);
+  const raw = callModel_(input);
   const items = normalizeItems(parseModelJson(raw));
   return { items: items, elapsedMs: Date.now() - started };
 }
@@ -176,6 +196,125 @@ function classifyAndAppend(text, accessCode) {
   if (!parsed.items.length) return { count: 0, items: [], sheetUrl: sheetUrl_() };
   const saved = appendItems(parsed.items, accessCode);
   return { count: saved.count, items: parsed.items, sheetUrl: saved.sheetUrl };
+}
+
+// ── 모델 호출 ───────────────────────────────────────────────────────
+
+/** 어느 모델로 보낼지 고르고, 그 어댑터를 부른다. */
+function callModel_(input) {
+  const provider = resolveProvider(
+    PROPS.getProperty('LLM_PROVIDER'),
+    PROPS.getProperty('SAKANA_API_KEY'),
+    PROPS.getProperty('GEMINI_API_KEY')
+  );
+  if (provider === 'sakana') return callOpenAiCompatible_(input);
+  if (provider === 'gemini') return callGemini_(input);
+  throw new Error(
+    'API 키가 없습니다. 스크립트 속성에 GEMINI_API_KEY 또는 SAKANA_API_KEY 중 하나를 넣어주세요.'
+  );
+}
+
+/**
+ * 쓸 모델 결정. 명시값이 우선이고, 없으면 키가 있는 쪽을 쓴다.
+ * 둘 다 있으면 Sakana — 일부러 나중에 넣은 키를 쓰려는 경우가 대부분이다.
+ */
+function resolveProvider(explicit, sakanaKey, geminiKey) {
+  const named = String(explicit == null ? '' : explicit).trim().toLowerCase();
+  if (named === 'sakana' || named === 'gemini') return named;
+  if (String(sakanaKey || '').trim()) return 'sakana';
+  if (String(geminiKey || '').trim()) return 'gemini';
+  return '';
+}
+
+// ── Sakana Fugu (OpenAI 호환) 호출 ──────────────────────────────────
+
+function callOpenAiCompatible_(input) {
+  const apiKey = String(PROPS.getProperty('SAKANA_API_KEY') || '').trim();
+  if (!apiKey) {
+    throw new Error('SAKANA_API_KEY 스크립트 속성이 비어 있습니다. README의 「3. 설정값 입력」을 참고하세요.');
+  }
+  const model = PROPS.getProperty('SAKANA_MODEL') || DEFAULT_SAKANA_MODEL;
+  const base = (PROPS.getProperty('LLM_BASE_URL') || SAKANA_BASE_URL).replace(/\/+$/, '');
+  const today = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
+
+  const payload = {
+    model: model,
+    messages: [
+      { role: 'system', content: SYSTEM_PROMPT + JSON_FORMAT_NOTE },
+      { role: 'user', content: 'TODAY: ' + today + '\n\n---\n' + input },
+    ],
+    temperature: 0.2,
+    response_format: { type: 'json_object' },
+  };
+
+  let lastError = '';
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const response = UrlFetchApp.fetch(base + '/chat/completions', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { Authorization: 'Bearer ' + apiKey },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true,
+    });
+    const code = response.getResponseCode();
+    const body = response.getContentText();
+
+    if (code === 200) return extractChatText_(body);
+
+    // 선택 파라미터를 모르는 엔드포인트가 있다. 그 항목만 빼고 다시 시도한다
+    // — 프롬프트에 형식을 적어두었으므로 JSON 모드가 없어도 파싱은 된다.
+    if (code === 400 && /response_format/i.test(body) && payload.response_format) {
+      delete payload.response_format;
+      continue;
+    }
+    if (code === 400 && /temperature/i.test(body) && payload.temperature !== undefined) {
+      delete payload.temperature;
+      continue;
+    }
+    lastError = chatErrorMessage_(code, body, model);
+    if (code === 429 || code >= 500) {
+      Utilities.sleep(800 * (attempt + 1));
+      continue;
+    }
+    throw new Error(lastError);
+  }
+  throw new Error(lastError || 'Sakana 호출에 실패했습니다.');
+}
+
+function chatErrorMessage_(code, body, model) {
+  let detail = '';
+  try {
+    const parsed = JSON.parse(body);
+    detail = (parsed.error && (parsed.error.message || parsed.error.code)) || '';
+  } catch (e) {
+    detail = String(body).slice(0, 300);
+  }
+  if (code === 401) return 'Sakana API 키가 올바르지 않습니다. 스크립트 속성을 확인하세요.';
+  if (code === 402 || /quota|credit|balance/i.test(detail)) return 'Sakana 계정의 크레딧이 부족합니다.';
+  if (code === 403) return 'Sakana API 접근이 거부되었습니다 (키 권한 또는 지역 제한 확인).';
+  if (code === 404) return '모델 "' + model + '" 을(를) 찾을 수 없습니다. SAKANA_MODEL 속성을 확인하세요.';
+  if (code === 429) return '요청이 몰렸습니다. 잠시 후 다시 시도해주세요.';
+  if (code >= 500) return 'Sakana 서버 오류(' + code + '). 잠시 후 다시 시도해주세요.';
+  return 'Sakana 오류(' + code + '): ' + detail;
+}
+
+/** OpenAI 호환 응답에서 본문 텍스트만 꺼낸다. */
+function extractChatText_(body) {
+  let data;
+  try {
+    data = JSON.parse(body);
+  } catch (e) {
+    throw new Error('모델 응답을 해석하지 못했습니다.');
+  }
+  const choice = (data.choices || [])[0];
+  if (!choice) throw new Error('모델이 결과를 반환하지 않았습니다.');
+  if (choice.finish_reason === 'length') {
+    throw new Error('내용이 너무 길어 결과가 잘렸습니다. 입력을 나눠서 다시 시도해주세요.');
+  }
+  const message = choice.message || {};
+  const text = String(message.content == null ? '' : message.content).trim();
+  if (!text) throw new Error('모델 응답이 비어 있습니다.');
+  return text;
 }
 
 // ── Gemini 호출 ─────────────────────────────────────────────────────

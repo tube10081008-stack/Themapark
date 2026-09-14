@@ -26,7 +26,7 @@ vm.createContext(sandbox);
 vm.runInContext(source, sandbox, { filename: 'Code.gs' });
 
 // 함수 선언은 샌드박스 전역에 올라오지만, const 상수는 그렇지 않아 따로 꺼낸다.
-const { parseModelJson, normalizeItems, normalizeItem, normalizeDue, itemToRow, thinkingConfig } = sandbox;
+const { parseModelJson, normalizeItems, normalizeItem, normalizeDue, itemToRow, thinkingConfig, resolveProvider } = sandbox;
 const HEADERS = vm.runInContext('HEADERS', sandbox);
 const MAX_ITEMS = vm.runInContext('MAX_ITEMS', sandbox);
 
@@ -102,6 +102,23 @@ check('배열이 아니면 빈 배열', () => eq(normalizeItems({ a: 1 }), []));
 check('한 번에 ' + MAX_ITEMS + '건을 넘지 않는다', () => {
   const many = Array.from({ length: 80 }, () => ({ category: 'TODO', summary: '가' }));
   assert.strictEqual(normalizeItems(many).length, MAX_ITEMS);
+});
+
+console.log('resolveProvider');
+check('키가 있는 쪽을 자동으로 고른다', () => {
+  assert.strictEqual(resolveProvider(null, null, 'AIza...'), 'gemini');
+  assert.strictEqual(resolveProvider(null, 'sk-sakana', null), 'sakana');
+});
+check('둘 다 있으면 sakana', () => {
+  assert.strictEqual(resolveProvider('', 'sk-sakana', 'AIza...'), 'sakana');
+});
+check('LLM_PROVIDER 가 자동 판별보다 우선', () => {
+  assert.strictEqual(resolveProvider('Gemini', 'sk-sakana', 'AIza...'), 'gemini');
+  assert.strictEqual(resolveProvider(' sakana ', null, 'AIza...'), 'sakana');
+});
+check('키가 하나도 없으면 빈 문자열(호출 전에 막힌다)', () => {
+  assert.strictEqual(resolveProvider(null, '  ', ''), '');
+  assert.strictEqual(resolveProvider('bogus', null, null), '');
 });
 
 console.log('thinkingConfig');

@@ -8,11 +8,12 @@
 ```
 
 **Google Apps Script 웹앱** 한 개로 끝납니다. 서버도, OAuth 설정도, 배포 파이프라인도 없습니다.
-구글 계정 하나와 Gemini API 키 하나면 됩니다. 비용은 Gemini 호출분(사실상 0원 수준)뿐입니다.
+구글 계정 하나와 AI API 키 하나(**Gemini** 또는 **Sakana Fugu**)면 됩니다.
+**쓰는 사람은 로그인이 필요 없습니다** — URL만 열면 됩니다. 키는 서버(스크립트 속성)에만 있습니다.
 
 | 파일 | 역할 |
 |---|---|
-| `Code.gs` | 서버. Gemini 호출, 응답 정규화, 시트 적재, 접근 코드 검사 |
+| `Code.gs` | 서버. 모델 호출(Gemini / Sakana Fugu), 응답 정규화, 시트 적재, 접근 코드 검사 |
 | `index.html` | 화면. 붙여넣기 → 분류 결과 카드 → 전송 (외부 CDN 없음) |
 | `appsscript.json` | 매니페스트 (권한·시간대·웹앱 설정) |
 | `test_code.js` | 정규화 로직 테스트 — `node test_code.js` |
@@ -23,7 +24,9 @@
 ## 1. 준비물
 
 1. **구글 계정** — 시트를 소유할 계정. 대표 계정 하나로 만들고 셋이 공유하는 편이 낫습니다.
-2. **Gemini API 키** — [aistudio.google.com](https://aistudio.google.com/apikey) → `Get API key`.
+2. **AI API 키 하나** — 둘 중 아무거나. 넣은 쪽이 자동으로 쓰입니다.
+   - Gemini: [aistudio.google.com](https://aistudio.google.com/apikey) → `Get API key`
+   - Sakana Fugu: [console.sakana.ai](https://console.sakana.ai/get-started) → API 키 생성 (키는 생성 시 한 번만 보입니다)
 3. **빈 구글 스프레드시트** 하나. 주소창의 `/d/` 와 `/edit` 사이 문자열이 **시트 ID** 입니다.
    ```
    https://docs.google.com/spreadsheets/d/1AbCd...XyZ/edit
@@ -32,6 +35,7 @@
    시트 탭과 헤더(A~H)는 첫 저장 때 `업무로그` 시트로 자동 생성되므로 미리 만들 필요 없습니다.
 
 > ⚠ **무료 등급 주의**: Gemini API 무료 등급은 입력 내용이 모델 개선에 쓰일 수 있습니다.
+> (Sakana 는 유료 종량제라 이 문제가 없습니다.)
 > 견적·계약·인사 같은 내부 정보를 넣을 것이므로, 결제를 연결한 유료 등급 키 사용을 권합니다.
 
 ## 2. 설치 (웹 에디터, 5분)
@@ -62,14 +66,37 @@ API 키를 코드에 직접 쓰지 마세요. 여기 넣으면 저장소에도 �
 
 | 속성 이름 | 필수 | 값 | 설명 |
 |---|:--:|---|---|
-| `GEMINI_API_KEY` | ✅ | `AIza...` | AI Studio 에서 발급한 키 |
 | `SHEET_ID` | ✅ | `1AbCd...XyZ` | 적재할 스프레드시트 ID |
+| `GEMINI_API_KEY` | ◼ | `AIza...` | Gemini 를 쓸 때 |
+| `SAKANA_API_KEY` | ◼ | `sk-...` | Sakana Fugu 를 쓸 때 |
+| `ACCESS_CODE` | | `bongttorak26` | 설정하면 화면에서 이 코드를 입력해야 동작. 아래 "접근 제한" 참고 |
+| `LLM_PROVIDER` | | `sakana` | `gemini` 또는 `sakana`. 비우면 키가 있는 쪽을 자동 선택(둘 다 있으면 Sakana) |
+| `SAKANA_MODEL` | | `fugu` | 비우면 `fugu`. `fugu-ultra` / `fugu-max` / `fugu-cyber` |
+| `LLM_BASE_URL` | | `https://api.sakana.ai/v1` | 다른 OpenAI 호환 엔드포인트를 쓸 때만 |
 | `GEMINI_MODEL` | | `gemini-3.7-flash` | 비우면 이 값. 아래 "모델 선택" 참고 |
 | `GEMINI_THINKING_LEVEL` | | `low` | Gemini 3.x 의 사고 강도(`low`/`medium`/`high`). 비우면 `low`(속도 우선). `off` 면 옵션 자체를 안 보냄 |
 | `GEMINI_THINKING_BUDGET` | | `0` | **2.5 계열 모델을 쓸 때만.** 지정하면 위 레벨 대신 이 값을 보냄 |
-| `ACCESS_CODE` | | `bongttorak26` | 설정하면 화면에서 이 코드를 입력해야 동작. 아래 "접근 제한" 참고 |
 
-### 모델 선택
+◼ = `GEMINI_API_KEY` 와 `SAKANA_API_KEY` 중 **하나는 반드시** 있어야 합니다.
+
+### 모델 선택 — Sakana Fugu
+
+Sakana Fugu 는 OpenAI 호환 API(`POST https://api.sakana.ai/v1/chat/completions`, `Authorization: Bearer`)
+이므로 `SAKANA_API_KEY` 만 넣으면 바로 동작합니다. 키 하나로 `fugu` / `fugu-ultra` / `fugu-max` /
+`fugu-cyber` 를 골라 쓸 수 있고, 기본은 **`fugu`** 입니다.
+
+- **`fugu`(기본)** 를 권합니다. 요청을 내부에서 적절한 모델로 라우팅하고, 호출된 모델의 요금이 그대로 청구됩니다.
+- `fugu-ultra`($5 / $30 per 1M), `fugu-max`($2 / $6 per 1M) 는 더 어려운 다단계 작업용이라
+  이 용도(단톡방 몇 줄 분류)에는 과합니다. 응답도 더 느립니다.
+- Fugu 는 여러 에이전트를 거치는 오케스트레이션 모델이라 **응답이 Flash 계열보다 느릴 수 있습니다.**
+  붙여넣기 후 3초 안에 끝나야 한다면 `gemini-3.7-flash` 쪽이 유리합니다. 둘 다 키를 넣어두고
+  `LLM_PROVIDER` 로 바꿔가며 재보세요.
+- EU/EEA 지역에서는 서비스되지 않습니다(국내 사용은 무관).
+- Gemini 는 응답 스키마로 형식을 강제하지만 OpenAI 호환 경로는 프롬프트로 지시합니다.
+  그래서 `response_format` 을 모르는 엔드포인트를 만나면 그 옵션만 빼고 자동 재시도하며,
+  응답에 ```` ```json ```` 펜스가 붙어 와도 벗겨내고 파싱합니다.
+
+### 모델 선택 — Gemini
 
 기본값은 **`gemini-3.7-flash`** 입니다 (2026년 9월 기준). 짧은 입력을 대량으로 빠르게 처리하는
 용도에 권장되는 모델이라, 단톡방 몇 줄을 분류하는 이 도구에 맞습니다.
@@ -166,6 +193,9 @@ node preview.mjs      # preview.local.html 생성 → 브라우저로 열어 화
 |---|---|
 | `GEMINI_API_KEY 스크립트 속성이 비어 있습니다` | 3단계 속성 입력 누락. 속성 이름 오타(앞뒤 공백 포함) 확인 |
 | `SHEET_ID 로 시트를 열지 못했습니다` | 시트 ID 오타이거나, 배포 실행 계정에 그 시트 편집 권한이 없음 |
+| `Sakana API 키가 올바르지 않습니다` | 키 앞뒤 공백 또는 오타. 콘솔에서 키를 다시 발급받으세요(생성 시 한 번만 표시됨) |
+| `Sakana 계정의 크레딧이 부족합니다` | console.sakana.ai 에서 크레딧/결제 상태 확인 |
+| Gemini 키를 넣었는데 Sakana 로 호출됨 | 두 키가 다 들어 있으면 Sakana 가 우선입니다. `LLM_PROVIDER=gemini` 로 고정하세요 |
 | `모델 ... 을(를) 찾을 수 없습니다` | `GEMINI_MODEL` 값 확인. 비워두면 `gemini-3.7-flash` 를 씁니다. 폐기된 모델(2.5 계열)을 넣어도 이 오류가 납니다 |
 | `요청이 몰렸습니다` | Gemini 무료 등급 분당 한도. 잠시 후 재시도(코드가 2회까지 자동 재시도합니다) |
 | 화면이 안 뜨고 오류 페이지 | HTML 파일 이름이 `index` 인지 확인 |
