@@ -2653,6 +2653,17 @@
     }
 
     localStorage.setItem('bongplay_safety_consents', JSON.stringify(consents));
+
+    // Supabase 클라우드 DB 90일 경과 마스킹 보안 RPC 동시 호출
+    if (window.BongplaySync && window.BongplaySync.rpc) {
+      try {
+        var cfgCode = (window.BONGPLAY_CONFIG && window.BONGPLAY_CONFIG.ACCESS_CODE) || 'bongplay2026!';
+        await BongplaySync.rpc('mask_expired_consents_secure', { p_access_code: cfgCode });
+      } catch (errRpc) {
+        console.warn('Server-side PII mask RPC skipped or offline:', errRpc);
+      }
+    }
+
     const statusEl = document.getElementById('piiAuditStatusText');
     if (statusEl) {
       statusEl.textContent = `최근 점검 완료: ${maskedCount}건 마스킹 (사고보존 ${preservedCount}건, 정상보관 ${recentActiveCount}건)`;

@@ -92,7 +92,10 @@
     try {
       var res = await fetch(NOTIFY_ENDPOINT, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Bongplay-Token': 'bongplay_notify_auth_2026'
+        },
         body: JSON.stringify({ channel: channel, payload: payload })
       });
       return res.ok;

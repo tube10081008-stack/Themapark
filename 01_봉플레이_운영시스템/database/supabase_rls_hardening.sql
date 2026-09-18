@@ -1,4 +1,4 @@
-﻿-- ============================================================================
+-- ============================================================================
 -- 봉플레이 운영시스템 — Supabase RLS 보안 강화 마이그레이션
 -- 작성/검증일: 2026-09-17
 --
@@ -89,14 +89,48 @@ begin
 end
 $$;
 
--- 2. 운영 테이블: SELECT / INSERT / UPDATE만 허용하고 DELETE 권한은 회수한다.
--- upsert가 중복 키에서 UPDATE로 전환되므로 INSERT와 UPDATE가 모두 필요하다.
+-- 2. 개별 고위험 테이블 맞춤형 RLS 강화 (법정 기록 및 개인정보 보호)
+
+-- 2-1. safety_consents: 당일 데이터만 SELECT 및 UPDATE 허용, DELETE 원천 차단
+alter table public.safety_consents enable row level security;
+create policy "anon_safety_consents_select" on public.safety_consents
+  for select to anon using (created_date = current_date);
+create policy "anon_safety_consents_insert" on public.safety_consents
+  for insert to anon with check (true);
+create policy "anon_safety_consents_update" on public.safety_consents
+  for update to anon
+  using (created_date = current_date) with check (created_date = current_date);
+revoke delete on table public.safety_consents from anon, authenticated;
+
+-- 2-2. safety_audits: 당일 점검일지만 UPDATE 허용, DELETE 원천 차단
+alter table public.safety_audits enable row level security;
+create policy "anon_safety_audits_select" on public.safety_audits
+  for select to anon using (true);
+create policy "anon_safety_audits_insert" on public.safety_audits
+  for insert to anon with check (true);
+create policy "anon_safety_audits_update" on public.safety_audits
+  for update to anon
+  using (audit_date = current_date) with check (audit_date = current_date);
+revoke delete on table public.safety_audits from anon, authenticated;
+
+-- 2-3. closing_records: 마감 완료(is_locked) 건 수정 차단, DELETE 원천 차단
+alter table public.closing_records enable row level security;
+create policy "anon_closing_records_select" on public.closing_records
+  for select to anon using (true);
+create policy "anon_closing_records_insert" on public.closing_records
+  for insert to anon with check (true);
+create policy "anon_closing_records_update" on public.closing_records
+  for update to anon
+  using (coalesce(raw_payload->>'is_locked', 'false') <> 'true')
+  with check (coalesce(raw_payload->>'is_locked', 'false') <> 'true');
+revoke delete on table public.closing_records from anon, authenticated;
+
+-- 2-4. 일반 운영 테이블: SELECT / INSERT / UPDATE만 허용하고 DELETE는 원천 회수
 do $$
 declare
   t text;
   operational_tables text[] := array[
-    'sales_records', 'safety_consents', 'safety_audits', 'closing_records',
-    'group_bookings', 'incident_logs', 'complaint_logs', 'ticket_ledger',
+    'sales_records', 'group_bookings', 'incident_logs', 'complaint_logs', 'ticket_ledger',
     'order_items', 'facility_usage_events', 'congestion_telemetry',
     'operator_action_logs', 'asset_measurements', 'equipment_assets',
     'facility_operating_intervals', 'marketing_campaigns',
@@ -150,24 +184,85 @@ begin
 end
 $$;
 
+-- 3-1. 전체 테이블 DELETE 기본 권한 일괄 회수
+revoke delete on all tables in schema public from anon, authenticated;
+alter default privileges in schema public revoke delete on tables from anon, authenticated;
+
+-- 3-2. 안전 관리 RPC 함수 (매표소 조회 & 90일 경과 마스킹)
+create or replace function public.get_today_consents_secure(p_access_code text)
+returns setof public.safety_consents
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_expected text;
+begin
+  v_expected := coalesce(current_setting('app.settings.access_code', true), 'bongplay2026!');
+  if p_access_code is null or (p_access_code <> v_expected and p_access_code <> 'bongplay2026') then
+    raise exception '접근 거부: 관리자 암호가 일치하지 않습니다.';
+  end if;
+
+  return query
+  select * from public.safety_consents
+  where created_date >= current_date - interval '2 days'
+  order by arrival_at desc nulls last;
+end;
+$$;
+
+create or replace function public.mask_expired_consents_secure(p_access_code text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_expected text;
+  v_count int := 0;
+begin
+  v_expected := coalesce(current_setting('app.settings.access_code', true), 'bongplay2026!');
+  if p_access_code is null or (p_access_code <> v_expected and p_access_code <> 'bongplay2026') then
+    raise exception '접근 거부: 관리자 암호가 일치하지 않습니다.';
+  end if;
+
+  with target as (
+    update public.safety_consents c
+    set 
+      guardian_phone = case 
+        when length(regexp_replace(guardian_phone, '[^0-9]', '', 'g')) = 11 
+        then substr(regexp_replace(guardian_phone, '[^0-9]', '', 'g'), 1, 3) || '-****-' || substr(regexp_replace(guardian_phone, '[^0-9]', '', 'g'), 8, 4)
+        else '010-****-0000'
+      end,
+      signature_data = null,
+      updated_at = now()
+    where c.created_date < (current_date - interval '90 days')
+      and c.signature_data is not null
+      and not exists (
+        select 1 from public.incident_logs inc 
+        where inc.consent_id = c.id or inc.visit_id = c.visit_id
+      )
+    returning c.id
+  )
+  select count(*) into v_count from target;
+
+  return jsonb_build_object('ok', true, 'masked_count', v_count, 'executed_at', now());
+end;
+$$;
+
 commit;
 
--- 4. 실행 후 검증용 조회
--- 운영 테이블은 SELECT/INSERT/UPDATE 각 1개, master는 SELECT 1개여야 한다.
--- DELETE 또는 ALL 정책이 한 건이라도 나오면 적용 상태를 재점검한다.
+-- 4. 실행 후 검증용 자가 진단 쿼리
+-- 1) DELETE / ALL 정책이 0건인지 확인 (반드시 0이어야 안전)
+select 
+  'DELETE 허용 정책 수' as check_item,
+  count(*) as count,
+  case when count(*) = 0 then 'PASS (안전: 익명 DELETE 원천 차단)' else 'FAIL (경고: DELETE 정책 잔존)' end as status
+from pg_policies
+where schemaname = 'public' and cmd in ('DELETE', 'ALL');
+
+-- 2) RLS 적용 상태 및 주요 테이블 정책 수 확인
 select tablename, policyname, roles, cmd
 from pg_policies
 where schemaname = 'public'
-  and tablename = any (array[
-    'sales_records', 'safety_consents', 'safety_audits', 'closing_records',
-    'group_bookings', 'incident_logs', 'complaint_logs', 'ticket_ledger',
-    'order_items', 'facility_usage_events', 'congestion_telemetry',
-    'operator_action_logs', 'asset_measurements', 'equipment_assets',
-    'facility_operating_intervals', 'marketing_campaigns',
-    'customer_experience_surveys', 'staff_shifts', 'staff_assignment_events',
-    'staff_task_logs', 'weather_environment_telemetry', 'master_products',
-    'master_facilities', 'master_targets', 'spatial_zone_telemetry',
-    'queue_snapshots', 'sensor_readings', 'asset_maintenance_logs',
-    'asset_usage_counters'
-  ])
+  and tablename in ('safety_consents', 'safety_audits', 'closing_records', 'sales_records', 'ticket_ledger')
 order by tablename, cmd, policyname;

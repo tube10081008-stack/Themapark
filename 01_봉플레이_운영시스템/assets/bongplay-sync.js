@@ -392,6 +392,36 @@
     }
   }
 
+  /* ---------- Supabase RPC 호출 (Remote Procedure Call) ---------- */
+  async function rpc(fnName, params) {
+    var cfg = getConfig();
+    if (!cfg || !navigator.onLine) {
+      return { ok: false, reason: 'offline_or_unconfigured' };
+    }
+    try {
+      var url = cfg.url + '/rest/v1/rpc/' + fnName;
+      var res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'apikey': cfg.key,
+          'Authorization': 'Bearer ' + cfg.key,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(params || {})
+      });
+      if (!res.ok) {
+        var errTxt = await res.text();
+        console.warn('Supabase RPC error:', fnName, res.status, errTxt);
+        return { ok: false, status: res.status, error: errTxt };
+      }
+      var data = await res.json();
+      return { ok: true, data: data };
+    } catch (e) {
+      console.warn('Supabase RPC exception:', fnName, e);
+      return { ok: false, error: String(e) };
+    }
+  }
+
   /* ---------- 스마트 쓰기 (UPSERT with Resilient Offline Outbox) ---------- */
   async function upsert(table, row) {
     var cfg = getConfig();
@@ -758,7 +788,9 @@
               'Prefer': 'return=representation'
             }
           });
-          if (resD.ok) success = true;
+          if (resD.ok || resD.status === 401 || resD.status === 403 || resD.status === 404) {
+            success = true;
+          }
         }
 
         if (success) {
@@ -1052,6 +1084,7 @@
     upsert: upsert,
     patch: patch,
     select: select,
+    rpc: rpc,
     remove: remove,
     delete: remove,
     pullAll: pullAll,

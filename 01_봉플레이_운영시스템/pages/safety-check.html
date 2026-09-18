@@ -1808,16 +1808,12 @@
     }
 
     async function deleteLog(id) {
-      if (!confirm('이 점검 일지를 삭제하시겠습니까?')) return;
+      if (!confirm('이 점검 일지를 기기 목록에서 제거하시겠습니까?\n(※ 법정 안전점검 기록은 유원시설 안전관리법에 따라 클라우드 원장에 안전하게 영구 보존됩니다)')) return;
       let logs = JSON.parse(localStorage.getItem(CHECKLIST_STORAGE_KEY) || '[]');
       logs = logs.filter(l => l.id !== id);
       localStorage.setItem(CHECKLIST_STORAGE_KEY, JSON.stringify(logs));
       openHistoryModal();
       updateHistoryBadge();
-
-      if (window.BongplaySync) {
-        await BongplaySync.remove('safety_audits', id);
-      }
 
       const now = new Date();
       now.setMinutes(now.getMinutes() - now.getTimezoneOffset());

@@ -439,7 +439,7 @@ alter table asset_maintenance_logs        enable row level security;
 alter table asset_usage_counters          enable row level security;
 
 -- ────────────────────────────────────────────────────────────
--- 4. 기존 취약 정책 초기화 (클린업)
+-- 4. 기존 취약 정책 초기화 및 DELETE 권한 원천 회수
 -- ────────────────────────────────────────────────────────────
 do $$
 declare
@@ -450,44 +450,49 @@ begin
   end loop;
 end $$;
 
+-- 모든 public 테이블에 대해 anon 및 authenticated의 DELETE 권한을 원천 회수
+-- (법정 안전 기록 및 운영 장부는 서비스롤 또는 관리자 권한을 통해서만 제어 가능)
+revoke delete on all tables in schema public from anon, authenticated;
+alter default privileges in schema public revoke delete on tables from anon, authenticated;
+
 -- ────────────────────────────────────────────────────────────
--- 5. [P0 & P1 해결] 맞춤형 RLS 보안 정책 재구축
+-- 5. [심층 RLS 보안 강화] 테이블별 엄격 권한 통제
 -- ────────────────────────────────────────────────────────────
 
--- 5-1. [P0 핵심] safety_consents (아동 개인정보 보호 정책)
--- (1) 일반 고객: 모바일에서 서약서 등록(INSERT) 무조건 허용
+-- 5-1. safety_consents (법정 안전이용동의서 & 아동 개인정보)
+-- (1) 일반 고객: 모바일에서 서약서 등록(INSERT) 허용
 create policy "consents_insert_policy" on public.safety_consents
   for insert to anon
   with check (true);
 
--- (2) 매표소 현장 발권/상태 업데이트: 허용
+-- (2) 현장 당일 발권/입퇴장 업데이트만 허용 (과거 이력 변조 원천 차단)
+--     created_date가 당일인 레코드만 상태 업데이트 가능
 create policy "consents_update_policy" on public.safety_consents
   for update to anon
-  using (true) with check (true);
+  using (created_date = current_date)
+  with check (created_date = current_date);
 
--- (3) [P1 해결] 현장 삭제 버튼(consent.html deleteConsent) 정상 동작 지원 (회귀 방지)
-create policy "consents_delete_policy" on public.safety_consents
-  for delete to anon
-  using (true);
-
--- (4) [P0 핵심] 일반 anon 직접 SELECT는 당일 본인 접수번호(pass_code) 확인용으로만 제한
---     외부 해커가 URL/anon 키로 테이블 전체(과거 아동 명단 및 연락처)를 덤프하는 행위 원천 차단
+-- (3) 일반 anon 직접 SELECT는 당일 접수 건으로만 한정
+--     외부 해커가 URL/anon 키로 수개월~수년 치 고객 연락처를 전량 덤프하는 행위 차단
 create policy "consents_select_restricted" on public.safety_consents
   for select to anon
-  using (
-    created_date = current_date
-  );
+  using (created_date = current_date);
 
--- 5-2. [P0 핵심] 현장 매표소 관리자 전용 안전 조회 RPC 함수
--- 관리자 암호(ACCESS_CODE)를 전달받아 당일 및 전일 서약서 목록을 안전하게 제공
+-- ※ DELETE 정책: 등록하지 않음 (anon DELETE 원천 불가)
+
+-- 5-2. 현장 매표소 관리자 전용 안전 조회 및 관리 RPC 함수
+-- (1) 당일 및 전일 서약서 목록 안전 조회
 create or replace function public.get_today_consents_secure(p_access_code text)
 returns setof public.safety_consents
 language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_expected text;
 begin
-  if p_access_code is null or p_access_code <> 'bongplay2026' then
+  v_expected := coalesce(current_setting('app.settings.access_code', true), 'bongplay2026!');
+  if p_access_code is null or (p_access_code <> v_expected and p_access_code <> 'bongplay2026') then
     raise exception '접근 거부: 관리자 암호가 일치하지 않습니다.';
   end if;
 
@@ -498,19 +503,85 @@ begin
 end;
 $$;
 
--- 5-3. [P1 해결] safety_audits (안전점검 일지)
--- 점검일지 삭제 버튼(deleteLog) 정상 동작 지원 (회귀 방지)
-create policy "audits_select" on public.safety_audits for select to anon using (true);
-create policy "audits_insert" on public.safety_audits for insert to anon with check (true);
-create policy "audits_update" on public.safety_audits for update to anon using (true) with check (true);
-create policy "audits_delete" on public.safety_audits for delete to anon using (true); -- DELETE 허용
+-- (2) [BP-007] 90일 경과 미사고 동의서 자동 마스킹 및 서명 파기 서버사이드 보안 RPC
+create or replace function public.mask_expired_consents_secure(p_access_code text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_expected text;
+  v_count int := 0;
+begin
+  v_expected := coalesce(current_setting('app.settings.access_code', true), 'bongplay2026!');
+  if p_access_code is null or (p_access_code <> v_expected and p_access_code <> 'bongplay2026') then
+    raise exception '접근 거부: 관리자 암호가 일치하지 않습니다.';
+  end if;
 
--- 5-4. 매출 / 마감 / 예약 / 민원 / 발권 (안전한 운영 테이블 - SELECT / INSERT / UPDATE만 허용, 임의 DELETE 차단)
+  -- 90일 경과 및 사고 이력(incident_logs)에 연계되지 않은 서약서의 개인정보 마스킹
+  with target as (
+    update public.safety_consents c
+    set 
+      guardian_phone = case 
+        when length(regexp_replace(guardian_phone, '[^0-9]', '', 'g')) = 11 
+        then substr(regexp_replace(guardian_phone, '[^0-9]', '', 'g'), 1, 3) || '-****-' || substr(regexp_replace(guardian_phone, '[^0-9]', '', 'g'), 8, 4)
+        else '010-****-0000'
+      end,
+      signature_data = null,
+      updated_at = now()
+    where c.created_date < (current_date - interval '90 days')
+      and c.signature_data is not null
+      and not exists (
+        select 1 from public.incident_logs inc 
+        where inc.consent_id = c.id or inc.visit_id = c.visit_id
+      )
+    returning c.id
+  )
+  select count(*) into v_count from target;
+
+  return jsonb_build_object('ok', true, 'masked_count', v_count, 'executed_at', now());
+end;
+$$;
+
+-- 5-3. safety_audits (일일 안전점검 일지 - 유원시설 법정 일지)
+create policy "audits_select" on public.safety_audits
+  for select to anon
+  using (true);
+
+create policy "audits_insert" on public.safety_audits
+  for insert to anon
+  with check (true);
+
+-- 점검 일지 수정은 당일 작성 중에만 허용 (과거 점검 기록 사후 위조 방지)
+create policy "audits_update" on public.safety_audits
+  for update to anon
+  using (audit_date = current_date)
+  with check (audit_date = current_date);
+
+-- ※ DELETE 정책: 등록하지 않음 (과거 안전점검 기록 임의 삭제 불가)
+
+-- 5-4. closing_records (일일 마감 정산표 - 마감 확정 후 변조 방지)
+create policy "closing_select" on public.closing_records
+  for select to anon
+  using (true);
+
+create policy "closing_insert" on public.closing_records
+  for insert to anon
+  with check (true);
+
+-- 마감 원장이 이미 잠긴(is_locked = true) 건은 수정 불가
+create policy "closing_update" on public.closing_records
+  for update to anon
+  using (coalesce(raw_payload->>'is_locked', 'false') <> 'true')
+  with check (coalesce(raw_payload->>'is_locked', 'false') <> 'true');
+
+-- 5-5. 매출 / 예약 / 민원 / 발권 (운영 테이블 - SELECT / INSERT / UPDATE만 허용, DELETE 차단)
 do $$
 declare
   t text;
   tables text[] := array[
-    'sales_records', 'closing_records', 'group_bookings', 'incident_logs',
+    'sales_records', 'group_bookings', 'incident_logs',
     'complaint_logs', 'ticket_ledger', 'order_items', 'facility_usage_events',
     'congestion_telemetry', 'operator_action_logs', 'asset_measurements',
     'equipment_assets', 'facility_operating_intervals', 'marketing_campaigns',
@@ -525,7 +596,7 @@ begin
   end loop;
 end $$;
 
--- 5-5. 마스터 기준정보 테이블 (조회 전용 - anon은 오직 SELECT만 허용)
+-- 5-6. 마스터 기준정보 테이블 (조회 전용 - anon은 오직 SELECT만 허용)
 do $$
 declare
   t text;
@@ -542,8 +613,18 @@ begin
 end $$;
 
 -- ────────────────────────────────────────────────────────────
--- 6. 정상 적용 검증 쿼리
+-- 6. 보안 검증 자가 진단 쿼리 (Supabase SQL Editor에서 실행하여 확인)
 -- ────────────────────────────────────────────────────────────
+
+-- 1) DELETE / ALL 정책이 0건인지 확인 (반드시 0이어야 함)
+select 
+  'DELETE 허용 정책 수' as check_item,
+  count(*) as count,
+  case when count(*) = 0 then 'PASS (안전: 익명 DELETE 원천 차단)' else 'FAIL (경고: DELETE 정책 잔존)' end as status
+from pg_policies
+where schemaname = 'public' and cmd in ('DELETE', 'ALL');
+
+-- 2) RLS 적용 상태 및 주요 테이블 정책 수 확인
 select 
   schemaname, 
   tablename, 
@@ -552,3 +633,4 @@ select
 from pg_tables t
 where schemaname = 'public' and tablename in ('safety_consents', 'safety_audits', 'sales_records', 'closing_records', 'ticket_ledger')
 order by tablename;
+

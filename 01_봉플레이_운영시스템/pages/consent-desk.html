@@ -418,8 +418,16 @@
         if (raw) {
           consents = JSON.parse(raw);
         } else if (window.BongplaySync) {
-          const res = await BongplaySync.select('safety_consents', '?select=*&order=updated_at.desc&limit=200');
-          if (res.ok && Array.isArray(res.data)) {
+          let res = null;
+          if (BongplaySync.rpc) {
+            const cfgCode = (window.BONGPLAY_CONFIG && window.BONGPLAY_CONFIG.ACCESS_CODE) || 'bongplay2026!';
+            const rpcRes = await BongplaySync.rpc('get_today_consents_secure', { p_access_code: cfgCode });
+            if (rpcRes.ok && Array.isArray(rpcRes.data)) res = rpcRes;
+          }
+          if (!res) {
+            res = await BongplaySync.select('safety_consents', '?select=*&order=updated_at.desc&limit=200');
+          }
+          if (res && res.ok && Array.isArray(res.data)) {
             consents = res.data;
           }
         }
