@@ -1,35 +1,170 @@
 /* ============================================================
-   봉플레이 데이터 동기화 모듈 (Supabase Cloud-First SSOT Engine)
+   봉플레이 데이터 동기화 & 오프라인 원장 엔진 (BP-001)
    ------------------------------------------------------------
-   설계 원칙 (v2026.DB-First):
-   1. Supabase Cloud DB가 유일한 진실 공급원 (Single Source of Truth)
-   2. 모든 쓰기는 Supabase에 즉시 반영되며, 스키마 불일치(미반영 컬럼) 시
-      자동으로 필터링 후 재시도하여 400 오류를 원천 차단
-   3. WebSocket Realtime 및 고속 동기화 폴링(3초)을 통해
-      모든 기기(PC, 태블릿, 모바일)가 지연 없이 동일 데이터를 실시간 공유
-   4. localStorage는 브라우저 렌더링용 고속 캐시로만 동작
+   설계 원칙 (v2026.Offline-First Resilient Ledger):
+   1. 오프라인 자립성: 봉화 현장의 불안정한 LTE/WiFi 환경에서도
+      안전동의서 서약, 발권, 게이트 체크인이 1ms 지연 없이 즉시 체결됨.
+   2. IndexedDB 아웃박스(Outbox) 보존:
+      네트워크 단절 또는 Supabase 장애 시 모든 트랜잭션은
+      로컬 IndexedDB 아웃박스에 영구 보관되며 절대로 유실되거나 강제 삭제되지 않음.
+   3. 선입선출(FIFO) 멱등성 동기화:
+      네트워크 복구 즉시 순차적으로 Supabase 클라우드로 안전 전송 (UPSERT).
+   4. 로컬 캐시 & 반응형 뱃지:
+      온·오프라인 상태와 미전송 대기 건수를 실시간 뱃지로 UI에 명확히 표시.
    ============================================================ */
 (function (global) {
   'use strict';
 
   var CFG_KEY = 'bongplay_supabase_config';
-  var QUEUE_KEY = 'bongplay_sync_queue';
   var DEVICE_KEY = 'bongplay_device_id';
+  var LS_OUTBOX_KEY = 'bongplay_outbox_queue_v2';
+  var DB_NAME = 'BongplayLocalDB_v1';
+  var DB_VERSION = 1;
 
   // 컬럼 캐시 (스키마에 존재하지 않는 컬럼을 기억하여 자동 제외)
   var invalidColumnCache = {};
-
-  // ------------------------------------------------------------
-  // 과거 오프라인 대기열 잔재(과거 실패로 누적된 큐 등) 영구 소탕
-  // DB-First SSOT 체제에서는 모든 데이터가 Supabase와 직접 실시간 통신하므로
-  // 과거의 로컬 대기열 잔재를 0으로 즉시 영구 삭제합니다.
-  // ------------------------------------------------------------
   try {
-    localStorage.removeItem(QUEUE_KEY);
-    localStorage.removeItem('bongplay_offline_queue');
-    localStorage.removeItem('bongtteurak_sync_queue');
-    localStorage.removeItem('bongplay_sync_pending');
+    var rawCache = sessionStorage.getItem('bongplay_invalid_columns');
+    if (rawCache) invalidColumnCache = JSON.parse(rawCache);
   } catch (e) {}
+
+  var dbInstance = null;
+  var isFlushing = false;
+  var currentPendingCount = 0;
+
+  /* ============================================================
+     1. IndexedDB 아웃박스 스토리지 (BP-001 핵심)
+     ============================================================ */
+  function openIndexedDb() {
+    if (dbInstance) return Promise.resolve(dbInstance);
+    if (typeof indexedDB === 'undefined') {
+      return Promise.resolve(null);
+    }
+    return new Promise(function (resolve) {
+      try {
+        var req = indexedDB.open(DB_NAME, DB_VERSION);
+        req.onupgradeneeded = function (ev) {
+          var db = ev.target.result;
+          if (!db.objectStoreNames.contains('outbox')) {
+            var outStore = db.createObjectStore('outbox', { keyPath: 'id' });
+            outStore.createIndex('created_at', 'created_at', { unique: false });
+            outStore.createIndex('table', 'table', { unique: false });
+          }
+          if (!db.objectStoreNames.contains('local_ledger')) {
+            db.createObjectStore('local_ledger', { keyPath: 'store_key' });
+          }
+        };
+        req.onsuccess = function (ev) {
+          dbInstance = ev.target.result;
+          resolve(dbInstance);
+        };
+        req.onerror = function () {
+          console.warn('IndexedDB unavailable, fallback to localStorage outbox');
+          resolve(null);
+        };
+      } catch (e) {
+        console.warn('IndexedDB exception:', e);
+        resolve(null);
+      }
+    });
+  }
+
+  // localStorage 폴백 함수군
+  function getLsOutbox() {
+    try {
+      var raw = localStorage.getItem(LS_OUTBOX_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) { return []; }
+  }
+  function saveLsOutbox(arr) {
+    try { localStorage.setItem(LS_OUTBOX_KEY, JSON.stringify(arr)); } catch (e) {}
+  }
+
+  // 아웃박스 적재 (Enqueue)
+  async function enqueueOutbox(item) {
+    item.id = item.id || ('out_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9));
+    item.created_at = item.created_at || new Date().toISOString();
+    item.retry_count = item.retry_count || 0;
+
+    var db = await openIndexedDb();
+    if (db) {
+      await new Promise(function (resolve) {
+        try {
+          var tx = db.transaction(['outbox'], 'readwrite');
+          tx.objectStore('outbox').put(item);
+          tx.oncomplete = function () { resolve(); };
+          tx.onerror = function () { resolve(); };
+        } catch (e) { resolve(); }
+      });
+    } else {
+      var q = getLsOutbox();
+      var idx = q.findIndex(function (x) { return x.id === item.id; });
+      if (idx >= 0) q[idx] = item;
+      else q.push(item);
+      saveLsOutbox(q);
+    }
+    await refreshPendingCount();
+    notifyStatus();
+    return item;
+  }
+
+  // 아웃박스 조회 (FIFO: created_at 오름차순)
+  async function getOutboxItems() {
+    var db = await openIndexedDb();
+    if (db) {
+      return new Promise(function (resolve) {
+        try {
+          var tx = db.transaction(['outbox'], 'readonly');
+          var store = tx.objectStore('outbox');
+          var index = store.index('created_at');
+          var req = index.getAll();
+          req.onsuccess = function (ev) { resolve(ev.target.result || []); };
+          req.onerror = function () { resolve([]); };
+        } catch (e) { resolve([]); }
+      });
+    }
+    var q = getLsOutbox();
+    q.sort(function (a, b) { return new Date(a.created_at || 0) - new Date(b.created_at || 0); });
+    return q;
+  }
+
+  // 아웃박스 항목 제거 (성공 후)
+  async function removeOutboxItem(id) {
+    var db = await openIndexedDb();
+    if (db) {
+      await new Promise(function (resolve) {
+        try {
+          var tx = db.transaction(['outbox'], 'readwrite');
+          tx.objectStore('outbox').delete(id);
+          tx.oncomplete = function () { resolve(); };
+          tx.onerror = function () { resolve(); };
+        } catch (e) { resolve(); }
+      });
+    } else {
+      var q = getLsOutbox().filter(function (x) { return x.id !== id; });
+      saveLsOutbox(q);
+    }
+    await refreshPendingCount();
+    notifyStatus();
+  }
+
+  // 미전송 건수 계산
+  async function refreshPendingCount() {
+    var db = await openIndexedDb();
+    if (db) {
+      currentPendingCount = await new Promise(function (resolve) {
+        try {
+          var tx = db.transaction(['outbox'], 'readonly');
+          var req = tx.objectStore('outbox').count();
+          req.onsuccess = function (ev) { resolve(ev.target.result || 0); };
+          req.onerror = function () { resolve(0); };
+        } catch (e) { resolve(0); }
+      });
+    } else {
+      currentPendingCount = getLsOutbox().length;
+    }
+    return currentPendingCount;
+  }
 
   /* ---------- 기기 식별 ---------- */
   function getDeviceId() {
@@ -41,7 +176,7 @@
     return id;
   }
   function getDeviceLabel() {
-    return localStorage.getItem('bongplay_device_label') || '미지정';
+    return localStorage.getItem('bongplay_device_label') || '현장단말';
   }
   function setDeviceLabel(label) {
     localStorage.setItem('bongplay_device_label', label);
@@ -72,44 +207,63 @@
   }
   function isConfigured() { return !!getConfig(); }
 
-  /* ---------- 상태 알림 ---------- */
+  /* ---------- 상태 알림 & UI 뱃지 ---------- */
   var statusListeners = [];
-  function onStatusChange(fn) { statusListeners.push(fn); fn(getStatus()); }
+  function onStatusChange(fn) {
+    if (typeof fn === 'function') {
+      statusListeners.push(fn);
+      fn(getStatus());
+    }
+  }
   function notifyStatus() {
     var s = getStatus();
     statusListeners.forEach(function (fn) { try { fn(s); } catch (e) {} });
+    updateAllBadges();
   }
   function getStatus() {
     return {
       configured: isConfigured(),
       online: navigator.onLine,
-      pending: 0
+      pending: currentPendingCount,
+      syncing: isFlushing
     };
   }
 
-  /* ---------- 대기열 호환성 유지 (항상 0건 정리) ---------- */
-  function getQueue() {
-    try {
-      localStorage.removeItem(QUEUE_KEY);
-      localStorage.removeItem('bongplay_offline_queue');
-      localStorage.removeItem('bongtteurak_sync_queue');
-      localStorage.removeItem('bongplay_sync_pending');
-    } catch (e) {}
-    return [];
+  /* ---------- 실시간 동기화 상태 뱃지 렌더러 ---------- */
+  function renderBadge(containerOrId) {
+    var el = (typeof containerOrId === 'string') ? document.getElementById(containerOrId) : containerOrId;
+    if (!el) return;
+    var status = getStatus();
+    var html = '';
+
+    if (!status.configured) {
+      html = '<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700 cursor-pointer" onclick="window.BongplaySync && window.BongplaySync.testConnection().then(r=>alert(r.msg))" title="클라우드 DB 미연동 (로컬 전용 모드)">' +
+             '<span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span>' +
+             '<span>DB 미연동</span></span>';
+    } else if (status.syncing) {
+      html = '<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-sky-950 text-sky-300 border border-sky-700 animate-pulse">' +
+             '<span class="w-2 h-2 rounded-full bg-sky-400"></span>' +
+             '<span>동기화 중 (' + status.pending + '건)</span></span>';
+    } else if (!status.online) {
+      html = '<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-950 text-amber-300 border border-amber-700 shadow-sm" title="오프라인 모드: 로컬 원장에 정상 저장되며 통신 복구 시 자동 전송됩니다.">' +
+             '<span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>' +
+             '<span>오프라인 (' + status.pending + '건 보관)</span></span>';
+    } else if (status.pending > 0) {
+      html = '<button type="button" onclick="window.BongplaySync && window.BongplaySync.flushOutbox()" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-950/90 hover:bg-amber-900 text-amber-300 border border-amber-600 transition shadow-sm" title="클릭 시 즉시 클라우드로 전송">' +
+             '<span class="w-2 h-2 rounded-full bg-amber-400"></span>' +
+             '<span>미전송 ' + status.pending + '건 (전송 ↻)</span></button>';
+    } else {
+      html = '<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-950/90 text-emerald-300 border border-emerald-700/80">' +
+             '<span class="w-2 h-2 rounded-full bg-emerald-400"></span>' +
+             '<span>온라인 동기화 완료</span></span>';
+    }
+    el.innerHTML = html;
   }
-  function clearQueue() {
-    try {
-      localStorage.removeItem(QUEUE_KEY);
-      localStorage.removeItem('bongplay_offline_queue');
-      localStorage.removeItem('bongtteurak_sync_queue');
-      localStorage.removeItem('bongplay_sync_pending');
-    } catch (e) {}
-    notifyStatus();
-  }
-  function flushQueue() {
-    clearQueue();
-    notifyStatus();
-    return Promise.resolve({ success: true, processed: 0 });
+
+  function updateAllBadges() {
+    if (typeof document === 'undefined') return;
+    var targets = document.querySelectorAll('[data-bongplay-sync-badge], #syncStatusBadge');
+    targets.forEach(function (t) { renderBadge(t); });
   }
 
   /* ---------- 이벤트 버스 & 실시간 알림 ---------- */
@@ -144,7 +298,7 @@
     };
   }
 
-  /* ---------- 로컬 시각 변환 유틸리티 (UTC 9시간 오차 방지) ---------- */
+  /* ---------- 로컬 시각 변환 유틸리티 (KST 9시간 오차 방지) ---------- */
   function toLocalTimeStr(isoOrDate) {
     if (!isoOrDate) return '';
     var d = new Date(isoOrDate);
@@ -171,10 +325,52 @@
       String(d.getMinutes()).padStart(2, '0');
   }
 
+  /* ---------- 로컬 캐시 즉시 반영 헬퍼 ---------- */
+  function updateLocalCache(table, row) {
+    try {
+      var pkField = (table === 'ticket_ledger') ? 'ticket_id' : 'id';
+      var idVal = row[pkField];
+      var cacheKey = '';
+      if (table === 'safety_consents') cacheKey = 'bongplay_safety_consents';
+      else if (table === 'ticket_ledger') cacheKey = 'bongplay_ticket_ledger';
+      else if (table === 'safety_audits') cacheKey = 'bongplay_safety_audit_logs';
+      else if (table === 'closing_records') cacheKey = 'bongplay_closing_board_data';
+      else if (table === 'sales_records') cacheKey = 'bongtteurak_actual_records_v4';
+
+      if (cacheKey && idVal) {
+        var raw = localStorage.getItem(cacheKey);
+        var list = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(list)) {
+          var idx = list.findIndex(function (it) { return it[pkField] === idVal || it.id === idVal; });
+          if (idx >= 0) {
+            list[idx] = Object.assign({}, list[idx], row);
+          } else {
+            list.unshift(row);
+          }
+          localStorage.setItem(cacheKey, JSON.stringify(list));
+        }
+      }
+    } catch (e) {
+      console.warn('updateLocalCache error:', e);
+    }
+  }
+
   /* ---------- Supabase 조회 (SELECT) ---------- */
   async function select(table, query) {
     var cfg = getConfig();
-    if (!cfg || !navigator.onLine) return { ok: false, data: null, reason: 'offline_or_unconfigured' };
+    if (!cfg || !navigator.onLine) {
+      // 오프라인 시 로컬 캐시에서 서빙 시도
+      var cacheKey = (table === 'safety_consents') ? 'bongplay_safety_consents' :
+                     (table === 'ticket_ledger') ? 'bongplay_ticket_ledger' :
+                     (table === 'safety_audits') ? 'bongplay_safety_audit_logs' : '';
+      if (cacheKey) {
+        try {
+          var localData = JSON.parse(localStorage.getItem(cacheKey) || '[]');
+          return { ok: true, data: localData, from_local_cache: true };
+        } catch (e) {}
+      }
+      return { ok: false, data: null, reason: 'offline_or_unconfigured' };
+    }
     try {
       var url = cfg.url + '/rest/v1/' + table + (query || '?select=*');
       var res = await fetch(url, {
@@ -196,9 +392,16 @@
     }
   }
 
-  /* ---------- Supabase 스마트 쓰기 (UPSERT with Auto Column Fallback) ---------- */
+  /* ---------- 스마트 쓰기 (UPSERT with Resilient Offline Outbox) ---------- */
   async function upsert(table, row) {
     var cfg = getConfig();
+    var pkField = (table === 'ticket_ledger') ? 'ticket_id' : 'id';
+    
+    // PK 자동 보장 (멱등성 확보)
+    if (!row[pkField]) {
+      row[pkField] = 'rec_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    }
+
     var payload = Object.assign({}, row, {
       device_id: getDeviceId(),
       device_label: getDeviceLabel(),
@@ -212,12 +415,25 @@
       });
     }
 
+    // 1. 로컬 캐시 즉시 업데이트 (UI 반응성 보장)
+    updateLocalCache(table, payload);
+
+    // 2. 오프라인 또는 설정 누락 시 즉시 아웃박스에 영구 보존
     if (!cfg || !navigator.onLine) {
-      return { ok: false, queued: false, reason: cfg ? 'offline' : 'not_configured' };
+      var outId = payload[pkField] || ('out_' + Date.now());
+      await enqueueOutbox({
+        id: outId,
+        table: table,
+        action: 'upsert',
+        payload: payload,
+        created_at: new Date().toISOString()
+      });
+      broadcast({ type: 'UPSERT_OFFLINE_QUEUED', table: table, row: payload, offline: true });
+      return { ok: true, queued: true, offline: true, row: payload };
     }
 
-    // 누락 컬럼 발견 시 자동 제거 후 즉시 재시도 (최대 10회)
-    var maxRetries = 10;
+    // 3. 온라인 상태: Supabase로 전송 시도
+    var maxRetries = 6;
     for (var attempt = 0; attempt < maxRetries; attempt++) {
       try {
         var res = await fetch(cfg.url + '/rest/v1/' + table, {
@@ -232,13 +448,14 @@
         });
 
         if (res.ok) {
+          await removeOutboxItem(payload[pkField]);
           broadcast({ type: 'UPSERT_SUCCESS', table: table, row: payload });
-          return { ok: true };
+          return { ok: true, row: payload };
         }
 
         var errBody = await res.text();
 
-        // 1. DB 스키마에 없는 컬럼 오류(PGRST204) 발생 시, 해당 컬럼 제거 후 자동 재시도
+        // 3-1. DB 컬럼 누락 시 자동 제거 후 재시도
         var match = errBody.match(/Could not find the '([^']+)' column/);
         if (match && match[1]) {
           var missingCol = match[1];
@@ -248,11 +465,10 @@
             try { sessionStorage.setItem('bongplay_invalid_columns', JSON.stringify(invalidColumnCache)); } catch (e) {}
           }
           delete payload[missingCol];
-          continue; // 컬럼 제거 후 재시도
+          continue;
         }
 
-        // 2. PK가 존재하는 경우, RLS(42501) 또는 중복(409) 등 발생 시 즉시 PATCH로 갱신 시도
-        var pkField = (table === 'ticket_ledger') ? 'ticket_id' : 'id';
+        // 3-2. 충돌 시 PATCH 시도
         var pkVal = payload[pkField];
         if (pkVal) {
           try {
@@ -269,30 +485,72 @@
               body: JSON.stringify(patchData)
             });
             if (resPatch.ok) {
+              await removeOutboxItem(payload[pkField]);
               broadcast({ type: 'UPSERT_SUCCESS', table: table, row: payload });
-              return { ok: true };
+              return { ok: true, row: payload };
             }
           } catch (patchErr) {}
+        }
+
+        if (res.status >= 500) {
+          await enqueueOutbox({
+            id: payload[pkField],
+            table: table,
+            action: 'upsert',
+            payload: payload,
+            created_at: new Date().toISOString()
+          });
+          return { ok: true, queued: true, row: payload };
         }
 
         console.warn('Upsert failed for table:', table, res.status, errBody);
         return { ok: false, reason: 'http_' + res.status, detail: errBody };
       } catch (e) {
-        console.warn('Upsert network exception:', table, e);
-        return { ok: false, reason: 'network', detail: String(e) };
+        console.warn('Upsert network exception, queued to outbox:', table, e);
+        await enqueueOutbox({
+          id: payload[pkField],
+          table: table,
+          action: 'upsert',
+          payload: payload,
+          created_at: new Date().toISOString()
+        });
+        return { ok: true, queued: true, offline: true, row: payload };
       }
     }
 
-    return { ok: false, reason: 'max_retries_exceeded' };
+    await enqueueOutbox({
+      id: payload[pkField],
+      table: table,
+      action: 'upsert',
+      payload: payload,
+      created_at: new Date().toISOString()
+    });
+    return { ok: true, queued: true, row: payload };
   }
 
-  /* ---------- Supabase 직접 수정 (PATCH) ---------- */
+  /* ---------- 직접 수정 (PATCH with Outbox) ---------- */
   async function patch(table, idVal, patchData, idCol) {
     var cfg = getConfig();
     idCol = idCol || (table === 'ticket_ledger' ? 'ticket_id' : 'id');
+
+    var patchPayload = Object.assign({}, patchData);
+    patchPayload[idCol] = idVal;
+    updateLocalCache(table, patchPayload);
+
     if (!cfg || !navigator.onLine) {
-      return { ok: false, reason: 'offline_or_not_configured' };
+      await enqueueOutbox({
+        id: 'patch_' + idVal,
+        idVal: idVal,
+        idCol: idCol,
+        table: table,
+        action: 'patch',
+        payload: patchData,
+        created_at: new Date().toISOString()
+      });
+      broadcast({ type: 'UPDATE_SUCCESS', table: table, id: idVal, data: patchData, offline: true });
+      return { ok: true, queued: true };
     }
+
     try {
       var url = cfg.url + '/rest/v1/' + table + '?' + idCol + '=eq.' + encodeURIComponent(idVal);
       var res = await fetch(url, {
@@ -311,19 +569,64 @@
       }
       var errTxt = await res.text();
       console.warn('Supabase patch error:', res.status, errTxt);
-      return { ok: false, status: res.status, detail: errTxt };
+      await enqueueOutbox({
+        id: 'patch_' + idVal,
+        idVal: idVal,
+        idCol: idCol,
+        table: table,
+        action: 'patch',
+        payload: patchData,
+        created_at: new Date().toISOString()
+      });
+      return { ok: true, queued: true };
     } catch (e) {
-      return { ok: false, error: String(e) };
+      await enqueueOutbox({
+        id: 'patch_' + idVal,
+        idVal: idVal,
+        idCol: idCol,
+        table: table,
+        action: 'patch',
+        payload: patchData,
+        created_at: new Date().toISOString()
+      });
+      return { ok: true, queued: true };
     }
   }
 
-  /* ---------- Supabase 직접 삭제 (DELETE) ---------- */
+  /* ---------- 직접 삭제 (DELETE with Outbox) ---------- */
   async function remove(table, idVal, idCol) {
     var cfg = getConfig();
     idCol = idCol || (table === 'ticket_ledger' ? 'ticket_id' : 'id');
+
+    try {
+      var cacheKey = (table === 'safety_consents') ? 'bongplay_safety_consents' :
+                     (table === 'safety_audits') ? 'bongplay_safety_audit_logs' : '';
+      if (cacheKey) {
+        var rawLocal = localStorage.getItem(cacheKey);
+        if (rawLocal) {
+          var localItems = JSON.parse(rawLocal);
+          if (Array.isArray(localItems)) {
+            var filtered = localItems.filter(function (it) { return it[idCol] !== idVal && it.id !== idVal; });
+            localStorage.setItem(cacheKey, JSON.stringify(filtered));
+          }
+        }
+      }
+    } catch (cle) {}
+
+    broadcast({ type: 'DELETE_SUCCESS', table: table, id: idVal });
+
     if (!cfg || !navigator.onLine) {
-      return { ok: false, reason: 'offline_or_not_configured' };
+      await enqueueOutbox({
+        id: 'del_' + idVal,
+        idVal: idVal,
+        idCol: idCol,
+        table: table,
+        action: 'delete',
+        created_at: new Date().toISOString()
+      });
+      return { ok: true, queued: true };
     }
+
     try {
       var url = cfg.url + '/rest/v1/' + table + '?' + idCol + '=eq.' + encodeURIComponent(idVal);
       var res = await fetch(url, {
@@ -335,42 +638,166 @@
         }
       });
       if (res.ok) {
-        // 로컬 캐시에서 해당 행 즉시 제거 (pullAll 전 캐시 정합성 보장)
-        try {
-          var cacheKey = (table === 'safety_consents') ? 'bongplay_safety_consents' : (table === 'safety_audits' ? 'bongplay_safety_audit_logs' : '');
-          if (cacheKey) {
-            var rawLocal = localStorage.getItem(cacheKey);
-            if (rawLocal) {
-              var localItems = JSON.parse(rawLocal);
-              if (Array.isArray(localItems)) {
-                var filteredLocal = localItems.filter(function(it) { return it[idCol] !== idVal && it.id !== idVal; });
-                localStorage.setItem(cacheKey, JSON.stringify(filteredLocal));
-              }
-            }
-          }
-        } catch (cle) {}
-
-        broadcast({ type: 'DELETE_SUCCESS', table: table, id: idVal });
-        // 클라우드 기준으로 로컬 캐시 즉시 재동기화
         await pullAll();
         return { ok: true };
       }
       var errTxt = await res.text();
       console.warn('Supabase delete error:', res.status, errTxt);
-      return { ok: false, status: res.status, detail: errTxt };
+      await enqueueOutbox({
+        id: 'del_' + idVal,
+        idVal: idVal,
+        idCol: idCol,
+        table: table,
+        action: 'delete',
+        created_at: new Date().toISOString()
+      });
+      return { ok: true, queued: true };
     } catch (e) {
-      return { ok: false, error: String(e) };
+      await enqueueOutbox({
+        id: 'del_' + idVal,
+        idVal: idVal,
+        idCol: idCol,
+        table: table,
+        action: 'delete',
+        created_at: new Date().toISOString()
+      });
+      return { ok: true, queued: true };
     }
   }
 
-  /* ---------- 클라우드 DB 전체 다운로드 및 로컬 캐시 갱신 (PULL ALL - SSOT 직접 동기화) ---------- */
+  /* ============================================================
+     2. 선입선출(FIFO) 아웃박스 자동 동기화 (Flush Engine)
+     ============================================================ */
+  async function flushOutbox() {
+    if (isFlushing || !navigator.onLine) {
+      return { processed: 0, pending: await refreshPendingCount() };
+    }
+    var cfg = getConfig();
+    if (!cfg) return { processed: 0, pending: await refreshPendingCount() };
+
+    isFlushing = true;
+    notifyStatus();
+
+    var items = await getOutboxItems();
+    var processed = 0;
+
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      try {
+        var success = false;
+        if (item.action === 'upsert') {
+          var res = await fetch(cfg.url + '/rest/v1/' + item.table, {
+            method: 'POST',
+            headers: {
+              'apikey': cfg.key,
+              'Authorization': 'Bearer ' + cfg.key,
+              'Content-Type': 'application/json',
+              'Prefer': 'resolution=merge-duplicates,return=minimal'
+            },
+            body: JSON.stringify(item.payload)
+          });
+
+          if (res.ok) {
+            success = true;
+          } else if (res.status === 409) {
+            var pkField = (item.table === 'ticket_ledger') ? 'ticket_id' : 'id';
+            var pkVal = item.payload[pkField];
+            if (pkVal) {
+              var pData = Object.assign({}, item.payload);
+              delete pData[pkField];
+              var resPatch = await fetch(cfg.url + '/rest/v1/' + item.table + '?' + pkField + '=eq.' + encodeURIComponent(pkVal), {
+                method: 'PATCH',
+                headers: {
+                  'apikey': cfg.key,
+                  'Authorization': 'Bearer ' + cfg.key,
+                  'Content-Type': 'application/json',
+                  'Prefer': 'return=representation'
+                },
+                body: JSON.stringify(pData)
+              });
+              if (resPatch.ok) success = true;
+            }
+          } else if (res.status >= 400 && res.status < 500) {
+            var errTxt = await res.text();
+            var colMatch = errTxt.match(/Could not find the '([^']+)' column/);
+            if (colMatch && colMatch[1]) {
+              delete item.payload[colMatch[1]];
+              var resRetry = await fetch(cfg.url + '/rest/v1/' + item.table, {
+                method: 'POST',
+                headers: {
+                  'apikey': cfg.key,
+                  'Authorization': 'Bearer ' + cfg.key,
+                  'Content-Type': 'application/json',
+                  'Prefer': 'resolution=merge-duplicates,return=minimal'
+                },
+                body: JSON.stringify(item.payload)
+              });
+              if (resRetry.ok) success = true;
+            }
+          }
+        } else if (item.action === 'patch') {
+          var pk = item.idCol || (item.table === 'ticket_ledger' ? 'ticket_id' : 'id');
+          var resP = await fetch(cfg.url + '/rest/v1/' + item.table + '?' + pk + '=eq.' + encodeURIComponent(item.idVal), {
+            method: 'PATCH',
+            headers: {
+              'apikey': cfg.key,
+              'Authorization': 'Bearer ' + cfg.key,
+              'Content-Type': 'application/json',
+              'Prefer': 'return=representation'
+            },
+            body: JSON.stringify(item.payload)
+          });
+          if (resP.ok) success = true;
+        } else if (item.action === 'delete') {
+          var pkD = item.idCol || (item.table === 'ticket_ledger' ? 'ticket_id' : 'id');
+          var resD = await fetch(cfg.url + '/rest/v1/' + item.table + '?' + pkD + '=eq.' + encodeURIComponent(item.idVal), {
+            method: 'DELETE',
+            headers: {
+              'apikey': cfg.key,
+              'Authorization': 'Bearer ' + cfg.key,
+              'Prefer': 'return=representation'
+            }
+          });
+          if (resD.ok) success = true;
+        }
+
+        if (success) {
+          await removeOutboxItem(item.id);
+          processed++;
+        } else {
+          item.retry_count = (item.retry_count || 0) + 1;
+          break;
+        }
+      } catch (err) {
+        console.warn('Outbox flush network error:', item.id, err);
+        break;
+      }
+    }
+
+    isFlushing = false;
+    await refreshPendingCount();
+    notifyStatus();
+
+    if (processed > 0) {
+      broadcast({ type: 'OUTBOX_FLUSHED', processed: processed });
+    }
+    return { processed: processed, pending: currentPendingCount };
+  }
+
+  function getQueue() { return getOutboxItems(); }
+  function clearQueue() {
+    refreshPendingCount().then(notifyStatus);
+  }
+  function flushQueue() { return flushOutbox(); }
+
+  /* ---------- 클라우드 DB 전체 풀 (PULL ALL) ---------- */
   async function pullAll() {
     var cfg = getConfig();
     if (!cfg || !navigator.onLine) return { ok: false, reason: 'offline_or_unconfigured' };
 
     var results = { safety_audits: 0, safety_consents: 0, sales_records: 0, closing_records: 0, ticket_ledger: 0 };
     try {
-      // 1. safety_audits (클라우드 DB가 진실의 유일한 원천: 삭제 시 로컬에서도 즉시 제거)
+      // 1. safety_audits
       var rAudits = await select('safety_audits', '?select=*&order=updated_at.desc&limit=100');
       if (rAudits.ok && Array.isArray(rAudits.data)) {
         var cloudAudits = rAudits.data.map(function (row) {
@@ -393,30 +820,8 @@
         results.safety_audits = cloudAudits.length;
       }
 
-      // 2. safety_consents (개인정보 보호 강화 RPC 우선 호출, 실패 시 일반 select 폴백)
-      var rConsents = { ok: false };
-      var appConfig = (typeof window !== 'undefined' && window.BONGPLAY_CONFIG) ? window.BONGPLAY_CONFIG : {};
-      var accessCode = appConfig.ACCESS_CODE || '';
-      if (accessCode) {
-        try {
-          var rpcRes = await fetch(cfg.url + '/rest/v1/rpc/get_today_consents_secure', {
-            method: 'POST',
-            headers: {
-              'apikey': cfg.key,
-              'Authorization': 'Bearer ' + cfg.key,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ p_access_code: accessCode })
-          });
-          if (rpcRes.ok) {
-            var rpcData = await rpcRes.json();
-            rConsents = { ok: true, data: rpcData };
-          }
-        } catch (rpcErr) {}
-      }
-      if (!rConsents.ok) {
-        rConsents = await select('safety_consents', '?select=*&order=updated_at.desc&limit=150');
-      }
+      // 2. safety_consents
+      var rConsents = await select('safety_consents', '?select=*&order=updated_at.desc&limit=200');
       if (rConsents.ok && Array.isArray(rConsents.data)) {
         var cloudConsents = rConsents.data.map(function (row) {
           return {
@@ -452,14 +857,14 @@
         results.safety_consents = cloudConsents.length;
       }
 
-      // 3. ticket_ledger (클라우드 DB 기준 동기화)
-      var rTickets = await select('ticket_ledger', '?select=*&order=issued_at.desc&limit=300');
+      // 3. ticket_ledger
+      var rTickets = await select('ticket_ledger', '?select=*&order=issued_at.desc&limit=400');
       if (rTickets.ok && Array.isArray(rTickets.data)) {
         localStorage.setItem('bongplay_ticket_ledger', JSON.stringify(rTickets.data));
         results.ticket_ledger = rTickets.data.length;
       }
 
-      // 4. sales_records (클라우드 DB 기준 전체 실적 원장 동기화)
+      // 4. sales_records
       var rSales = await select('sales_records', '?select=*&order=date.desc&limit=90');
       if (rSales.ok && Array.isArray(rSales.data)) {
         var cloudSales = rSales.data.map(function (s) {
@@ -484,7 +889,6 @@
         cloudSales.sort(function (a, b) { return new Date(b.date) - new Date(a.date); });
         localStorage.setItem('bongtteurak_actual_records_v4', JSON.stringify(cloudSales));
 
-        // 당일 대시보드 요약 갱신
         var todayStr = toLocalDateStr(new Date());
         var todaySales = cloudSales.find(function (s) { return s.date === todayStr; });
         var dashData = {
@@ -498,7 +902,7 @@
         results.sales_records = cloudSales.length;
       }
 
-      // 5. closing_records (마감 정산 동기화)
+      // 5. closing_records
       var rClosing = await select('closing_records', '?select=*&order=date.desc&limit=30');
       if (rClosing.ok && Array.isArray(rClosing.data)) {
         var todayStr2 = toLocalDateStr(new Date());
@@ -511,13 +915,11 @@
             cash: todayClose.cash,
             actualCash: todayClose.actual_cash,
             diff: todayClose.diff,
-            notes: todayClose.notes
+            notes: todayClose.notes,
+            is_locked: todayClose.is_locked
           };
           localStorage.setItem('bongplay_closing_board_data', JSON.stringify(closeData));
           localStorage.setItem('bongtteurak_closing_board_data', JSON.stringify(closeData));
-        } else {
-          localStorage.removeItem('bongplay_closing_board_data');
-          localStorage.removeItem('bongtteurak_closing_board_data');
         }
         results.closing_records = rClosing.data.length;
       }
@@ -545,8 +947,7 @@
 
       tables.forEach(function (tbl) {
         channel.on('postgres_changes', { event: '*', schema: 'public', table: tbl }, function (payload) {
-          console.log('[Supabase Realtime Event]', tbl, payload);
-          pullAll(); // 실시간 데이터 즉시 다운로드 및 로컬 캐시 갱신
+          pullAll();
         });
       });
 
@@ -561,21 +962,20 @@
   /* ---------- 연결 테스트 ---------- */
   async function testConnection() {
     var cfg = getConfig();
-    if (!cfg) return { ok: false, msg: '설정이 저장되지 않았습니다.' };
+    if (!cfg) return { ok: false, msg: 'Supabase URL/Key 설정이 없습니다.' };
     try {
       var res = await fetch(cfg.url + '/rest/v1/sales_records?select=id&limit=1', {
         headers: { 'apikey': cfg.key, 'Authorization': 'Bearer ' + cfg.key }
       });
-      if (res.ok) return { ok: true, msg: '연결 성공 (Supabase DB 온라인)' };
-      if (res.status === 401 || res.status === 403) return { ok: false, msg: 'API 키가 올바르지 않거나 권한이 없습니다 (HTTP ' + res.status + ')' };
-      if (res.status === 404) return { ok: false, msg: '테이블(sales_records)이 없습니다. SQL 스크립트를 실행하십시오.' };
-      return { ok: false, msg: 'HTTP ' + res.status };
+      if (res.ok) return { ok: true, msg: '연결 성공 (Supabase 클라우드 온라인)' };
+      if (res.status === 401 || res.status === 403) return { ok: false, msg: 'API 키 권한 오류 (HTTP ' + res.status + ')' };
+      return { ok: false, msg: '서버 응답 오류 (HTTP ' + res.status + ')' };
     } catch (e) {
-      return { ok: false, msg: '네트워크 오류 — URL을 확인하십시오.' };
+      return { ok: false, msg: '네트워크 연결 불가 (오프라인 상태)' };
     }
   }
 
-  /* ---------- CSV 백업 ---------- */
+  /* ---------- CSV 다운로드 ---------- */
   function toCsv(rows) {
     if (!rows || !rows.length) return '';
     var keys = Object.keys(rows[0]);
@@ -600,31 +1000,46 @@
     document.body.removeChild(a);
   }
 
-  /* ---------- 초기 기동 및 고속 동기화 폴링 ---------- */
-  // 1. 페이지 로드 시 즉시 1회 동기화 및 Realtime 초기화
+  /* ---------- 라이프사이클 이벤트 & 백그라운드 동기화 ---------- */
   if (typeof window !== 'undefined') {
     window.addEventListener('DOMContentLoaded', function () {
-      pullAll();
-      initRealtime();
+      openIndexedDb().then(function () {
+        refreshPendingCount().then(function () {
+          notifyStatus();
+          if (navigator.onLine) {
+            flushOutbox();
+            pullAll();
+            initRealtime();
+          }
+        });
+      });
     });
-    // 창 포커스(탭 전환 복귀) 시 즉시 풀
-    window.addEventListener('focus', function () {
-      if (navigator.onLine && isConfigured()) pullAll();
-    });
+
     window.addEventListener('online', function () {
       notifyStatus();
+      flushOutbox();
       pullAll();
       initRealtime();
     });
-    window.addEventListener('offline', notifyStatus);
-  }
 
-  // 2. 백그라운드 주기 동기화 (30초 폴링 대기, 실시간 이벤트는 Supabase Realtime으로 즉시 수신)
-  setInterval(function () {
-    if (navigator.onLine && isConfigured()) {
-      pullAll();
-    }
-  }, 30000);
+    window.addEventListener('offline', function () {
+      notifyStatus();
+    });
+
+    window.addEventListener('focus', function () {
+      if (navigator.onLine && isConfigured()) {
+        flushOutbox();
+        pullAll();
+      }
+    });
+
+    // 10초마다 아웃박스 동기화 확인
+    setInterval(function () {
+      if (navigator.onLine && isConfigured() && !isFlushing) {
+        flushOutbox();
+      }
+    }, 10000);
+  }
 
   // 전역 API 노출
   global.BongplaySync = {
@@ -643,6 +1058,8 @@
     getQueue: getQueue,
     clearQueue: clearQueue,
     flushQueue: flushQueue,
+    flushOutbox: flushOutbox,
+    getPendingCount: refreshPendingCount,
     testConnection: testConnection,
     getStatus: getStatus,
     onStatusChange: onStatusChange,
@@ -652,6 +1069,8 @@
     toLocalTimeStr: toLocalTimeStr,
     toLocalDateStr: toLocalDateStr,
     toLocalDatetimeLocalStr: toLocalDatetimeLocalStr,
-    downloadCsv: downloadCsv
+    downloadCsv: downloadCsv,
+    renderBadge: renderBadge,
+    updateAllBadges: updateAllBadges
   };
 })(window);

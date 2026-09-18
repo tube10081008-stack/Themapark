@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>봉플레이 - 매표·서약 관리데스크 (현장 발권 및 접수)</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
+  <!-- QRCode.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0fdf4',
+              100: '#dcfce7',
+              500: '#22c55e',
+              600: '#16a34a',
+              700: '#15803d',
+              800: '#166534',
+              900: '#14532d',
+              950: '#052e16'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800;900&display=swap');
+    * {
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+  </style>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../assets/config.js"></script>
+  <script src="../assets/bongplay-sync.js"></script>
+  <script src="../assets/bongplay-id.js"></script>
+  <script src="../assets/bongplay-wakelock.js"></script>
+  <link rel="stylesheet" href="../assets/print.css">
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased">
+
+  <!-- ================================================================= -->
+  <!-- TOP NAVIGATION: STAFF DESK BAR                                     -->
+  <!-- ================================================================= -->
+  <header class="bg-slate-900/90 border-b border-slate-800 sticky top-0 z-40 backdrop-blur-md px-3 sm:px-6 py-2.5 flex items-center justify-between gap-3">
+    <div class="flex items-center gap-2.5">
+      <a href="../index.html" class="w-8 h-8 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center text-white font-black text-xs shadow-md shadow-brand-600/30">
+        봉플
+      </a>
+      <div>
+        <h1 class="text-sm sm:text-base font-black tracking-tight text-white flex items-center gap-2">
+          <span>매표·서약 관리데스크</span>
+          <span class="text-[10px] font-extrabold text-brand-400 bg-brand-950/80 px-2 py-0.5 rounded-full border border-brand-800/60">
+            직원 전용
+          </span>
+        </h1>
+        <p class="text-[10px] text-slate-400">현장 안전서약 접수 확인 & 즉시 발권 연계 (BP-002)</p>
+      </div>
+    </div>
+
+    <!-- Quick Navigation & Sync Badge -->
+    <div class="flex items-center gap-2">
+      <!-- Sync Status Badge -->
+      <div id="syncStatusBadge"></div>
+
+      <!-- Quick Links -->
+      <div class="hidden md:flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold gap-1">
+        <a href="gate.html" class="px-2.5 py-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition flex items-center gap-1">
+          <i data-lucide="scan-line" class="w-3.5 h-3.5 text-sky-400"></i>
+          <span>게이트 관제</span>
+        </a>
+        <a href="operations.html" class="px-2.5 py-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition flex items-center gap-1">
+          <i data-lucide="activity" class="w-3.5 h-3.5 text-purple-400"></i>
+          <span>운영 현황</span>
+        </a>
+        <a href="safety-check.html" class="px-2.5 py-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition flex items-center gap-1">
+          <i data-lucide="clipboard-check" class="w-3.5 h-3.5 text-blue-400"></i>
+          <span>안전점검</span>
+        </a>
+        <a href="closing.html" class="px-2.5 py-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition flex items-center gap-1">
+          <i data-lucide="wallet" class="w-3.5 h-3.5 text-amber-400"></i>
+          <span>마감정산</span>
+        </a>
+      </div>
+
+      <a href="consent.html" target="_blank" class="px-2.5 py-1.5 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-black shadow transition flex items-center gap-1" title="고객용 서약 화면 새 창">
+        <i data-lucide="smartphone" class="w-3.5 h-3.5"></i>
+        <span class="hidden sm:inline">손님 서약창 열기</span>
+      </a>
+
+      <button onclick="toggleFullScreen()" class="p-2 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded-xl border border-slate-700 transition" title="전체화면">
+        <i data-lucide="maximize" class="w-4 h-4"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- ================================================================= -->
+  <!-- SAFETY INTERLOCK ALERT BANNER (BP-003)                            -->
+  <!-- ================================================================= -->
+  <div id="safetyInterlockBanner" class="hidden bg-rose-950/90 border-b border-rose-700 px-4 py-3 text-rose-100 flex items-center justify-between gap-3 shadow-lg">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-xl bg-rose-600 flex items-center justify-center shrink-0 animate-bounce">
+        <i data-lucide="shield-alert" class="w-5 h-5 text-white"></i>
+      </div>
+      <div>
+        <p class="text-xs sm:text-sm font-black text-white flex items-center gap-2">
+          <span>🚨 안전 인터록 작동: 금일 개장 전 안전점검 미완료 (발권 잠금)</span>
+          <span class="text-[10px] px-2 py-0.5 rounded bg-rose-800 text-rose-200 font-bold">발권 차단됨</span>
+        </p>
+        <p class="text-[11px] text-rose-300 mt-0.5">
+          점검 책임자가 [일일 안전점검]을 작성하고 '적합(PASS)' 판정을 내리기 전까지 고객 매표 및 발권 처리가 잠깁니다.
+        </p>
+      </div>
+    </div>
+    <a href="safety-check.html" class="px-3.5 py-1.5 bg-rose-500 hover:bg-rose-400 text-slate-950 font-black text-xs rounded-xl transition shrink-0 shadow flex items-center gap-1.5">
+      <i data-lucide="clipboard-check" class="w-3.5 h-3.5"></i>
+      <span>안전점검 작성하기 ↗</span>
+    </a>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- MAIN DESK CONTENT                                                 -->
+  <!-- ================================================================= -->
+  <main class="flex-1 p-3 sm:p-6 overflow-y-auto max-w-7xl mx-auto w-full space-y-4">
+
+    <!-- 1. Top Summary Cards -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4 shadow-sm">
+        <div class="text-slate-400 text-xs font-bold flex items-center gap-1.5">
+          <i data-lucide="file-signature" class="w-4 h-4 text-brand-400"></i>
+          <span>오늘 누적 서약</span>
+        </div>
+        <div class="mt-2 flex items-baseline gap-1">
+          <span id="statTotalConsents" class="text-2xl sm:text-3xl font-black font-mono text-white">0</span>
+          <span class="text-xs text-slate-400 font-bold">팀</span>
+        </div>
+        <div id="statTotalPeopleSub" class="text-[11px] text-slate-400 mt-1 truncate">총 0명 (성인 0 · 아동 0)</div>
+      </div>
+
+      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4 shadow-sm">
+        <div class="text-slate-400 text-xs font-bold flex items-center gap-1.5">
+          <i data-lucide="ticket" class="w-4 h-4 text-blue-400"></i>
+          <span>발권 완료</span>
+        </div>
+        <div class="mt-2 flex items-baseline gap-1">
+          <span id="statCompletedConsents" class="text-2xl sm:text-3xl font-black font-mono text-blue-400">0</span>
+          <span class="text-xs text-blue-400 font-bold">팀</span>
+        </div>
+        <div id="statCompletedPeopleSub" class="text-[11px] text-blue-400 font-semibold mt-1 truncate">발권 0명</div>
+      </div>
+
+      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4 shadow-sm">
+        <div class="text-slate-400 text-xs font-bold flex items-center gap-1.5">
+          <i data-lucide="clock" class="w-4 h-4 text-amber-400"></i>
+          <span>발권 대기 중</span>
+        </div>
+        <div class="mt-2 flex items-baseline gap-1">
+          <span id="statWaitingConsents" class="text-2xl sm:text-3xl font-black font-mono text-amber-400">0</span>
+          <span class="text-xs text-amber-400 font-bold">팀</span>
+        </div>
+        <div id="statWaitingPeopleSub" class="text-[11px] text-amber-400 font-semibold mt-1 truncate">대기 0명</div>
+      </div>
+
+      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4 shadow-sm">
+        <div class="text-slate-400 text-xs font-bold flex items-center gap-1.5">
+          <i data-lucide="baby" class="w-4 h-4 text-emerald-400"></i>
+          <span>서약 동반 아동</span>
+        </div>
+        <div class="mt-2 flex items-baseline gap-1">
+          <span id="statTotalChildren" class="text-2xl sm:text-3xl font-black font-mono text-emerald-400">0</span>
+          <span class="text-xs text-emerald-400 font-bold">명</span>
+        </div>
+        <div id="statChildrenBreakdown" class="text-[11px] text-emerald-400 font-semibold mt-1 truncate">신장 100cm 미달 체크 필요</div>
+      </div>
+    </div>
+
+    <!-- 2. Weekly Day Tabs Navigation -->
+    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3 sm:p-4 shadow-sm space-y-3">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 pb-2.5 border-b border-slate-800/80">
+        <div class="flex items-center gap-2">
+          <div class="w-7 h-7 rounded-lg bg-brand-500/20 border border-brand-500/40 flex items-center justify-center text-brand-400 shrink-0">
+            <i data-lucide="calendar-days" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <h2 class="text-xs sm:text-sm font-black text-white">요일별 서약 접수 현황</h2>
+              <span id="badgeActiveDateFilter" class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-brand-950 text-brand-300 border border-brand-800">
+                오늘
+              </span>
+            </div>
+            <p class="text-[11px] text-slate-400">요일 탭을 클릭하여 특정 일자 서약자만 격리 조회합니다.</p>
+          </div>
+        </div>
+
+        <!-- Week / Date Tools -->
+        <div class="flex items-center gap-1.5 flex-wrap self-end sm:self-auto text-xs">
+          <div class="flex items-center bg-slate-950 p-0.5 rounded-xl border border-slate-800">
+            <button type="button" onclick="changeWeek(-1)" class="px-2 py-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition" title="이전 주">
+              <i data-lucide="chevron-left" class="w-3.5 h-3.5"></i>
+            </button>
+            <button type="button" id="btnThisWeek" onclick="changeWeek(0)" class="px-2 py-1 text-[11px] font-bold text-slate-300 hover:text-white rounded-lg hover:bg-slate-800 transition" title="이번 주">
+              이번 주
+            </button>
+            <button type="button" onclick="changeWeek(1)" class="px-2 py-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition" title="다음 주">
+              <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+
+          <div class="flex items-center bg-slate-950 px-2 py-1 rounded-xl border border-slate-800 text-[11px]">
+            <i data-lucide="calendar" class="w-3.5 h-3.5 text-slate-400 mr-1.5"></i>
+            <input type="date" id="customDateInput" onchange="onCustomDateChange(event)" class="bg-transparent text-slate-200 text-[11px] outline-none cursor-pointer">
+          </div>
+
+          <button type="button" id="btnFilterDateAll" onclick="setDateFilter('all')" class="px-3 py-1.5 rounded-xl font-bold text-[11px] transition bg-slate-950 text-slate-400 hover:text-white border border-slate-800">
+            전체 기간
+          </button>
+        </div>
+      </div>
+
+      <!-- Weekly Day Tabs Container -->
+      <div id="weeklyDayTabsContainer" class="grid grid-cols-2 xs:grid-cols-4 md:grid-cols-7 gap-2"></div>
+    </div>
+
+    <!-- 3. Desk Control & Search Bar -->
+    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col md:flex-row items-center justify-between gap-3">
+      <!-- Search Input -->
+      <div class="relative w-full md:w-96">
+        <i data-lucide="search" class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500"></i>
+        <input type="text" id="adminSearchInput" oninput="renderAdminList()" placeholder="보호자 성명, 휴대전화 뒷자리, 바우처 코드 검색..."
+          class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-4 py-2 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 font-mono">
+      </div>
+
+      <!-- Filters & CSV Action -->
+      <div class="flex items-center gap-2 w-full md:w-auto justify-end flex-wrap">
+        <div class="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold">
+          <button id="btnFilterAll" onclick="setFilter('all')" class="px-2.5 py-1 rounded-lg bg-slate-800 text-white">전체</button>
+          <button id="btnFilterWait" onclick="setFilter('waiting')" class="px-2.5 py-1 rounded-lg text-slate-400 hover:text-white">대기중</button>
+          <button id="btnFilterDone" onclick="setFilter('done')" class="px-2.5 py-1 rounded-lg text-slate-400 hover:text-white">발권완료</button>
+        </div>
+
+        <button onclick="exportConsentsToExcel()" class="px-3 py-1.5 bg-brand-950 hover:bg-brand-900 text-brand-300 border border-brand-800 font-bold text-xs rounded-xl flex items-center gap-1.5 transition">
+          <i data-lucide="download" class="w-3.5 h-3.5"></i>
+          <span>엑셀(CSV) 내보내기</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 4. Main Consent Log Table -->
+    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-950/80 text-slate-400 font-bold border-b border-slate-800">
+            <tr>
+              <th class="py-3 px-3">접수시각</th>
+              <th class="py-3 px-3">바우처 번호</th>
+              <th class="py-3 px-3">보호자</th>
+              <th class="py-3 px-3">연락처</th>
+              <th class="py-3 px-3">지역</th>
+              <th class="py-3 px-3">동반 아동 (신장/체중)</th>
+              <th class="py-3 px-3">서약 확인</th>
+              <th class="py-3 px-3">현재 상태</th>
+              <th class="py-3 px-3 text-right">매표 / 발권</th>
+            </tr>
+          </thead>
+          <tbody id="consentTableBody" class="divide-y divide-slate-800/60 font-medium">
+            <tr>
+              <td colspan="9" class="py-12 text-center text-slate-500">
+                <div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-brand-500 mb-2"></div>
+                <p>서약 데이터를 동기화하는 중입니다...</p>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <!-- ================================================================= -->
+  <!-- MODAL: CONSENT DETAIL & LEGAL FORM PREVIEW                         -->
+  <!-- ================================================================= -->
+  <div id="detailModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full p-4 sm:p-6 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div class="flex items-center gap-2">
+          <div class="w-7 h-7 rounded-xl bg-brand-500/20 text-brand-400 flex items-center justify-center font-black">
+            <i data-lucide="file-check" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="text-sm sm:text-base font-black text-white">전자안전서약서 상세 확인</h3>
+            <p id="modalVoucherCode" class="text-[11px] font-mono text-brand-400">BP-XXXXXX</p>
+          </div>
+        </div>
+        <button onclick="closeDetailModal()" class="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Guest & Children Details -->
+      <div class="space-y-3 text-xs">
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5 bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
+          <div>
+            <span class="text-slate-500 block text-[10px]">보호자 성명</span>
+            <span id="modalGuardianName" class="font-bold text-white text-sm">-</span>
+          </div>
+          <div>
+            <span class="text-slate-500 block text-[10px]">휴대전화번호</span>
+            <span id="modalGuardianPhone" class="font-bold text-slate-200 font-mono">-</span>
+          </div>
+          <div>
+            <span class="text-slate-500 block text-[10px]">거주지 (할인구분)</span>
+            <span id="modalResidence" class="font-bold text-emerald-400">-</span>
+          </div>
+        </div>
+
+        <!-- Children List -->
+        <div>
+          <h4 class="font-black text-slate-300 text-xs mb-2 flex items-center gap-1.5">
+            <i data-lucide="baby" class="w-3.5 h-3.5 text-brand-400"></i>
+            <span>동반 아동 명단 및 신체 규격 (안전기준 검증)</span>
+          </h4>
+          <div id="modalChildrenList" class="space-y-1.5"></div>
+        </div>
+
+        <!-- Signature Display -->
+        <div class="bg-slate-950 p-3 rounded-2xl border border-slate-800 text-center">
+          <span class="text-slate-500 block text-[10px] mb-1.5 text-left">보호자 서명 날인</span>
+          <div class="h-28 bg-slate-900 rounded-xl flex items-center justify-center overflow-hidden border border-slate-800/80">
+            <img id="modalSignatureImg" src="" alt="서명" class="max-h-full max-w-full object-contain filter invert opacity-90">
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal Action -->
+      <div class="pt-3 border-t border-slate-800 flex justify-end gap-2">
+        <button onclick="closeDetailModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl">
+          닫기
+        </button>
+        <button id="modalBtnIssue" onclick="issueTicketFromModal()" class="px-5 py-2 bg-brand-600 hover:bg-brand-500 text-white font-black text-xs rounded-xl shadow flex items-center gap-1.5">
+          <i data-lucide="ticket" class="w-3.5 h-3.5"></i>
+          <span>즉시 발권 처리</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- SCRIPT LOGIC                                                      -->
+  <!-- ================================================================= -->
+  <script>
+    let consents = [];
+    let activeFilter = 'all';
+    let activeDateFilter = 'today';
+    let currentWeekOffset = 0;
+    let isSafetyInspectionPassed = false;
+    let selectedConsentId = null;
+
+    // 1. Initial Load
+    document.addEventListener('DOMContentLoaded', async function () {
+      lucide.createIcons();
+      BongplaySync.renderBadge('syncStatusBadge');
+      
+      // Realtime bus listener
+      BongplaySync.onDataChange(function (detail) {
+        loadData();
+      });
+
+      await checkSafetyInterlock();
+      renderDateFilterBar();
+      await loadData();
+    });
+
+    // 2. Safety Interlock Check (BP-003)
+    async function checkSafetyInterlock() {
+      const banner = document.getElementById('safetyInterlockBanner');
+      const todayStr = BongplaySync.toLocalDateStr(new Date());
+
+      try {
+        const rawAudits = localStorage.getItem('bongplay_safety_audit_logs');
+        let audits = rawAudits ? JSON.parse(rawAudits) : [];
+        if (!audits.length && window.BongplaySync) {
+          const res = await BongplaySync.select('safety_audits', `?audit_date=eq.${todayStr}&select=*`);
+          if (res.ok && res.data) audits = res.data;
+        }
+
+        const todayAudit = audits.find(a => (a.audit_date === todayStr) || (a.date || '').slice(0, 10) === todayStr);
+        if (todayAudit && todayAudit.decision === 'pass') {
+          isSafetyInspectionPassed = true;
+          banner.classList.add('hidden');
+        } else {
+          isSafetyInspectionPassed = false;
+          banner.classList.remove('hidden');
+        }
+      } catch (e) {
+        console.warn('Safety interlock check failed:', e);
+      }
+    }
+
+    // 3. Load Consents
+    async function loadData() {
+      try {
+        const raw = localStorage.getItem('bongplay_safety_consents');
+        if (raw) {
+          consents = JSON.parse(raw);
+        } else if (window.BongplaySync) {
+          const res = await BongplaySync.select('safety_consents', '?select=*&order=updated_at.desc&limit=200');
+          if (res.ok && Array.isArray(res.data)) {
+            consents = res.data;
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to load consents:', e);
+      }
+
+      updateSummaryStats();
+      renderAdminList();
+    }
+
+    // Date Utilities
+    function getConsentDateStr(item) {
+      if (item.created_date) return item.created_date;
+      if (item.createdDate) return item.createdDate;
+      if (item.arrival_at) return item.arrival_at.slice(0, 10);
+      return BongplaySync.toLocalDateStr(new Date());
+    }
+
+    // 4. Weekly Day Tabs
+    function getMondayOfOffset(offsetWeeks) {
+      const now = new Date();
+      const day = now.getDay();
+      const diffToMon = (day === 0 ? -6 : 1) - day;
+      const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffToMon + (offsetWeeks * 7));
+      monday.setHours(0, 0, 0, 0);
+      return monday;
+    }
+
+    function renderDateFilterBar() {
+      const container = document.getElementById('weeklyDayTabsContainer');
+      if (!container) return;
+      container.innerHTML = '';
+
+      const monday = getMondayOfOffset(currentWeekOffset);
+      const dayNames = ['월', '화', '수', '목', '금', '토', '일'];
+      const todayYmd = BongplaySync.toLocalDateStr(new Date());
+
+      for (let i = 0; i < 7; i++) {
+        const targetDate = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
+        const ymd = BongplaySync.toLocalDateStr(targetDate);
+        const isToday = (ymd === todayYmd);
+        const isSelected = (activeDateFilter === ymd) || (activeDateFilter === 'today' && isToday);
+
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.onclick = () => setDateFilter(ymd);
+
+        card.className = `p-2 rounded-xl text-left transition-all border flex flex-col justify-between ${
+          isSelected
+            ? 'bg-brand-950/80 border-brand-500 text-brand-300 shadow-md ring-1 ring-brand-500/50'
+            : isToday
+            ? 'bg-slate-950 border-brand-800/80 text-white hover:border-brand-600'
+            : 'bg-slate-950/60 border-slate-800/80 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+        }`;
+
+        card.innerHTML = `
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] font-bold ${i >= 5 ? 'text-amber-400' : 'text-slate-400'}">${dayNames[i]}요일</span>
+            ${isToday ? '<span class="text-[8px] px-1 py-0.2 rounded bg-brand-500 text-slate-950 font-black">오늘</span>' : ''}
+          </div>
+          <div class="font-mono text-xs font-black mt-1 text-slate-200">${ymd.slice(5)}</div>
+        `;
+        container.appendChild(card);
+      }
+    }
+
+    function changeWeek(delta) {
+      currentWeekOffset = (delta === 0) ? 0 : currentWeekOffset + delta;
+      renderDateFilterBar();
+      renderAdminList();
+    }
+
+    function setDateFilter(filter) {
+      activeDateFilter = filter;
+      renderDateFilterBar();
+      updateSummaryStats();
+      renderAdminList();
+    }
+
+    function onCustomDateChange(e) {
+      if (e.target.value) setDateFilter(e.target.value);
+    }
+
+    function setFilter(f) {
+      activeFilter = f;
+      ['btnFilterAll', 'btnFilterWait', 'btnFilterDone'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) btn.className = 'px-2.5 py-1 rounded-lg text-slate-400 hover:text-white';
+      });
+      if (f === 'all') document.getElementById('btnFilterAll').className = 'px-2.5 py-1 rounded-lg bg-slate-800 text-white';
+      if (f === 'waiting') document.getElementById('btnFilterWait').className = 'px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300';
+      if (f === 'done') document.getElementById('btnFilterDone').className = 'px-2.5 py-1 rounded-lg bg-brand-500/20 text-brand-300';
+      renderAdminList();
+    }
+
+    // 5. Update Statistics
+    function updateSummaryStats() {
+      const todayYmd = BongplaySync.toLocalDateStr(new Date());
+      const targetYmd = (activeDateFilter === 'today') ? todayYmd : activeDateFilter;
+      
+      const filtered = (targetYmd === 'all') ? consents : consents.filter(c => getConsentDateStr(c) === targetYmd);
+
+      const totalTeams = filtered.length;
+      const completedTeams = filtered.filter(c => c.isIssued || c.is_issued).length;
+      const waitingTeams = totalTeams - completedTeams;
+
+      let totalAdults = totalTeams;
+      let totalChildren = 0;
+
+      filtered.forEach(c => {
+        const chCount = (c.children && Array.isArray(c.children)) ? c.children.length : 0;
+        totalChildren += chCount;
+      });
+
+      document.getElementById('statTotalConsents').textContent = totalTeams;
+      document.getElementById('statTotalPeopleSub').textContent = `총 ${totalAdults + totalChildren}명 (성인 ${totalAdults} · 아동 ${totalChildren})`;
+      document.getElementById('statCompletedConsents').textContent = completedTeams;
+      document.getElementById('statCompletedPeopleSub').textContent = `발권 완료 ${completedTeams}팀`;
+      document.getElementById('statWaitingConsents').textContent = waitingTeams;
+      document.getElementById('statWaitingPeopleSub').textContent = `대기 ${waitingTeams}팀`;
+      document.getElementById('statTotalChildren').textContent = totalChildren;
+    }
+
+    // 6. Render Table
+    function renderAdminList() {
+      const tbody = document.getElementById('consentTableBody');
+      const search = (document.getElementById('adminSearchInput').value || '').trim().toLowerCase();
+      const todayYmd = BongplaySync.toLocalDateStr(new Date());
+      const targetYmd = (activeDateFilter === 'today') ? todayYmd : activeDateFilter;
+
+      let list = (targetYmd === 'all') ? consents : consents.filter(c => getConsentDateStr(c) === targetYmd);
+
+      if (activeFilter === 'waiting') list = list.filter(c => !(c.isIssued || c.is_issued));
+      if (activeFilter === 'done') list = list.filter(c => (c.isIssued || c.is_issued));
+
+      if (search) {
+        list = list.filter(c => {
+          const name = (c.guardianName || c.guardian_name || '').toLowerCase();
+          const phone = (c.guardianPhone || c.guardian_phone || '').replace(/[^0-9]/g, '');
+          const pass = (c.passCode || c.pass_code || '').toLowerCase();
+          return name.includes(search) || phone.includes(search) || pass.includes(search);
+        });
+      }
+
+      if (!list.length) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="9" class="py-12 text-center text-slate-500">
+              <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 text-slate-600"></i>
+              <p>해당 조건에 맞는 서약 접수 건이 없습니다.</p>
+            </td>
+          </tr>
+        `;
+        lucide.createIcons();
+        return;
+      }
+
+      tbody.innerHTML = list.map(rec => {
+        const isIssued = rec.isIssued || rec.is_issued;
+        const passCode = rec.passCode || rec.pass_code || ('BP-' + (rec.id || '').slice(0, 6));
+        const timeStr = BongplaySync.toLocalTimeStr(rec.arrival_at || rec.created_date || rec.updated_at);
+        const children = rec.children || [];
+        const chDesc = children.map(ch => `${ch.name}(${ch.height ? ch.height + 'cm' : '키미입력'})`).join(', ') || '아동 없음';
+
+        return `
+          <tr class="hover:bg-slate-800/40 transition cursor-pointer ${isIssued ? 'opacity-75' : 'bg-slate-900/30'}" onclick="openDetailModal('${rec.id}')">
+            <td class="py-3 px-3 font-mono text-slate-300">${timeStr}</td>
+            <td class="py-3 px-3">
+              <span class="font-mono font-bold text-brand-400 bg-brand-950/80 px-2 py-0.5 rounded border border-brand-800/60">${passCode}</span>
+            </td>
+            <td class="py-3 px-3 font-bold text-white">${rec.guardianName || rec.guardian_name || '미입력'}</td>
+            <td class="py-3 px-3 font-mono text-slate-400">${rec.guardianPhone || rec.guardian_phone || '-'}</td>
+            <td class="py-3 px-3 text-slate-300">${rec.residence || '일반'}</td>
+            <td class="py-3 px-3 text-slate-300 max-w-xs truncate" title="${chDesc}">${chDesc}</td>
+            <td class="py-3 px-3">
+              <span class="inline-flex items-center gap-1 text-[11px] text-emerald-400">
+                <i data-lucide="check" class="w-3.5 h-3.5"></i> 서약완료
+              </span>
+            </td>
+            <td class="py-3 px-3">
+              ${isIssued
+                ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-950 text-blue-300 border border-blue-800">발권완료</span>'
+                : '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-950 text-amber-300 border border-amber-800">발권대기</span>'
+              }
+            </td>
+            <td class="py-3 px-3 text-right" onclick="event.stopPropagation()">
+              ${isIssued
+                ? `<button onclick="toggleTicketIssue('${rec.id}', false)" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-400 text-xs rounded-lg transition font-bold">발권취소</button>`
+                : `<button onclick="toggleTicketIssue('${rec.id}', true)" ${!isSafetyInspectionPassed ? 'disabled title="안전점검 미완료로 발권이 잠겨 있습니다"' : ''} class="px-3 py-1 bg-brand-600 hover:bg-brand-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed text-white text-xs rounded-lg transition font-black shadow flex items-center gap-1 inline-flex">
+                    <i data-lucide="ticket" class="w-3 h-3"></i> 즉시발권
+                   </button>`
+              }
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      lucide.createIcons();
+    }
+
+    // 7. Toggle Issue Ticket (BP-003 & BP-004)
+    async function toggleTicketIssue(id, issueTarget) {
+      if (issueTarget && !isSafetyInspectionPassed) {
+        alert('🚨 금일 개장 전 안전점검이 완료되지 않았습니다!\n안전점검 일지에서 [적합(PASS)] 판정을 완료해야 발권이 가능합니다.');
+        return;
+      }
+
+      const item = consents.find(c => c.id === id);
+      if (!item) return;
+
+      const now = new Date().toISOString();
+      item.isIssued = issueTarget;
+      item.is_issued = issueTarget;
+      if (issueTarget) {
+        item.ticket_issued_at = item.ticket_issued_at || now;
+        item.visit_id = item.visit_id || BongplayID.generateVisitId();
+        item.household_id = item.household_id || BongplayID.generateHouseholdId(item.guardianPhone || item.guardian_phone);
+
+        // Generate tickets in ticket_ledger
+        const totalCount = ((item.children && item.children.length) || 0) + 1;
+        item.ticket_ids = item.ticket_ids || [];
+        for (let i = 1; i <= totalCount; i++) {
+          const tId = BongplayID.generateTicketId(item.visit_id, i);
+          if (!item.ticket_ids.includes(tId)) item.ticket_ids.push(tId);
+          
+          const tRow = {
+            ticket_id: tId,
+            site_id: 'bongplay_bonghwa',
+            visit_id: item.visit_id,
+            household_id: item.household_id,
+            ticket_type: i === 1 ? 'adult' : 'child',
+            issued_at: now,
+            status: 'active'
+          };
+          BongplaySync.upsert('ticket_ledger', tRow);
+        }
+      }
+
+      // Upsert safety_consents
+      await BongplaySync.upsert('safety_consents', item);
+      updateSummaryStats();
+      renderAdminList();
+      if (selectedConsentId === id) closeDetailModal();
+    }
+
+    // 8. Detail Modal
+    function openDetailModal(id) {
+      const rec = consents.find(c => c.id === id);
+      if (!rec) return;
+      selectedConsentId = id;
+
+      document.getElementById('modalVoucherCode').textContent = rec.passCode || rec.pass_code || ('BP-' + rec.id.slice(0, 6));
+      document.getElementById('modalGuardianName').textContent = rec.guardianName || rec.guardian_name || '-';
+      document.getElementById('modalGuardianPhone').textContent = rec.guardianPhone || rec.guardian_phone || '-';
+      document.getElementById('modalResidence').textContent = rec.residence || '일반';
+
+      const chContainer = document.getElementById('modalChildrenList');
+      const children = rec.children || [];
+      if (!children.length) {
+        chContainer.innerHTML = '<p class="text-slate-500">동반 아동 정보가 없습니다.</p>';
+      } else {
+        chContainer.innerHTML = children.map((ch, idx) => {
+          const isHeightOk = (!ch.height || Number(ch.height) >= 100);
+          const isWeightOk = (!ch.weight || Number(ch.weight) <= 85);
+          return `
+            <div class="p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between">
+              <div>
+                <span class="font-bold text-white text-xs">${idx + 1}. ${ch.name}</span>
+                <span class="text-[11px] text-slate-400 ml-2">생년월일/나이: ${ch.birth || ch.age || '미기재'}</span>
+              </div>
+              <div class="flex items-center gap-2 text-[11px] font-mono">
+                <span class="${isHeightOk ? 'text-slate-300' : 'text-rose-400 font-bold'}">
+                  신장: ${ch.height ? ch.height + 'cm' : '미측정'}
+                </span>
+                <span class="text-slate-600">|</span>
+                <span class="${isWeightOk ? 'text-slate-300' : 'text-rose-400 font-bold'}">
+                  체중: ${ch.weight ? ch.weight + 'kg' : '미측정'}
+                </span>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      const img = document.getElementById('modalSignatureImg');
+      if (rec.signatureData || rec.signature_data) {
+        img.src = rec.signatureData || rec.signature_data;
+        img.classList.remove('hidden');
+      } else {
+        img.classList.add('hidden');
+      }
+
+      const isIssued = rec.isIssued || rec.is_issued;
+      const btnIssue = document.getElementById('modalBtnIssue');
+      if (isIssued) {
+        btnIssue.textContent = '발권 취소';
+        btnIssue.className = 'px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl';
+      } else {
+        btnIssue.innerHTML = '<i data-lucide="ticket" class="w-3.5 h-3.5"></i> 즉시 발권 처리';
+        btnIssue.className = 'px-5 py-2 bg-brand-600 hover:bg-brand-500 text-white font-black text-xs rounded-xl shadow flex items-center gap-1.5';
+        if (!isSafetyInspectionPassed) {
+          btnIssue.disabled = true;
+          btnIssue.className = 'px-5 py-2 bg-slate-800 text-slate-500 font-black text-xs rounded-xl cursor-not-allowed';
+        }
+      }
+
+      document.getElementById('detailModal').classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    function closeDetailModal() {
+      document.getElementById('detailModal').classList.add('hidden');
+      selectedConsentId = null;
+    }
+
+    function issueTicketFromModal() {
+      if (!selectedConsentId) return;
+      const rec = consents.find(c => c.id === selectedConsentId);
+      const isIssued = rec.isIssued || rec.is_issued;
+      toggleTicketIssue(selectedConsentId, !isIssued);
+    }
+
+    // 9. Export to CSV
+    function exportConsentsToExcel() {
+      if (!consents.length) {
+        alert('내보낼 서약 데이터가 없습니다.');
+        return;
+      }
+      const rows = consents.map(c => ({
+        '접수일자': getConsentDateStr(c),
+        '바우처코드': c.passCode || c.pass_code || '',
+        '보호자성명': c.guardianName || c.guardian_name || '',
+        '연락처': c.guardianPhone || c.guardian_phone || '',
+        '거주지': c.residence || '일반',
+        '아동수': (c.children && c.children.length) || 0,
+        '아동정보': (c.children || []).map(x => `${x.name}(${x.height||''}cm/${x.weight||''}kg)`).join('; '),
+        '발권여부': (c.isIssued || c.is_issued) ? '발권완료' : '대기',
+        '접수시각': c.arrival_at || c.created_date || '',
+        '방문식별자': c.visit_id || ''
+      }));
+      BongplaySync.downloadCsv(`봉플레이_안전서약원장_${BongplaySync.toLocalDateStr(new Date())}.csv`, rows);
+    }
+
+    function toggleFullScreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(e => {});
+      } else {
+        document.exitFullscreen().catch(e => {});
+      }
+    }
+  </script>
+</body>
+</html>

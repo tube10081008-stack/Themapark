@@ -85,6 +85,7 @@
   <script src="../assets/config.js"></script>
   <script src="../assets/bongplay-sync.js"></script>
   <script src="../assets/bongplay-id.js"></script>
+  <script src="../assets/bongplay-wakelock.js"></script>
   <link rel="stylesheet" href="../assets/print.css">
 </head>
 <body class="min-h-screen bg-[#070b12] text-slate-100 flex flex-col font-sans antialiased overflow-y-auto lg:overflow-hidden w-full max-w-full overflow-x-hidden">
@@ -198,6 +199,21 @@
   <!-- MAIN DISPLAY: 4 TARGET TIERS (ZERO COLLISION HIERARCHY)           -->
   <!-- ================================================================= -->
   <main class="flex-1 p-3 sm:p-4 flex flex-col gap-3 sm:gap-4 overflow-y-auto lg:overflow-hidden w-full max-w-full overflow-x-hidden">
+
+    <!-- DAILY SAFETY INSPECTION PASS INTERLOCK BANNER (BP-003) -->
+    <div id="safetyInterlockBanner" class="hidden bg-rose-950/95 border border-rose-600 rounded-2xl p-3 flex flex-col sm:flex-row items-center justify-between gap-2 shadow-lg flex-none transition-all">
+      <div class="flex items-center gap-2.5 text-xs text-rose-200">
+        <span class="text-xl">🚨</span>
+        <div>
+          <span class="font-extrabold text-white">금일 개장 전 안전점검 미완료 (발권 자동 차단)</span>
+          <span class="text-rose-300 ml-1.5 hidden md:inline">안전점검 일지에서 '적합(PASS)' 승인 전까지 매표 및 발권이 전면 차단됩니다.</span>
+        </div>
+      </div>
+      <a href="safety-check.html" class="touch-btn px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs rounded-xl shadow flex items-center gap-1 shrink-0">
+        <i data-lucide="clipboard-check" class="w-3.5 h-3.5"></i>
+        <span>안전점검 일지 바로가기 ↗</span>
+      </a>
+    </div>
 
     <!-- REAL-TIME WEATHER & WIND-GUST SAFETY TICKER (Section 6) -->
     <div id="weatherSafetyBanner" class="hidden bg-amber-950/90 border border-amber-500/80 rounded-2xl p-3 flex-col sm:flex-row items-center justify-between gap-2 shadow-lg flex-none transition-all">
@@ -2523,19 +2539,25 @@
 
       container.innerHTML = filtered.map(prod => {
         const qty = posCart[prod.id] || 0;
+        const isCoaster = (prod.id || '').includes('coaster') || (prod.name || '').includes('짚코스터');
+        const latestWtr = (window.BongplayID && typeof BongplayID.getLatestWeather === 'function') ? BongplayID.getLatestWeather() : null;
+        const isHighWind = latestWtr && ((latestWtr.wind_gust >= 12.0) || (latestWtr.wind_speed >= 12.0));
+        const isCoasterLocked = isCoaster && isHighWind;
+
         return `
-          <div class="bg-slate-950/70 p-3 rounded-2xl border border-slate-800 flex items-center justify-between transition hover:border-slate-700">
+          <div class="bg-slate-950/70 p-3 rounded-2xl border ${isCoasterLocked ? 'border-rose-700/80 bg-rose-950/30' : 'border-slate-800'} flex items-center justify-between transition hover:border-slate-700">
             <div>
-              <div class="font-extrabold text-xs sm:text-sm text-white flex items-center gap-1.5">
+              <div class="font-extrabold text-xs sm:text-sm text-white flex items-center gap-1.5 flex-wrap">
                 <span>${escapeHtml(prod.name)}</span>
                 <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono font-normal uppercase">${prod.category}</span>
+                ${isCoasterLocked ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-rose-900 text-rose-200 font-bold border border-rose-700 animate-pulse">강풍잠금(12m/s)</span>' : ''}
               </div>
               <div class="text-xs font-mono font-bold text-amber-400 mt-0.5">${prod.price.toLocaleString()}원</div>
             </div>
             <div class="flex items-center gap-1.5">
               <button type="button" onclick="adjustPosItem('${prod.id}', -1)" class="touch-btn w-8 h-8 rounded-lg bg-slate-800 text-slate-300 font-bold text-sm flex items-center justify-center hover:bg-slate-700">-</button>
               <span class="w-9 text-center font-mono font-bold text-sm ${qty > 0 ? 'text-amber-300 font-black' : 'text-slate-500'}">${qty}</span>
-              <button type="button" onclick="adjustPosItem('${prod.id}', 1)" class="touch-btn w-8 h-8 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-sm flex items-center justify-center">+</button>
+              <button type="button" onclick="adjustPosItem('${prod.id}', 1)" ${isCoasterLocked ? 'disabled title="강풍으로 짚코스터 발권이 중단되었습니다"' : ''} class="touch-btn w-8 h-8 rounded-lg ${isCoasterLocked ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-amber-600 hover:bg-amber-500 text-white'} font-bold text-sm flex items-center justify-center">+</button>
             </div>
           </div>
         `;
@@ -2543,6 +2565,17 @@
     }
 
     function adjustPosItem(productId, delta) {
+      const products = (window.BongplayID && BongplayID.PRODUCTS) ? BongplayID.PRODUCTS : [];
+      const prod = products.find(p => p.id === productId);
+      const isCoaster = prod && ((prod.id || '').includes('coaster') || (prod.name || '').includes('짚코스터'));
+      const latestWtr = (window.BongplayID && typeof BongplayID.getLatestWeather === 'function') ? BongplayID.getLatestWeather() : null;
+      const isHighWind = latestWtr && ((latestWtr.wind_gust >= 12.0) || (latestWtr.wind_speed >= 12.0));
+
+      if (delta > 0 && isCoaster && isHighWind) {
+        alert('⚠️ [기상안전 인터록] 현재 순간풍속 12.0m/s 이상 강풍으로 인해 실버 짚코스터 탑승권은 선택할 수 없습니다.');
+        return;
+      }
+
       const current = posCart[productId] || 0;
       const next = Math.max(0, current + delta);
       if (next === 0) {
@@ -2610,6 +2643,21 @@
 
       if (items.length === 0) {
         alert('주문할 품목을 1개 이상 선택해 주세요.');
+        return;
+      }
+
+      // BP-003 Interlock 1: Daily Safety Inspection Passed Check
+      if (!isSafetyInspectionPassed) {
+        alert('🚨 [안전 인터록 작동]\n금일 개장 전 일일 안전점검이 완료되지 않았거나 적합(PASS) 승인을 받지 못했습니다.\n안전점검 일지(safety-check.html)에서 점검을 완료한 후 결제를 진행해 주십시오.');
+        return;
+      }
+
+      // BP-003 Interlock 2: Wind Speed Check for Coaster
+      const latestWtr = (window.BongplayID && typeof BongplayID.getLatestWeather === 'function') ? BongplayID.getLatestWeather() : null;
+      const isHighWind = latestWtr && ((latestWtr.wind_gust >= 12.0) || (latestWtr.wind_speed >= 12.0));
+      const hasCoaster = items.some(it => (it.product_id || '').includes('coaster') || (it.product_name || '').includes('짚코스터'));
+      if (isHighWind && hasCoaster) {
+        alert('⚠️ [기상안전 인터록 작동]\n현재 순간풍속 12.0m/s 이상 강풍으로 인해 실버 짚코스터 탑승권 발권이 중단되었습니다.\n장바구니에서 짚코스터를 제외하거나 네트어드벤처/트램펄린으로 대체해 주십시오.');
         return;
       }
 
@@ -3481,6 +3529,7 @@
         BongplaySync.onDataChange((payload) => {
           loadRealRecords();
           renderAll();
+          checkSafetyInterlock();
         });
       }
 
@@ -3489,9 +3538,37 @@
         if (!e.key || e.key.startsWith('bongplay_') || e.key.startsWith('bongtteurak_')) {
           loadRealRecords();
           renderAll();
+          checkSafetyInterlock();
         }
       });
+
+      checkSafetyInterlock();
     });
+
+    let isSafetyInspectionPassed = false;
+    async function checkSafetyInterlock() {
+      const banner = document.getElementById('safetyInterlockBanner');
+      const todayStr = BongplaySync ? BongplaySync.toLocalDateStr(new Date()) : new Date().toISOString().slice(0, 10);
+      try {
+        const rawAudits = localStorage.getItem('bongplay_safety_audit_logs');
+        let audits = rawAudits ? JSON.parse(rawAudits) : [];
+        if (!audits.length && window.BongplaySync) {
+          const res = await BongplaySync.select('safety_audits', `?audit_date=eq.${todayStr}&select=*`);
+          if (res.ok && res.data) audits = res.data;
+        }
+
+        const todayAudit = audits.find(a => (a.audit_date === todayStr) || (a.date || '').slice(0, 10) === todayStr);
+        if (todayAudit && todayAudit.decision === 'pass') {
+          isSafetyInspectionPassed = true;
+          if (banner) banner.classList.add('hidden');
+        } else {
+          isSafetyInspectionPassed = false;
+          if (banner) banner.classList.remove('hidden');
+        }
+      } catch (e) {
+        console.warn('checkSafetyInterlock error:', e);
+      }
+    }
 
 </script>
 <a href="../index.html" style="position:fixed;left:12px;bottom:12px;z-index:9999;display:flex;align-items:center;gap:6px;padding:9px 14px;border-radius:14px;background:rgba(15,23,42,.94);border:1px solid #334155;color:#cbd5e1;font-size:11px;font-weight:700;text-decoration:none;box-shadow:0 4px 16px rgba(0,0,0,.4);backdrop-filter:blur(8px)">&#8592; 메인</a>

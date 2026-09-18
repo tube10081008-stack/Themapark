@@ -3,15 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>리틀포레스트 봉플레이 - 모바일 안전이용동의서 & 매표소 서약 관리 시스템</title>
+  <title>리틀포레스트 봉플레이 - 모바일 안전이용동의서</title>
   
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
-  
   <!-- Lucide Icons -->
   <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
-  
-  <!-- QRCode.js CDN for live printable QR generation -->
+  <!-- QRCode.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 
   <script>
@@ -38,2642 +36,593 @@
 
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800;900&display=swap');
-    
-    html, body {
-      max-width: 100vw;
-      overflow-x: hidden !important;
-      width: 100%;
-    }
-
     * {
       font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
-      -webkit-tap-highlight-color: transparent;
       box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
     }
-
-    /* Prevent scrolling when drawing on canvas */
     canvas#sigCanvas {
       touch-action: none;
     }
-
-    /* Custom scrollbar */
-    ::-webkit-scrollbar {
-      width: 6px;
-      height: 6px;
-    }
-    ::-webkit-scrollbar-track {
-      background: #0f172a;
-    }
-    ::-webkit-scrollbar-thumb {
-      background: #334155;
-      border-radius: 4px;
-    }
-
-    /* Print Styles for Legal Form and Banner */
-    @media print {
-      body * {
-        visibility: hidden;
-      }
-      #printArea, #printArea * {
-        visibility: visible;
-      }
-      #printArea {
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 100%;
-        margin: 0;
-        padding: 20px;
-        background: white !important;
-        color: black !important;
-      }
-      .no-print {
-        display: none !important;
-      }
-    }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
   </style>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="../assets/config.js"></script>
   <script src="../assets/bongplay-sync.js"></script>
   <script src="../assets/bongplay-id.js"></script>
-  <link rel="stylesheet" href="../assets/print.css">
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased select-none w-full max-w-full overflow-x-hidden">
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased select-none">
 
   <!-- ================================================================= -->
-  <!-- TOP NAVIGATION: DUAL MODE SELECTOR (CUSTOMER PHONE vs TICKET DESK) -->
+  <!-- TOP HEADER (순수 고객용)                                            -->
   <!-- ================================================================= -->
-  <header class="no-print bg-slate-900/90 border-b border-slate-800 sticky top-0 z-40 backdrop-blur-md px-2.5 sm:px-6 py-2 sm:py-2.5 flex items-center justify-between gap-2 max-w-full overflow-hidden">
-    <div class="flex items-center gap-2 shrink-0">
-      <div class="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center text-white font-black text-xs shadow-md shadow-brand-600/30 shrink-0">
+  <header class="bg-slate-900/90 border-b border-slate-800 sticky top-0 z-40 backdrop-blur-md px-4 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-2.5">
+      <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center text-white font-black text-xs shadow-md shadow-brand-600/30">
         봉플
       </div>
       <div>
-        <h1 class="text-xs sm:text-sm font-black tracking-tight text-white flex items-center gap-1.5 leading-tight">
+        <h1 class="text-sm sm:text-base font-black tracking-tight text-white flex items-center gap-1.5">
           <span>리틀포레스트 봉플레이</span>
-          <span class="text-[9px] sm:text-[10px] font-bold text-brand-400 bg-brand-950/80 px-1.5 py-0.5 rounded-full border border-brand-800/60 hidden sm:inline">전자서약</span>
+          <span class="text-[10px] font-extrabold text-brand-400 bg-brand-950/80 px-2 py-0.5 rounded-full border border-brand-800/60">
+            모바일 안전서약
+          </span>
         </h1>
-        <p class="text-[9px] sm:text-[10px] text-slate-400 hidden xs:block">모바일 QR 안전이용동의서</p>
+        <p class="text-[10px] text-slate-400">어린이 안전놀이시설 전자동의서</p>
       </div>
     </div>
 
-    <!-- Mode Switch Tabs -->
-    <div class="flex items-center bg-slate-950 p-0.5 sm:p-1 rounded-xl border border-slate-800 text-xs font-bold shrink-0">
-      <button id="tabCustomer" onclick="switchView('customer')" class="px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg transition-all flex items-center gap-1 sm:gap-1.5 bg-brand-600 text-white shadow-sm text-xs">
-        <i data-lucide="smartphone" class="w-3.5 h-3.5"></i>
-        <span class="hidden sm:inline">고객용 서약</span><span class="sm:hidden">서약</span>
-      </button>
-      <button id="tabAdmin" onclick="switchView('admin')" class="px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg transition-all flex items-center gap-1 sm:gap-1.5 text-slate-400 hover:text-white text-xs">
-        <i data-lucide="layout-dashboard" class="w-3.5 h-3.5"></i>
-        <span class="hidden sm:inline">관리 데스크</span><span class="sm:hidden">데스크</span>
-        <span id="badgeUnprocessedCount" class="ml-0.5 px-1 py-0.2 text-[9px] font-mono bg-brand-500 text-slate-950 rounded-full font-black hidden">0</span>
-      </button>
-      <button id="tabBanner" onclick="switchView('banner')" class="px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-lg transition-all flex items-center gap-1 text-slate-400 hover:text-white text-xs" title="현장비치 QR 인쇄">
-        <i data-lucide="printer" class="w-3.5 h-3.5"></i>
-        <span class="hidden md:inline">QR 인쇄</span>
-      </button>
-      <button onclick="openExitSurveyModal()" class="px-1.5 sm:px-2.5 py-1 sm:py-1.5 rounded-lg transition-all flex items-center gap-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold shadow-sm ml-0.5" title="퇴장 시 10초 고객경험 설문">
-        <i data-lucide="star" class="w-3.5 h-3.5 text-amber-400"></i>
-        <span class="hidden lg:inline">만족도 설문</span>
-      </button>
-      <button onclick="openDbModal()" id="dbSyncBtn" class="px-1.5 sm:px-2.5 py-1 sm:py-1.5 rounded-lg transition-all flex items-center gap-1 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs font-bold shadow-sm ml-0.5" title="클라우드 DB 동기화 및 기기 라벨">
-        <i data-lucide="database" class="w-3.5 h-3.5 text-emerald-400"></i>
-        <span id="dbSyncText" class="hidden md:inline">DB 미연동</span>
-      </button>
-      <button onclick="toggleFullScreen()" class="px-2 py-1 sm:py-1.5 rounded-lg transition-all flex items-center gap-1 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs font-bold shadow-sm ml-0.5" title="전체화면 전환">
-        <i data-lucide="maximize" class="w-3.5 h-3.5"></i>
-      </button>
-    </div>
+    <!-- Sync status indicator (minimal) -->
+    <div id="syncStatusBadge"></div>
   </header>
 
   <!-- ================================================================= -->
-  <!-- VIEW 1: CUSTOMER MOBILE SIGN VIEW (스마트폰 최적화 서약 화면)        -->
+  <!-- MAIN CONTAINER: INTAKE FORM OR VOUCHER SCREEN                      -->
   <!-- ================================================================= -->
-  <main id="viewCustomer" class="flex-1 flex flex-col items-center justify-start p-3 sm:p-6 overflow-y-auto w-full max-w-xl mx-auto">
+  <main class="flex-1 flex flex-col items-center justify-start p-3.5 sm:p-6 w-full max-w-xl mx-auto overflow-y-auto">
     
-    <!-- Hero Notice Card -->
-    <div class="w-full bg-gradient-to-br from-brand-950/70 via-slate-900 to-slate-900 border border-brand-800/40 rounded-3xl p-4 sm:p-6 shadow-xl mb-4 text-center relative overflow-hidden">
-      <div class="absolute -right-8 -top-8 w-28 h-28 bg-brand-500/10 rounded-full blur-2xl pointer-events-none"></div>
+    <!-- ── 1. INTAKE FORM VIEW ── -->
+    <div id="formSection" class="w-full space-y-4">
       
-      <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-brand-900/60 border border-brand-700/60 text-brand-300 text-xs font-extrabold mb-2.5">
-        <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
-        <span>어린이 안전놀이시설 이용 필수 서약</span>
-      </div>
-      <h2 class="text-lg sm:text-xl font-black text-white tracking-tight">
-        안전하고 즐거운 숲 놀이를 위한<br>
-        <span class="text-brand-400">보호자 동의 및 안전수칙 서약</span>
-      </h2>
-      <p class="text-xs text-slate-300 mt-2 leading-relaxed">
-        리틀포레스트 봉플레이(짚라인·짚코스터·네트어드벤처·트램펄린)은<br class="hidden xs:inline"> 
-        어린이의 안전을 최우선으로 운영됩니다. 매표 전 20초 만에 서약을 완료해 주세요.
-      </p>
-    </div>
-
-    <!-- FORM STEPPING -->
-    <form id="consentForm" onsubmit="submitConsent(event)" class="w-full space-y-4">
-
-      <!-- STEP 1: GUARDIAN INFO -->
-      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
-        <div class="flex items-center gap-2 pb-2 border-b border-slate-800 text-brand-400 font-extrabold text-sm">
-          <i data-lucide="user-check" class="w-4 h-4"></i>
-          <span>1. 법적 보호자 (성인) 정보</span>
+      <!-- Hero Notice Card -->
+      <div class="w-full bg-gradient-to-br from-brand-950/70 via-slate-900 to-slate-900 border border-brand-800/40 rounded-3xl p-4 sm:p-5 shadow-xl text-center relative overflow-hidden">
+        <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-brand-900/60 border border-brand-700/60 text-brand-300 text-xs font-extrabold mb-2">
+          <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
+          <span>개장 전 필수 안전서약 (소요시간 약 20초)</span>
         </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs font-bold text-slate-300 mb-1">보호자 성명 <span class="text-red-400">*</span></label>
-            <input type="text" id="guardianName" required placeholder="예: 홍길동"
-              class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition">
-          </div>
-          <div>
-            <label class="block text-xs font-bold text-slate-300 mb-1">휴대전화번호 <span class="text-red-400">*</span></label>
-            <input type="tel" id="guardianPhone" required placeholder="010-0000-0000" maxlength="13" oninput="autoHyphenPhone(this)"
-              class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition font-mono">
-          </div>
-        </div>
-
-        <!-- Residence for Local Discount Verification -->
-        <div>
-          <label class="block text-xs font-bold text-slate-300 mb-1">거주 지역 (봉화군민 할인 확인용)</label>
-          <div class="grid grid-cols-3 gap-2 text-xs font-bold">
-            <label class="cursor-pointer border border-slate-700 rounded-xl p-2.5 flex items-center justify-center gap-1.5 hover:bg-slate-800 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-950/50 has-[:checked]:text-brand-300 transition">
-              <input type="radio" name="residence" value="봉화군민" class="hidden">
-              <span>봉화군민 (신분증 지참)</span>
-            </label>
-            <label class="cursor-pointer border border-slate-700 rounded-xl p-2.5 flex items-center justify-center gap-1.5 hover:bg-slate-800 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-950/50 has-[:checked]:text-brand-300 transition">
-              <input type="radio" name="residence" value="경북도민" class="hidden">
-              <span>경북도민</span>
-            </label>
-            <label class="cursor-pointer border border-slate-700 rounded-xl p-2.5 flex items-center justify-center gap-1.5 hover:bg-slate-800 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-950/50 has-[:checked]:text-brand-300 transition">
-              <input type="radio" name="residence" value="기타(타지역)" checked class="hidden">
-              <span>일반 (타지역)</span>
-            </label>
-          </div>
-        </div>
-      </div>
-
-      <!-- STEP 2: PARTICIPANT CHILDREN INFO (DYNAMIC MULTI-CHILD) -->
-      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
-        <div class="flex items-center justify-between pb-2 border-b border-slate-800 text-brand-400 font-extrabold text-sm">
-          <div class="flex items-center gap-2">
-            <i data-lucide="baby" class="w-4 h-4"></i>
-            <span>2. 이용 아동(자녀) 정보</span>
-          </div>
-          <button type="button" onclick="addChildRow()" class="text-xs font-bold text-brand-400 bg-brand-950 border border-brand-800 px-2.5 py-1 rounded-lg hover:bg-brand-900 flex items-center gap-1 transition">
-            <i data-lucide="plus" class="w-3.5 h-3.5"></i>
-            <span>아동 추가</span>
-          </button>
-        </div>
-
-        <div id="childrenContainer" class="space-y-2.5">
-          <!-- Default Row 1 -->
-          <div class="child-row bg-slate-950/70 border border-slate-800 rounded-xl p-3 flex items-center gap-2.5">
-            <span class="w-6 h-6 rounded-full bg-slate-800 text-brand-400 font-black text-xs flex items-center justify-center shrink-0 child-num">1</span>
-            <input type="text" name="childName[]" required placeholder="아동 이름" class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500">
-            <select name="childAge[]" class="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none focus:border-brand-500">
-              <option value="3~4세">3~4세 (영유아)</option>
-              <option value="5~7세" selected>5~7세 (미취학)</option>
-              <option value="초등 저학년">초등 1~3학년</option>
-              <option value="초등 고학년">초등 4~6학년</option>
-              <option value="중학생이상">중학생 이상</option>
-            </select>
-            <button type="button" onclick="removeChildRow(this)" class="text-slate-500 hover:text-red-400 p-1.5 shrink-0 opacity-40 hover:opacity-100 transition">
-              <i data-lucide="trash-2" class="w-4 h-4"></i>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- STEP 3: STATUTORY LEGAL CONSENT & SAFETY CLAUSES -->
-      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
-        <div class="flex items-center justify-between pb-2 border-b border-slate-800 text-brand-400 font-extrabold text-sm">
-          <div class="flex items-center gap-2">
-            <i data-lucide="file-text" class="w-4 h-4"></i>
-            <span>3. 안전수칙 및 법적 면책 동의</span>
-          </div>
-          <button type="button" onclick="toggleAllAgreements(true)" class="text-[11px] font-bold text-brand-400 hover:underline">
-            전체 동의하기
-          </button>
-        </div>
-
-        <!-- Agreement Items -->
-        <div class="space-y-2 text-xs">
-          <!-- 1. Safety rules -->
-          <label class="flex items-start gap-2.5 p-2 rounded-xl hover:bg-slate-800/60 cursor-pointer transition">
-            <input type="checkbox" id="chkRule1" required class="agree-chk mt-0.5 w-4 h-4 accent-brand-500 rounded border-slate-700">
-            <span class="text-slate-300 leading-snug">
-              <strong class="text-white">[필수] 안전요원 지시 및 시설 안전수칙 준수:</strong> 
-              짚라인·짚코스터 등 하네스 착용 시설 이용 시 안전요원의 지시에 전적으로 따르며, 무단 장비 탈착이나 돌출 행위 시 퇴장 조치에 동의합니다.
-            </span>
-          </label>
-
-          <!-- 2. Health conditions -->
-          <label class="flex items-start gap-2.5 p-2 rounded-xl hover:bg-slate-800/60 cursor-pointer transition">
-            <input type="checkbox" id="chkRule2" required class="agree-chk mt-0.5 w-4 h-4 accent-brand-500 rounded border-slate-700">
-            <span class="text-slate-300 leading-snug">
-              <strong class="text-white">[필수] 건강 상태 고지 및 신체 제한 확인:</strong> 
-              심혈관 질환, 최근 골절/수술 병력, 임산부 등 액티비티 시설 탑승 부적격 사유가 없음을 확인합니다.
-            </span>
-          </label>
-
-          <!-- 3. Guardian supervision -->
-          <label class="flex items-start gap-2.5 p-2 rounded-xl hover:bg-slate-800/60 cursor-pointer transition">
-            <input type="checkbox" id="chkRule3" required class="agree-chk mt-0.5 w-4 h-4 accent-brand-500 rounded border-slate-700">
-            <span class="text-slate-300 leading-snug">
-              <strong class="text-white">[필수] 만 12세 이하 어린이 보호자 동반 의무:</strong> 
-              어린이놀이시설 안전관리법에 의거, 보호자는 체험 중 자녀를 항상 시선 내에 두고 보호·지도할 의무가 있음을 숙지합니다.
-            </span>
-          </label>
-
-          <!-- 4. Liability / Disclaimer -->
-          <label class="flex items-start gap-2.5 p-2 rounded-xl hover:bg-slate-800/60 cursor-pointer transition">
-            <input type="checkbox" id="chkRule4" required class="agree-chk mt-0.5 w-4 h-4 accent-brand-500 rounded border-slate-700">
-            <span class="text-slate-300 leading-snug">
-              <strong class="text-white">[필수] 개인 부주의 면책 및 영조물 배상 기준:</strong> 
-              시설 하자로 인한 사고는 영업배상책임보험 기준에 따르되, 보호자 및 이용자 본인의 고의·과실·수칙 미준수로 인한 사고 및 소지품 분실에 대해 운영사에 책임을 묻지 않음을 확인합니다.
-            </span>
-          </label>
-
-          <!-- 5. Privacy Collection -->
-          <label class="flex items-start gap-2.5 p-2 rounded-xl hover:bg-slate-800/60 cursor-pointer transition">
-            <input type="checkbox" id="chkRule5" required class="agree-chk mt-0.5 w-4 h-4 accent-brand-500 rounded border-slate-700">
-            <span class="text-slate-300 leading-snug">
-              <strong class="text-white">[필수] 법정 개인정보 수집 및 안전관리 이용 동의:</strong> 
-              안전사고 대응 및 비상연락, 시설 안전관리 분쟁 방지 목적으로 성명·연락처·자녀 정보를 수집하며 관계 법령에 따라 3년간 안전원장에 보관 후 파기합니다.
-            </span>
-          </label>
-
-          <!-- 6. P1-3: Optional Marketing & AI Causal Optimization Consent -->
-          <label class="flex items-start gap-2.5 p-2 rounded-xl hover:bg-slate-800/60 cursor-pointer transition border border-dashed border-emerald-800/60 bg-emerald-950/20">
-            <input type="checkbox" id="chkConsentMarketing" class="agree-chk mt-0.5 w-4 h-4 accent-emerald-500 rounded border-slate-700">
-            <span class="text-slate-300 leading-snug">
-              <strong class="text-emerald-400">[선택] 맞춤 혜택 프로모션 및 AI 방문행동 최적화 분석 동의:</strong> 
-              시즌 축제 할인 혜택 안내를 제공하고, 대기시간 최소화 및 시설 동선 개선을 위한 가구 단위(단방향 일방향 암호화 해시) 이용 패턴 인과 분석에 활용합니다. (미동의 시에도 기본 입장 및 안전관리에 불이익이 없습니다)
-            </span>
-          </label>
-        </div>
-      </div>
-
-      <!-- STEP 4: DIGITAL SIGNATURE PAD (TOUCH/MOUSE CANVAS) -->
-      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
-        <div class="flex items-center justify-between pb-2 border-b border-slate-800 text-brand-400 font-extrabold text-sm">
-          <div class="flex items-center gap-2">
-            <i data-lucide="pen-tool" class="w-4 h-4"></i>
-            <span>4. 보호자 전자 서명</span>
-          </div>
-          <button type="button" onclick="clearSignature()" class="text-xs font-bold text-slate-400 hover:text-white flex items-center gap-1 transition">
-            <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
-            <span>지우기</span>
-          </button>
-        </div>
-
-        <p class="text-[11px] text-slate-400">
-          아래 회색 서명 영역 안에 <strong class="text-brand-300">손가락 또는 터치펜</strong>으로 정자로 서명해 주세요.
-        </p>
-
-        <!-- Canvas Container -->
-        <div class="relative w-full h-44 bg-slate-950 rounded-xl border-2 border-dashed border-slate-700 overflow-hidden flex items-center justify-center">
-          <canvas id="sigCanvas" class="w-full h-full cursor-crosshair"></canvas>
-          <div id="sigPlaceholder" class="absolute pointer-events-none text-slate-600 text-xs font-bold flex flex-col items-center gap-1">
-            <i data-lucide="edit-3" class="w-5 h-5 opacity-40"></i>
-            <span>여기에 서명하세요</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- SUBMIT BUTTON -->
-      <button type="submit" id="btnSubmitConsent" class="w-full py-4 bg-gradient-to-r from-brand-600 via-emerald-500 to-teal-600 hover:from-brand-500 text-white font-black text-base rounded-2xl shadow-xl shadow-brand-600/30 flex items-center justify-center gap-2 transition-all duration-300 active:scale-[0.98]">
-        <i data-lucide="check-circle" class="w-5 h-5"></i>
-        <span>서약서 제출 및 서약번호 발급</span>
-      </button>
-
-    </form>
-
-    <!-- =============================================================== -->
-    <!-- CUSTOMER SUCCESS PASS CARD (서약 완료 시 나타나는 원패스 티켓)     -->
-    <!-- =============================================================== -->
-    <div id="consentSuccessCard" class="w-full hidden space-y-4 animate-fade-in">
-      <div class="bg-gradient-to-b from-slate-900 to-slate-950 border-2 border-brand-500 rounded-3xl p-6 shadow-2xl text-center relative overflow-hidden">
-        
-        <div class="w-14 h-14 bg-brand-500/20 text-brand-400 rounded-2xl flex items-center justify-center mx-auto mb-3 border border-brand-500/40">
-          <i data-lucide="check-check" class="w-8 h-8"></i>
-        </div>
-
-        <span class="inline-block px-3 py-1 bg-brand-950 text-brand-400 border border-brand-800 text-xs font-black rounded-full mb-2">
-          안전 서약 접수 완료
-        </span>
-
-        <h3 class="text-xl font-black text-white">매표 창구에 아래 번호를 보여주세요</h3>
-        <p class="text-xs text-slate-400 mt-1">대기 없이 즉시 본인 확인 후 발권이 진행됩니다.</p>
-
-        <!-- Big Pass Code -->
-        <div class="my-5 bg-slate-950 p-4 rounded-2xl border border-slate-800 shadow-inner">
-          <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">오늘의 서약 확인 번호</div>
-          <div id="passCodeDisplay" class="text-3xl sm:text-4xl font-black font-mono text-brand-400 tracking-wider">
-            BONG-0909-001
-          </div>
-          <div class="text-xs text-slate-400 mt-1">
-            보호자: <strong id="passGuardianName" class="text-white">홍길동</strong> 님 | 
-            자녀: <strong id="passChildrenSummary" class="text-emerald-300">홍이든 외 1명</strong>
-          </div>
-        </div>
-
-        <!-- Timestamp and details -->
-        <div class="text-[11px] text-slate-400 space-y-0.5 border-t border-slate-800/80 pt-3">
-          <div>서약 접수 일시: <span id="passTimestamp" class="font-mono text-slate-300">-</span></div>
-          <div>장소: 리틀포레스트 봉플레이 매표소</div>
-        </div>
-
-        <button onclick="resetCustomerForm()" class="mt-5 w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition">
-          새로운 서약서 추가 작성하기
-        </button>
-
-        <!-- P1-4 Exit Survey Promo Button -->
-        <div class="mt-4 pt-3 border-t border-slate-800/80">
-          <button type="button" onclick="openExitSurveyModalFromPass()" class="w-full py-2.5 bg-gradient-to-r from-amber-500/20 to-brand-500/20 hover:from-amber-500/30 hover:to-brand-500/30 border border-amber-500/40 text-amber-300 font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 shadow-sm">
-            <i data-lucide="star" class="w-4 h-4 text-amber-400"></i>
-            <span>퇴장 시 10초 만족도 설문 참여하기 (P1-4)</span>
-          </button>
-        </div>
-      </div>
-    </div>
-
-  </main>
-
-  <!-- ================================================================= -->
-  <!-- VIEW 2: TICKET DESK / ADMIN VIEW (매표소 창구 실시간 관제 화면)     -->
-  <!-- ================================================================= -->
-  <main id="viewAdmin" class="flex-1 hidden p-3 sm:p-6 overflow-y-auto max-w-7xl mx-auto w-full space-y-4">
-    
-    <!-- Top Summary Cards -->
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4 shadow-sm">
-        <div class="text-slate-400 text-xs font-bold flex items-center gap-1.5">
-          <i data-lucide="file-signature" class="w-4 h-4 text-brand-400"></i>
-          <span id="statCard1Title">오늘 누적 서약</span>
-        </div>
-        <div class="mt-2 flex items-baseline gap-1">
-          <span id="statTotalConsents" class="text-2xl sm:text-3xl font-black font-mono text-white">0</span>
-          <span class="text-xs text-slate-400 font-bold">팀(건)</span>
-        </div>
-        <div id="statTotalPeopleSub" class="text-[11px] text-slate-400 mt-1 truncate">총 0명 (성인 0 · 아동 0)</div>
-      </div>
-
-      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4 shadow-sm">
-        <div class="text-slate-400 text-xs font-bold flex items-center gap-1.5">
-          <i data-lucide="check-circle" class="w-4 h-4 text-blue-400"></i>
-          <span>발권 완료 (입장)</span>
-        </div>
-        <div class="mt-2 flex items-baseline gap-1">
-          <span id="statCompletedConsents" class="text-2xl sm:text-3xl font-black font-mono text-blue-400">0</span>
-          <span class="text-xs text-blue-400 font-bold">팀(건)</span>
-        </div>
-        <div id="statCompletedPeopleSub" class="text-[11px] text-blue-400 font-semibold mt-1 truncate">총 0명 (성인 0 · 아동 0)</div>
-      </div>
-
-      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4 shadow-sm">
-        <div class="text-slate-400 text-xs font-bold flex items-center gap-1.5">
-          <i data-lucide="clock" class="w-4 h-4 text-amber-400"></i>
-          <span>발권 대기 중</span>
-        </div>
-        <div class="mt-2 flex items-baseline gap-1">
-          <span id="statWaitingConsents" class="text-2xl sm:text-3xl font-black font-mono text-amber-400">0</span>
-          <span class="text-xs text-amber-400 font-bold">팀(건)</span>
-        </div>
-        <div id="statWaitingPeopleSub" class="text-[11px] text-amber-400 font-semibold mt-1 truncate">총 0명 (성인 0 · 아동 0)</div>
-      </div>
-
-      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4 shadow-sm">
-        <div class="text-slate-400 text-xs font-bold flex items-center gap-1.5">
-          <i data-lucide="baby" class="w-4 h-4 text-emerald-400"></i>
-          <span>서약 동반 아동 수</span>
-        </div>
-        <div class="mt-2 flex items-baseline gap-1">
-          <span id="statTotalChildren" class="text-2xl sm:text-3xl font-black font-mono text-emerald-400">0</span>
-          <span class="text-xs text-emerald-400 font-bold">명</span>
-        </div>
-        <div id="statChildrenBreakdown" class="text-[11px] text-emerald-400 font-semibold mt-1 truncate">발권 0명 · 대기 0명</div>
-      </div>
-    </div>
-
-    <!-- =============================================================== -->
-    <!-- NEW: 요일별 / 일자별 서약 관리 탭 네비게이션 (Weekly Day Tabs)       -->
-    <!-- =============================================================== -->
-    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3 sm:p-4 shadow-sm space-y-3">
-      <!-- Upper Control Row: Title & Week Nav & Date Picker & All Button -->
-      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 pb-2.5 border-b border-slate-800/80">
-        <div class="flex items-center gap-2">
-          <div class="w-7 h-7 rounded-lg bg-brand-500/20 border border-brand-500/40 flex items-center justify-center text-brand-400 shrink-0">
-            <i data-lucide="calendar-days" class="w-4 h-4"></i>
-          </div>
-          <div>
-            <div class="flex items-center gap-2 flex-wrap">
-              <h2 class="text-xs sm:text-sm font-black text-white">요일별 서약 접수 현황</h2>
-              <span id="badgeActiveDateFilter" class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-brand-950 text-brand-300 border border-brand-800">
-                오늘
-              </span>
-            </div>
-            <p class="text-[11px] text-slate-400">요일 탭을 누르면 어제/오늘/특정일 서약자만 분리되어 조회됩니다.</p>
-          </div>
-        </div>
-
-        <!-- Week / Date Tools -->
-        <div class="flex items-center gap-1.5 flex-wrap self-end sm:self-auto text-xs">
-          <!-- Week Navigator -->
-          <div class="flex items-center bg-slate-950 p-0.5 rounded-xl border border-slate-800">
-            <button type="button" onclick="changeWeek(-1)" class="px-2 py-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition" title="이전 주">
-              <i data-lucide="chevron-left" class="w-3.5 h-3.5"></i>
-            </button>
-            <button type="button" id="btnThisWeek" onclick="changeWeek(0)" class="px-2 py-1 text-[11px] font-bold text-slate-300 hover:text-white rounded-lg hover:bg-slate-800 transition" title="이번 주로 복귀">
-              이번 주
-            </button>
-            <button type="button" onclick="changeWeek(1)" class="px-2 py-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition" title="다음 주">
-              <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
-            </button>
-          </div>
-
-          <!-- Direct Date Picker -->
-          <div class="flex items-center bg-slate-950 px-2 py-1 rounded-xl border border-slate-800 text-[11px]" title="특정 일자 선택">
-            <i data-lucide="calendar" class="w-3.5 h-3.5 text-slate-400 mr-1.5"></i>
-            <input type="date" id="customDateInput" onchange="onCustomDateChange(event)"
-              class="bg-transparent text-slate-200 text-[11px] outline-none cursor-pointer">
-          </div>
-
-          <!-- All Dates Button -->
-          <button type="button" id="btnFilterDateAll" onclick="setDateFilter('all')"
-            class="px-3 py-1.5 rounded-xl font-bold text-[11px] transition bg-slate-950 text-slate-400 hover:text-white border border-slate-800">
-            전체 기간
-          </button>
-        </div>
-      </div>
-
-      <!-- Weekly Day Tabs Container (Mon ~ Sun: 7 Days) -->
-      <div id="weeklyDayTabsContainer" class="grid grid-cols-2 xs:grid-cols-4 md:grid-cols-7 gap-2">
-        <!-- Injected via renderDateFilterBar() -->
-      </div>
-    </div>
-
-    <!-- Desk Control & Search Bar -->
-    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col md:flex-row items-center justify-between gap-3">
-      <!-- Search Input -->
-      <div class="relative w-full md:w-96">
-        <i data-lucide="search" class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500"></i>
-        <input type="text" id="adminSearchInput" oninput="renderAdminList()" placeholder="보호자 성명 또는 전화번호 뒷 4자리 검색..."
-          class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-4 py-2 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand-500">
-      </div>
-
-      <!-- Filter Buttons & Actions -->
-      <div class="flex items-center gap-2 w-full md:w-auto justify-end flex-wrap">
-        <div class="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold">
-          <button id="btnFilterAll" onclick="setFilter('all')" class="px-2.5 py-1 rounded-lg bg-slate-800 text-white">전체</button>
-          <button id="btnFilterWait" onclick="setFilter('waiting')" class="px-2.5 py-1 rounded-lg text-slate-400 hover:text-white">대기중</button>
-          <button id="btnFilterDone" onclick="setFilter('done')" class="px-2.5 py-1 rounded-lg text-slate-400 hover:text-white">발권완료</button>
-        </div>
-
-        <button onclick="injectMockData()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl flex items-center gap-1.5 transition" title="시연용 샘플 생성">
-          <i data-lucide="database" class="w-3.5 h-3.5"></i>
-          <span>시연 샘플 3건</span>
-        </button>
-
-        <button onclick="exportConsentsToExcel()" class="px-3 py-1.5 bg-brand-950 hover:bg-brand-900 text-brand-300 border border-brand-800 font-bold text-xs rounded-xl flex items-center gap-1.5 transition">
-          <i data-lucide="download" class="w-3.5 h-3.5"></i>
-          <span>엑셀(CSV) 저장</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- Main Consent Log Table -->
-    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
-      <div class="overflow-x-auto">
-        <table class="w-full text-left text-xs">
-          <thead class="bg-slate-950/80 text-slate-400 font-bold border-b border-slate-800">
-            <tr>
-              <th class="p-3.5">서약번호</th>
-              <th class="p-3.5">보호자(연락처)</th>
-              <th class="p-3.5">거주구분</th>
-              <th class="p-3.5">이용 아동 명단</th>
-              <th class="p-3.5">서약 시각</th>
-              <th class="p-3.5 text-center">전자서명</th>
-              <th class="p-3.5 text-center">발권 상태</th>
-              <th class="p-3.5 text-center">관리</th>
-            </tr>
-          </thead>
-          <tbody id="adminTableBody" class="divide-y divide-slate-800 font-medium">
-            <!-- Populated via JavaScript -->
-          </tbody>
-        </table>
-      </div>
-
-      <!-- Empty State -->
-      <div id="adminEmptyState" class="hidden p-12 text-center text-slate-500">
-        <i data-lucide="inbox" class="w-10 h-10 mx-auto mb-2 opacity-40"></i>
-        <p id="adminEmptyMsg" class="font-bold text-sm">접수된 안전서약 내역이 없습니다.</p>
-        <p id="adminEmptySub" class="text-xs text-slate-600 mt-1">고객이 모바일로 서약을 제출하면 실시간으로 자동 갱신됩니다.</p>
-      </div>
-    </div>
-
-  </main>
-
-  <!-- ================================================================= -->
-  <!-- VIEW 3: PRINTABLE ENTRANCE BANNER (매표소 현장 비치용 A4/배너)       -->
-  <!-- ================================================================= -->
-  <main id="viewBanner" class="flex-1 hidden p-4 sm:p-8 overflow-y-auto max-w-4xl mx-auto w-full">
-    
-    <div class="no-print mb-4 flex items-center justify-between bg-slate-900 p-4 rounded-2xl border border-slate-800">
-      <div>
-        <h2 class="text-sm font-black text-white">현장 비치용 QR 안내문 인쇄</h2>
-        <p class="text-xs text-slate-400">매표소 앞 X배너, 입구 안내판, 매표 창구 부착용 고해상도 인쇄물입니다.</p>
-      </div>
-      <button onclick="window.print()" class="px-5 py-2.5 bg-brand-600 hover:bg-brand-500 text-white font-black text-xs rounded-xl shadow-lg shadow-brand-600/30 flex items-center gap-2">
-        <i data-lucide="printer" class="w-4 h-4"></i>
-        <span>이 페이지 인쇄하기 (A4)</span>
-      </button>
-    </div>
-
-    <!-- PRINT CANVAS AREA (A4 Standard Container) -->
-    <div id="printArea" class="bg-white text-slate-900 p-8 sm:p-12 rounded-3xl shadow-2xl border border-slate-200 text-center space-y-6">
-      
-      <!-- Banner Header -->
-      <div class="border-b-2 border-emerald-800 pb-6">
-        <div class="inline-flex items-center gap-2 px-3 py-1 bg-emerald-100 text-emerald-900 font-black text-xs rounded-full mb-3">
-          🌿 리틀포레스트 봉플레이 공식 현장 안내
-        </div>
-        <h1 class="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight leading-tight">
-          대기 없는 빠른 입장을 위한<br>
-          <span class="text-emerald-700">모바일 안전이용서약 원패스</span>
-        </h1>
-        <p class="text-sm text-slate-600 mt-2 font-medium">
-          스마트폰 카메라로 아래 QR 코드를 비추면 <strong>20초 만에 서약 완료!</strong>
+        <h2 class="text-lg sm:text-xl font-black text-white tracking-tight">
+          안전하고 즐거운 숲 놀이를 위한<br>
+          <span class="text-brand-400">보호자 동의 및 안전수칙 서약</span>
+        </h2>
+        <p class="text-xs text-slate-300 mt-2 leading-relaxed">
+          짚코스터·네트어드벤처·트램펄린 이용 전 보호자 서약을 완료하시면<br class="hidden xs:inline">
+          매표소에서 <b>즉시 발권 가능한 모바일 바우처 QR</b>이 발급됩니다.
         </p>
       </div>
 
-      <!-- Big QR Code Centerpiece -->
-      <div class="flex flex-col items-center justify-center my-4">
-        <div class="p-4 bg-white rounded-3xl border-4 border-emerald-600 shadow-xl inline-block">
-          <div id="liveBannerQrCode" class="w-48 h-48 sm:w-56 sm:h-56 flex items-center justify-center"></div>
+      <!-- Consent Input Form -->
+      <form id="consentForm" onsubmit="handleConsentSubmit(event)" class="space-y-4">
+
+        <!-- STEP 1: GUARDIAN INFO -->
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
+          <div class="flex items-center gap-2 pb-2 border-b border-slate-800 text-brand-400 font-extrabold text-sm">
+            <i data-lucide="user-check" class="w-4 h-4"></i>
+            <span>1. 법적 보호자(성인) 정보</span>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-bold text-slate-300 mb-1">보호자 성명 <span class="text-rose-400">*</span></label>
+              <input type="text" id="guardianName" required placeholder="예: 홍길동"
+                class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-300 mb-1">휴대전화번호 <span class="text-rose-400">*</span></label>
+              <input type="tel" id="guardianPhone" required placeholder="010-0000-0000" maxlength="13" oninput="autoHyphenPhone(this)"
+                class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition font-mono">
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-slate-300 mb-1">거주 지역 (봉화군민 할인 확인용)</label>
+            <div class="grid grid-cols-2 gap-2 text-xs font-bold">
+              <label class="cursor-pointer border border-slate-700 rounded-xl p-2.5 flex items-center justify-center gap-2 hover:bg-slate-800 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-950/50 has-[:checked]:text-brand-300 transition">
+                <input type="radio" name="residenceType" value="봉화군민" class="accent-brand-500">
+                <span>봉화군민 (신분증 제시)</span>
+              </label>
+              <label class="cursor-pointer border border-slate-700 rounded-xl p-2.5 flex items-center justify-center gap-2 hover:bg-slate-800 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-950/50 has-[:checked]:text-brand-300 transition">
+                <input type="radio" name="residenceType" value="관외일반" checked class="accent-brand-500">
+                <span>관외 일반 방문객</span>
+              </label>
+            </div>
+          </div>
         </div>
-        <span class="mt-3 text-xs font-mono font-black text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
-          기본 카메라 앱을 켜서 QR을 비춰주세요
-        </span>
-      </div>
 
-      <!-- 3-Step Simple Guide -->
-      <div class="grid grid-cols-3 gap-3 text-left pt-4 border-t border-slate-200">
-        <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
-          <div class="w-7 h-7 rounded-xl bg-emerald-700 text-white font-black text-xs flex items-center justify-center mb-2">1</div>
-          <div class="font-black text-xs sm:text-sm text-slate-900">QR 코드 촬영</div>
-          <div class="text-[11px] text-slate-500 mt-1 leading-snug">별도 앱 설치 없이 스마트폰 카메라로 촬영</div>
+        <!-- STEP 2: CHILDREN INFO (With Height & Weight) -->
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
+          <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+            <div class="flex items-center gap-2 text-brand-400 font-extrabold text-sm">
+              <i data-lucide="baby" class="w-4 h-4"></i>
+              <span>2. 동반 아동 정보 (신체 안전규격)</span>
+            </div>
+            <button type="button" onclick="addChildRow()" class="text-xs text-brand-400 hover:text-brand-300 font-bold flex items-center gap-1 bg-brand-950 px-2.5 py-1 rounded-lg border border-brand-800/80 transition">
+              <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+              <span>아동 추가</span>
+            </button>
+          </div>
+
+          <p class="text-[11px] text-slate-400 leading-relaxed">
+            ※ 실버 짚코스터는 <b>신장 100cm 이상, 체중 85kg 이하</b> 탑승 가능합니다. 정확한 안전 운영을 위해 입력 부탁드립니다.
+          </p>
+
+          <div id="childrenContainer" class="space-y-2.5">
+            <!-- Child Row 1 -->
+            <div class="child-row bg-slate-950/80 border border-slate-800 rounded-xl p-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-black text-brand-400 flex items-center gap-1">
+                  <span class="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center text-[10px] text-white">1</span>
+                  <span>동반 아동</span>
+                </span>
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <input type="text" name="childName[]" required placeholder="아동 성명"
+                  class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500">
+                <input type="text" name="childBirth[]" placeholder="생년월일(예: 20180501)" maxlength="8"
+                  class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 font-mono">
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <div class="relative">
+                  <input type="number" name="childHeight[]" placeholder="신장 (cm)" min="50" max="200"
+                    class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 font-mono">
+                  <span class="absolute right-3 top-2 text-[10px] text-slate-500 font-bold">cm</span>
+                </div>
+                <div class="relative">
+                  <input type="number" name="childWeight[]" placeholder="체중 (kg)" min="10" max="150"
+                    class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 font-mono">
+                  <span class="absolute right-3 top-2 text-[10px] text-slate-500 font-bold">kg</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
-          <div class="w-7 h-7 rounded-xl bg-emerald-700 text-white font-black text-xs flex items-center justify-center mb-2">2</div>
-          <div class="font-black text-xs sm:text-sm text-slate-900">모바일 전자 서약</div>
-          <div class="text-[11px] text-slate-500 mt-1 leading-snug">보호자 정보, 자녀 입력 후 손가락으로 간편 서명</div>
+        <!-- STEP 3: TERMS & MASTER AGREE TOGGLE -->
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
+          <div class="flex items-center gap-2 pb-2 border-b border-slate-800 text-brand-400 font-extrabold text-sm">
+            <i data-lucide="check-square" class="w-4 h-4"></i>
+            <span>3. 안전수칙 준수 및 이용 동의</span>
+          </div>
+
+          <!-- Master Agreement Box (전체 동의하기) -->
+          <label class="cursor-pointer bg-brand-950/60 border border-brand-500/50 rounded-xl p-3.5 flex items-center gap-3 transition hover:bg-brand-950/90">
+            <input type="checkbox" id="agreeAllToggle" onchange="toggleAgreeAll(this.checked)"
+              class="w-5 h-5 rounded accent-brand-500 cursor-pointer">
+            <div class="flex-1">
+              <span class="text-xs sm:text-sm font-black text-white block">모든 약관에 전체 동의합니다 (필수 및 선택)</span>
+              <span class="text-[11px] text-brand-300 block mt-0.5">안전수칙, 개인정보 처리, 비상연락망 제공에 일괄 동의합니다.</span>
+            </div>
+          </label>
+
+          <!-- Sub Checklist -->
+          <div class="space-y-2 pt-1 text-xs text-slate-300">
+            <label class="flex items-start gap-2.5 cursor-pointer">
+              <input type="checkbox" id="agreeRules" required class="term-check mt-0.5 accent-brand-500">
+              <span><b>[필수]</b> 안전요원의 통제에 따르며, 시설별 신장·체중 규격을 준수합니다.</span>
+            </label>
+            <label class="flex items-start gap-2.5 cursor-pointer">
+              <input type="checkbox" id="agreeGuardian" required class="term-check mt-0.5 accent-brand-500">
+              <span><b>[필수]</b> 만 12세 이하 어린이는 법적 보호자가 원내에 상주하여 지도합니다.</span>
+            </label>
+            <label class="flex items-start gap-2.5 cursor-pointer">
+              <input type="checkbox" id="agreePrivacy" required class="term-check mt-0.5 accent-brand-500">
+              <span><b>[필수]</b> 안전사고 발생 시 비상연락 및 영업배상책임보험 접수를 위한 개인정보 수집에 동의합니다.</span>
+            </label>
+            <label class="flex items-start gap-2.5 cursor-pointer">
+              <input type="checkbox" id="agreeMarketing" class="term-check mt-0.5 accent-brand-500">
+              <span class="text-slate-400"><b>[선택]</b> 봉플레이 축제·이벤트 및 재방문 할인 혜택 SMS 수신에 동의합니다.</span>
+            </label>
+          </div>
         </div>
 
-        <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
-          <div class="w-7 h-7 rounded-xl bg-emerald-700 text-white font-black text-xs flex items-center justify-center mb-2">3</div>
-          <div class="font-black text-xs sm:text-sm text-slate-900">매표소 즉시 발권</div>
-          <div class="text-[11px] text-slate-500 mt-1 leading-snug">화면에 뜬 서약번호를 창구에 제시하고 즉시 입장</div>
+        <!-- STEP 4: SIGNATURE CANVAS -->
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
+          <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+            <div class="flex items-center gap-2 text-brand-400 font-extrabold text-sm">
+              <i data-lucide="pen-tool" class="w-4 h-4"></i>
+              <span>4. 법적 보호자 전자서명</span>
+            </div>
+            <button type="button" onclick="clearSignature()" class="text-xs text-slate-400 hover:text-white font-bold flex items-center gap-1 bg-slate-800 px-2.5 py-1 rounded-lg transition">
+              <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+              <span>서명 다시 쓰기</span>
+            </button>
+          </div>
+
+          <div class="relative bg-slate-950 border border-slate-700 rounded-xl overflow-hidden touch-none h-36 flex items-center justify-center">
+            <canvas id="sigCanvas" class="w-full h-full cursor-crosshair"></canvas>
+            <span id="sigPlaceholder" class="absolute pointer-events-none text-xs text-slate-600 font-bold">
+              여기에 손가락 또는 스타일러스로 정자로 서명해 주세요.
+            </span>
+          </div>
         </div>
-      </div>
 
-      <!-- Legal Footer -->
-      <div class="text-[11px] text-slate-500 pt-4 border-t border-slate-200 flex items-center justify-between">
-        <span>어린이놀이시설 안전관리법 시행규칙 제16조 준수</span>
-        <span>리틀포레스트 봉플레이 운영사무국 (경상북도 봉화군 봉화읍 유록길 22 / 문의: 010-5931-4144)</span>
-      </div>
-
+        <!-- SUBMIT BUTTON -->
+        <button type="submit" id="btnSubmitConsent" class="w-full py-4 bg-brand-600 hover:bg-brand-500 active:scale-[0.99] text-white font-black text-sm sm:text-base rounded-2xl shadow-lg shadow-brand-600/30 transition flex items-center justify-center gap-2">
+          <i data-lucide="shield-check" class="w-5 h-5"></i>
+          <span>안전서약 완료 및 매표 바우처 받기</span>
+        </button>
+      </form>
     </div>
 
+    <!-- ── 2. VOUCHER VIEW (서약 완료 시 노출) ── -->
+    <div id="voucherSection" class="hidden w-full space-y-4 text-center animate-fadeIn">
+      
+      <div class="bg-gradient-to-br from-brand-950/90 via-slate-900 to-slate-900 border border-brand-500/50 rounded-3xl p-6 shadow-2xl space-y-4">
+        <div class="w-14 h-14 rounded-full bg-brand-500/20 text-brand-400 mx-auto flex items-center justify-center">
+          <i data-lucide="check-circle" class="w-8 h-8"></i>
+        </div>
+
+        <div>
+          <span class="text-[11px] font-extrabold text-brand-400 uppercase tracking-wider bg-brand-950 px-2.5 py-1 rounded-full border border-brand-800">
+            서약 접수 완료
+          </span>
+          <h3 class="text-xl font-black text-white mt-2">매표소 제시용 모바일 바우처</h3>
+          <p class="text-xs text-slate-300 mt-1">
+            아래의 QR 코드 또는 바우처 번호를 매표소 직원에게 보여주세요.
+          </p>
+        </div>
+
+        <!-- Big QR Code Container -->
+        <div class="bg-white p-4 rounded-2xl inline-block mx-auto shadow-inner">
+          <div id="voucherQrCode" class="w-48 h-48 flex items-center justify-center"></div>
+        </div>
+
+        <!-- Pass Code Display -->
+        <div class="bg-slate-950 p-3 rounded-2xl border border-slate-800 max-w-xs mx-auto">
+          <span class="text-[10px] text-slate-400 font-bold block">바우처 접수번호</span>
+          <span id="voucherCodeText" class="text-xl font-black font-mono text-brand-400 tracking-wider">BP-XXXXXX</span>
+        </div>
+
+        <!-- Summary Info -->
+        <div class="grid grid-cols-2 gap-2 text-xs bg-slate-950/60 p-3 rounded-2xl border border-slate-800/80 text-left">
+          <div>
+            <span class="text-slate-500 text-[10px] block">보호자 성명</span>
+            <span id="voucherGuardianText" class="font-bold text-white">-</span>
+          </div>
+          <div>
+            <span class="text-slate-500 text-[10px] block">동반 인원수</span>
+            <span id="voucherPeopleCountText" class="font-bold text-brand-300">-</span>
+          </div>
+        </div>
+
+        <!-- Next Action Buttons -->
+        <div class="pt-2 space-y-2">
+          <button type="button" onclick="resetForNewGuest()" class="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5">
+            <i data-lucide="user-plus" class="w-4 h-4"></i>
+            <span>새로운 일행 서약 작성하기</span>
+          </button>
+          <p class="text-[10px] text-slate-500">
+            ※ 브라우저 창을 닫아도 발권 데스크에 안전하게 보존됩니다.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 3. EXIT SATISFACTION SURVEY MODAL (URL 연동형) ── -->
+    <div id="surveyModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+      <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-5 space-y-4 shadow-2xl text-left">
+        <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+          <div class="flex items-center gap-2">
+            <div class="w-7 h-7 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-black">
+              <i data-lucide="star" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <h3 class="text-sm font-black text-white">10초 경험 만족도 설문</h3>
+              <p class="text-[10px] text-slate-400 font-mono" id="surveyTargetPass">BP-XXXXXX</p>
+            </div>
+          </div>
+          <button onclick="closeSurveyModal()" class="p-1 text-slate-400 hover:text-white rounded-lg">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+
+        <div class="space-y-3 text-xs">
+          <div>
+            <label class="block text-xs font-bold text-slate-300 mb-1">오늘 숲 놀이 경험은 어떠셨나요?</label>
+            <div class="grid grid-cols-5 gap-1.5 text-center">
+              <button type="button" onclick="selectScore(1)" class="score-btn p-2 bg-slate-950 border border-slate-800 rounded-xl hover:border-amber-400">1점</button>
+              <button type="button" onclick="selectScore(2)" class="score-btn p-2 bg-slate-950 border border-slate-800 rounded-xl hover:border-amber-400">2점</button>
+              <button type="button" onclick="selectScore(3)" class="score-btn p-2 bg-slate-950 border border-slate-800 rounded-xl hover:border-amber-400">3점</button>
+              <button type="button" onclick="selectScore(4)" class="score-btn p-2 bg-slate-950 border border-slate-800 rounded-xl hover:border-amber-400">4점</button>
+              <button type="button" onclick="selectScore(5)" class="score-btn p-2 bg-amber-500/20 border border-amber-400 text-amber-300 font-bold rounded-xl">5점</button>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-slate-300 mb-1">개선 의견 또는 직원 칭찬 (선택)</label>
+            <textarea id="surveyComment" rows="2" placeholder="자유롭게 의견을 남겨주세요."
+              class="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500"></textarea>
+          </div>
+        </div>
+
+        <button type="button" onclick="submitExitSurvey()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow transition">
+          설문 완료 및 제출
+        </button>
+      </div>
+    </div>
   </main>
 
   <!-- ================================================================= -->
-  <!-- MODAL: SIGNATURE & LEGAL ARCHIVE DETAIL MODAL                      -->
-  <!-- ================================================================= -->
-  <div id="consentDetailModal" class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md hidden flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
-    <div class="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col my-auto animate-scale-in">
-      
-      <!-- Modal Header -->
-      <div class="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
-        <div class="flex items-center gap-2">
-          <i data-lucide="file-check" class="w-5 h-5 text-brand-400"></i>
-          <h3 class="font-black text-white text-sm sm:text-base">안전이용동의서 및 전자서명 법정 원본</h3>
-        </div>
-        <button onclick="closeConsentModal()" class="p-1.5 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition">
-          <i data-lucide="x" class="w-5 h-5"></i>
-        </button>
-      </div>
-
-      <!-- Modal Body (Printable Form Template) -->
-      <div id="modalPrintSection" class="p-5 sm:p-6 space-y-4 text-xs overflow-y-auto max-h-[70vh]">
-        
-        <!-- Summary Strip -->
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
-          <div>
-            <span class="text-[10px] text-slate-400 block font-bold">서약 확인번호</span>
-            <strong id="mPassCode" class="font-mono text-brand-400 text-sm font-black">-</strong>
-          </div>
-          <div>
-            <span class="text-[10px] text-slate-400 block font-bold">보호자(성명)</span>
-            <strong id="mGuardianName" class="text-white text-sm font-bold">-</strong>
-          </div>
-          <div>
-            <span class="text-[10px] text-slate-400 block font-bold">연락처</span>
-            <strong id="mGuardianPhone" class="text-slate-300 font-mono text-sm font-bold">-</strong>
-          </div>
-          <div>
-            <span class="text-[10px] text-slate-400 block font-bold">거주지역</span>
-            <strong id="mResidence" class="text-emerald-400 text-sm font-bold">-</strong>
-          </div>
-        </div>
-
-        <!-- Causal AI Tracking IDs -->
-        <div class="grid grid-cols-2 gap-2 bg-slate-950/80 p-2.5 rounded-xl border border-slate-800/80 text-[11px] font-mono">
-          <div>
-            <span class="text-[9px] text-cyan-400 block font-bold uppercase tracking-wider">방문 세션 마스터 (visit_id)</span>
-            <span id="mVisitId" class="text-cyan-300 font-bold">-</span>
-          </div>
-          <div>
-            <span class="text-[9px] text-purple-400 block font-bold uppercase tracking-wider">익명 가구 식별자 (household_id)</span>
-            <span id="mHouseholdId" class="text-purple-300 font-bold">-</span>
-          </div>
-        </div>
-
-        <!-- P0-2 Visit Session Lifecycle Timeline -->
-        <div class="bg-slate-950/80 p-3 rounded-xl border border-slate-800 text-xs">
-          <span class="text-[10px] text-amber-400 block font-bold uppercase tracking-wider mb-2">방문 세션 수명주기 타임라인 (Visit Lifecycle)</span>
-          <div class="grid grid-cols-4 gap-2 text-center font-mono text-[11px]">
-            <div class="bg-slate-900 p-2 rounded-lg border border-slate-800">
-              <span class="text-[9px] text-slate-400 block">1. 접수(Arrival)</span>
-              <span id="mLcArrival" class="text-white font-bold">-</span>
-            </div>
-            <div class="bg-slate-900 p-2 rounded-lg border border-slate-800">
-              <span class="text-[9px] text-slate-400 block">2. 발권(Issued)</span>
-              <span id="mLcIssued" class="text-blue-300 font-bold">-</span>
-            </div>
-            <div class="bg-slate-900 p-2 rounded-lg border border-slate-800">
-              <span class="text-[9px] text-slate-400 block">3. 입장(Entry)</span>
-              <span id="mLcEntry" class="text-emerald-300 font-bold">-</span>
-            </div>
-            <div class="bg-slate-900 p-2 rounded-lg border border-slate-800">
-              <span class="text-[9px] text-slate-400 block">4. 퇴장(Exit)</span>
-              <span id="mLcExit" class="text-amber-300 font-bold">-</span>
-            </div>
-          </div>
-          <div class="mt-2 text-[10px] text-right text-slate-400 font-sans">
-            총 체류시간: <strong id="mLcStayDuration" class="text-emerald-400 font-mono text-xs">-</strong>
-          </div>
-        </div>
-
-        <!-- Children Info -->
-        <div>
-          <span class="text-xs font-black text-slate-300 mb-1 block">■ 동반 이용 아동 (총 <span id="mChildCount">0</span>명)</span>
-          <div id="mChildrenList" class="bg-slate-950/70 p-3 rounded-xl border border-slate-800/80 space-y-1">
-            <!-- Populated -->
-          </div>
-        </div>
-
-        <!-- Confirmed Clauses -->
-        <div class="bg-slate-950/50 p-3.5 rounded-xl border border-slate-800 space-y-1.5 text-[11px] text-slate-400">
-          <div class="text-white font-bold mb-1">■ 확인 및 동의된 법적 조항 내역:</div>
-          <div>✔ [필수] 안전요원 지시 및 시설 안전수칙 준수 동의 (완료)</div>
-          <div>✔ [필수] 심혈관, 최근 골절 등 기저질환 없음 및 신체 적합 확인 (완료)</div>
-          <div>✔ [필수] 만 12세 이하 어린이 보호자 현장 동반 지도 의무 확인 (완료)</div>
-          <div>✔ [필수] 고의·과실·수칙 미준수에 대한 개인 부주의 면책 확인 (완료)</div>
-          <div>✔ [필수] 개인정보 수집 및 사고 대비 3개년 보관 동의 (완료)</div>
-        </div>
-
-        <!-- Electronic Signature Graphic -->
-        <div>
-          <span class="text-xs font-black text-slate-300 mb-1 block">■ 보호자 친필 전자서명 (Base64 원본)</span>
-          <div class="bg-white rounded-xl p-3 flex items-center justify-center border border-slate-700 min-h-[120px]">
-            <img id="mSignatureImg" src="" alt="보호자 전자서명" class="max-h-24 max-w-full object-contain">
-          </div>
-          <div class="flex justify-between text-[10px] text-slate-500 mt-1 font-mono">
-            <span>서약 일시: <strong id="mTimestamp" class="text-slate-400">-</strong></span>
-            <span>인증 방식: HTML5 Touch Vector Signature</span>
-          </div>
-        </div>
-
-      </div>
-
-      <!-- Modal Footer -->
-      <div class="p-4 border-t border-slate-800 bg-slate-950/80 flex items-center justify-between">
-        <button onclick="printSingleConsent()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl flex items-center gap-1.5 transition">
-          <i data-lucide="printer" class="w-3.5 h-3.5"></i>
-          <span>법정 증빙 서약서 인쇄</span>
-        </button>
-
-        <div class="flex items-center gap-2">
-          <button id="btnModalToggleStatus" onclick="toggleCurrentModalStatus()" class="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition">
-            <i data-lucide="check" class="w-3.5 h-3.5"></i>
-            <span id="lblModalToggleStatus">발권 완료로 변경</span>
-          </button>
-          <button onclick="closeConsentModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold text-xs rounded-xl">
-            닫기
-          </button>
-        </div>
-      </div>
-
-    </div>
-  </div>
-
-  <!-- Audio Chime for Real-time New Consent Notification -->
-  <audio id="audioChime" preload="auto">
-    <source src="data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU"+Array(300).join("120") type="audio/wav">
-  </audio>
-
-  <!-- ================================================================= -->
-  <!-- JAVASCRIPT LOGIC (PERSISTENCE, CANVAS, BROADCAST & DISPATCH)       -->
+  <!-- SCRIPT: CANVAS, FORM VALIDATION, NO PULL ALL                      -->
   <!-- ================================================================= -->
   <script>
-    // Global Constants
-    // bongplay-id.js STORAGE_KEYS.CONSENTS와 통일 (레거시 키: 'bongtteurak_consents_v1')
-    const STORAGE_KEY = 'bongplay_safety_consents';
-    let currentFilter = 'all'; // 'all' | 'waiting' | 'done'
-    let currentDateFilter = 'today'; // 'today' | 'all' | 'YYYY-MM-DD'
-    let weekOffset = 0; // 0: 이번주, -1: 지난주, +1: 다음주
-    let consents = [];
-    let currentModalId = null;
+    let sigCanvas, sigCtx, isDrawing = false, hasSignature = false;
+    let currentVoucherCode = null;
+    let selectedSurveyScore = 5;
 
-    // Cross-tab Synchronization Bus
-    const syncChannel = ('BroadcastChannel' in window) ? new BroadcastChannel('bongtteurak_consent_bus') : null;
-
-    // -----------------------------------------------------------------
-    // CANVAS SIGNATURE ENGINE
-    // -----------------------------------------------------------------
-    const canvas = document.getElementById('sigCanvas');
-    const ctx = canvas.getContext('2d');
-    let isDrawing = false;
-    let hasSigned = false;
-
-    function resizeCanvas() {
-      const rect = canvas.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
-      ctx.scale(dpr, dpr);
-      ctx.strokeStyle = '#22c55e'; // Brand green ink
-      ctx.lineWidth = 2.5;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-    }
-
-    function getCanvasCoords(e) {
-      const rect = canvas.getBoundingClientRect();
-      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-      return {
-        x: clientX - rect.left,
-        y: clientY - rect.top
-      };
-    }
-
-    function startDrawing(e) {
-      isDrawing = true;
-      hasSigned = true;
-      document.getElementById('sigPlaceholder').classList.add('hidden');
-      const { x, y } = getCanvasCoords(e);
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-      e.preventDefault();
-    }
-
-    function draw(e) {
-      if (!isDrawing) return;
-      const { x, y } = getCanvasCoords(e);
-      ctx.lineTo(x, y);
-      ctx.stroke();
-      e.preventDefault();
-    }
-
-    function stopDrawing() {
-      isDrawing = false;
-    }
-
-    function clearSignature() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      hasSigned = false;
-      document.getElementById('sigPlaceholder').classList.remove('hidden');
-    }
-
-    // Attach Canvas Events (Touch & Mouse)
-    canvas.addEventListener('mousedown', startDrawing);
-    canvas.addEventListener('mousemove', draw);
-    window.addEventListener('mouseup', stopDrawing);
-
-    canvas.addEventListener('touchstart', startDrawing, { passive: false });
-    canvas.addEventListener('touchmove', draw, { passive: false });
-    window.addEventListener('touchend', stopDrawing);
-
-    // -----------------------------------------------------------------
-    // INITIALIZATION & VIEW MANAGEMENT
-    // -----------------------------------------------------------------
-    window.addEventListener('DOMContentLoaded', () => {
-      loadConsents();
-      resizeCanvas();
-      window.addEventListener('resize', resizeCanvas);
+    document.addEventListener('DOMContentLoaded', function () {
       lucide.createIcons();
-      generatePrintQrCode();
+      BongplaySync.renderBadge('syncStatusBadge');
+      initSignatureCanvas();
 
-      // Listen for cross-tab updates
-      if (syncChannel) {
-        syncChannel.onmessage = (msg) => {
-          if (msg.data && msg.data.type === 'NEW_CONSENT') {
-            loadConsents();
-            renderAdminDashboard();
-            playChimeSound();
-          }
-        };
-      }
-
-      window.addEventListener('storage', (e) => {
-        if (e.key === STORAGE_KEY) {
-          loadConsents();
-          renderAdminDashboard();
-        }
-      });
-
-      // URL 쿼리 파라미터 확인 (?pass=BONG-... 또는 ?survey=1 또는 ?view=admin)
+      // Check survey query param (?survey=BP-xxx or ?pass=BP-xxx)
       try {
-        const urlParams = new URLSearchParams(window.location.search);
-        const viewParam = urlParams.get('view');
-        if (viewParam === 'admin') switchView('admin');
-        const passParam = urlParams.get('pass') || urlParams.get('survey') || urlParams.get('exit');
-        if (passParam) {
-          openExitSurveyModal(passParam !== '1' && passParam !== 'true' ? passParam : null);
+        const params = new URLSearchParams(window.location.search);
+        const pass = params.get('survey') || params.get('pass');
+        if (pass) {
+          openSurveyModal(pass);
         }
       } catch (e) {}
     });
 
-    function switchView(view) {
-      const vCustomer = document.getElementById('viewCustomer');
-      const vAdmin = document.getElementById('viewAdmin');
-      const vBanner = document.getElementById('viewBanner');
-
-      const tCustomer = document.getElementById('tabCustomer');
-      const tAdmin = document.getElementById('tabAdmin');
-      const tBanner = document.getElementById('tabBanner');
-
-      // Reset tabs
-      [tCustomer, tAdmin, tBanner].forEach(t => {
-        t.className = 'px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 text-slate-400 hover:text-white';
-      });
-
-      vCustomer.classList.add('hidden');
-      vAdmin.classList.add('hidden');
-      vBanner.classList.add('hidden');
-
-      if (view === 'customer') {
-        vCustomer.classList.remove('hidden');
-        tCustomer.className = 'px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 bg-brand-600 text-white shadow-sm';
-        setTimeout(resizeCanvas, 50);
-      } else if (view === 'admin') {
-        vAdmin.classList.remove('hidden');
-        tAdmin.className = 'px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 bg-brand-600 text-white shadow-sm';
-        renderAdminDashboard();
-      } else if (view === 'banner') {
-        vBanner.classList.remove('hidden');
-        tBanner.className = 'px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 bg-brand-600 text-white shadow-sm';
-        generatePrintQrCode();
-      }
-      lucide.createIcons();
+    // 1. Master Agree All Toggle (User Feedback #5)
+    function toggleAgreeAll(checked) {
+      const checkboxes = document.querySelectorAll('.term-check');
+      checkboxes.forEach(cb => { cb.checked = checked; });
     }
 
-    // -----------------------------------------------------------------
-    // CUSTOMER VIEW: CHILD ROWS & FORM HANDLING
-    // -----------------------------------------------------------------
+    // 2. Add / Remove Child
     function addChildRow() {
       const container = document.getElementById('childrenContainer');
       const count = container.querySelectorAll('.child-row').length + 1;
       if (count > 8) {
-        alert('한 번에 최대 8명의 아동까지 서약이 가능합니다.');
+        alert('한 번에 최대 8명의 아동까지 서약 등록이 가능합니다.');
         return;
       }
 
       const div = document.createElement('div');
-      div.className = 'child-row bg-slate-950/70 border border-slate-800 rounded-xl p-3 flex items-center gap-2.5 animate-scale-in';
+      div.className = 'child-row bg-slate-950/80 border border-slate-800 rounded-xl p-3 space-y-2';
       div.innerHTML = `
-        <span class="w-6 h-6 rounded-full bg-slate-800 text-brand-400 font-black text-xs flex items-center justify-center shrink-0 child-num">${count}</span>
-        <input type="text" name="childName[]" required placeholder="아동 이름" class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500">
-        <select name="childAge[]" class="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none focus:border-brand-500">
-          <option value="3~4세">3~4세 (영유아)</option>
-          <option value="5~7세" selected>5~7세 (미취학)</option>
-          <option value="초등 저학년">초등 1~3학년</option>
-          <option value="초등 고학년">초등 4~6학년</option>
-          <option value="중학생이상">중학생 이상</option>
-        </select>
-        <button type="button" onclick="removeChildRow(this)" class="text-slate-500 hover:text-red-400 p-1.5 shrink-0 opacity-40 hover:opacity-100 transition">
-          <i data-lucide="trash-2" class="w-4 h-4"></i>
-        </button>
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-black text-brand-400 flex items-center gap-1">
+            <span class="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center text-[10px] text-white">${count}</span>
+            <span>동반 아동</span>
+          </span>
+          <button type="button" onclick="this.closest('.child-row').remove()" class="text-[11px] text-rose-400 hover:text-rose-300">삭제</button>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <input type="text" name="childName[]" required placeholder="아동 성명"
+            class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500">
+          <input type="text" name="childBirth[]" placeholder="생년월일(예: 20180501)" maxlength="8"
+            class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 font-mono">
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div class="relative">
+            <input type="number" name="childHeight[]" placeholder="신장 (cm)" min="50" max="200"
+              class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 font-mono">
+            <span class="absolute right-3 top-2 text-[10px] text-slate-500 font-bold">cm</span>
+          </div>
+          <div class="relative">
+            <input type="number" name="childWeight[]" placeholder="체중 (kg)" min="10" max="150"
+              class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 font-mono">
+            <span class="absolute right-3 top-2 text-[10px] text-slate-500 font-bold">kg</span>
+          </div>
+        </div>
       `;
       container.appendChild(div);
       lucide.createIcons();
-      updateChildNumbers();
     }
 
-    function removeChildRow(btn) {
-      const container = document.getElementById('childrenContainer');
-      if (container.querySelectorAll('.child-row').length <= 1) {
-        alert('최소 1명 이상의 이용 아동 정보가 필요합니다.');
-        return;
+    // 3. Signature Canvas
+    function initSignatureCanvas() {
+      sigCanvas = document.getElementById('sigCanvas');
+      if (!sigCanvas) return;
+      sigCtx = sigCanvas.getContext('2d');
+
+      function resize() {
+        const rect = sigCanvas.parentElement.getBoundingClientRect();
+        sigCanvas.width = rect.width;
+        sigCanvas.height = rect.height;
+        sigCtx.strokeStyle = '#22c55e';
+        sigCtx.lineWidth = 3;
+        sigCtx.lineCap = 'round';
+        sigCtx.lineJoin = 'round';
       }
-      btn.closest('.child-row').remove();
-      updateChildNumbers();
+      resize();
+      window.addEventListener('resize', resize);
+
+      function getPos(e) {
+        const rect = sigCanvas.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        return { x: clientX - rect.left, y: clientY - rect.top };
+      }
+
+      function start(e) {
+        isDrawing = true;
+        hasSignature = true;
+        document.getElementById('sigPlaceholder').style.display = 'none';
+        const pos = getPos(e);
+        sigCtx.beginPath();
+        sigCtx.moveTo(pos.x, pos.y);
+      }
+
+      function draw(e) {
+        if (!isDrawing) return;
+        e.preventDefault();
+        const pos = getPos(e);
+        sigCtx.lineTo(pos.x, pos.y);
+        sigCtx.stroke();
+      }
+
+      function stop() { isDrawing = false; }
+
+      sigCanvas.addEventListener('mousedown', start);
+      sigCanvas.addEventListener('mousemove', draw);
+      window.addEventListener('mouseup', stop);
+
+      sigCanvas.addEventListener('touchstart', start, { passive: false });
+      sigCanvas.addEventListener('touchmove', draw, { passive: false });
+      window.addEventListener('touchend', stop);
     }
 
-    function updateChildNumbers() {
-      document.querySelectorAll('#childrenContainer .child-row').forEach((row, idx) => {
-        row.querySelector('.child-num').textContent = idx + 1;
-      });
+    function clearSignature() {
+      if (!sigCtx || !sigCanvas) return;
+      sigCtx.clearRect(0, 0, sigCanvas.width, sigCanvas.height);
+      hasSignature = false;
+      document.getElementById('sigPlaceholder').style.display = 'block';
     }
 
-    function autoHyphenPhone(target) {
-      target.value = target.value
-        .replace(/[^0-9]/g, '')
-        .replace(/^(\d{0,3})(\d{0,4})(\d{0,4})$/g, "$1-$2-$3")
-        .replace(/(\-{1,2})$/g, "");
+    function autoHyphenPhone(input) {
+      let v = input.value.replace(/[^0-9]/g, '');
+      if (v.length > 3 && v.length <= 7) {
+        input.value = v.slice(0, 3) + '-' + v.slice(3);
+      } else if (v.length > 7) {
+        input.value = v.slice(0, 3) + '-' + v.slice(3, 7) + '-' + v.slice(7, 11);
+      } else {
+        input.value = v;
+      }
     }
 
-    function toggleAllAgreements(forceCheck) {
-      const allBoxes = document.querySelectorAll('.agree-chk');
-      const targetState = (forceCheck !== undefined) ? forceCheck : !Array.from(allBoxes).every(c => c.checked);
-      allBoxes.forEach(c => c.checked = targetState);
-      const mChk = document.getElementById('chkConsentMarketing');
-      if (mChk) mChk.checked = targetState;
-    }
-
-    // -----------------------------------------------------------------
-    // SUBMIT CONSENT (CUSTOMER -> STORAGE -> REALTIME SYNC)
-    // -----------------------------------------------------------------
-    function submitConsent(e) {
+    // 4. Form Submit Handler
+    async function handleConsentSubmit(e) {
       e.preventDefault();
 
-      if (!hasSigned) {
-        alert('보호자 전자 서명란에 손가락 또는 펜으로 서명해 주세요.');
-        canvas.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (!hasSignature) {
+        alert('보호자 전자서명을 작성해 주십시오.');
         return;
       }
 
       const guardianName = document.getElementById('guardianName').value.trim();
       const guardianPhone = document.getElementById('guardianPhone').value.trim();
-      const residence = document.querySelector('input[name="residence"]:checked')?.value || '일반';
+      const residenceType = document.querySelector('input[name="residenceType"]:checked')?.value || '관외일반';
+      const agreeMarketing = document.getElementById('agreeMarketing').checked;
 
-      // Gather children
-      const childNames = Array.from(document.querySelectorAll('input[name="childName[]"]')).map(el => el.value.trim());
-      const childAges = Array.from(document.querySelectorAll('select[name="childAge[]"]')).map(el => el.value);
+      // Children list
+      const chRows = document.querySelectorAll('.child-row');
+      const children = [];
+      chRows.forEach(row => {
+        const name = row.querySelector('input[name="childName[]"]')?.value.trim();
+        const birth = row.querySelector('input[name="childBirth[]"]')?.value.trim() || '';
+        const height = row.querySelector('input[name="childHeight[]"]')?.value.trim() || '';
+        const weight = row.querySelector('input[name="childWeight[]"]')?.value.trim() || '';
+        if (name) children.push({ name, birth, height, weight });
+      });
 
-      const children = childNames.map((name, idx) => ({
-        name: name,
-        age: childAges[idx] || '미취학'
-      }));
-
-      // Generate Pass Code: BONG-MMDD-NNNN
+      // Generate IDs
       const now = new Date();
-      const mm = String(now.getMonth() + 1).padStart(2, '0');
-      const dd = String(now.getDate()).padStart(2, '0');
-      const seq = String(consents.length + 1).padStart(3, '0');
-      const passCode = `BONG-${mm}${dd}-${seq}`;
+      const dateStr = BongplaySync.toLocalDateStr(now);
+      const visitId = BongplayID ? BongplayID.generateVisitId(now) : ('vst_' + Date.now());
+      const householdId = BongplayID ? BongplayID.generateHouseholdId(guardianPhone) : ('hh_' + guardianPhone.replace(/[^0-9]/g, ''));
+      const passSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const passCode = `BP-${dateStr.replace(/-/g, '').slice(2)}-${passSuffix}`;
+      currentVoucherCode = passCode;
 
-      const sigBase64 = canvas.toDataURL('image/png');
+      const recordId = 'cst_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+      const sigData = sigCanvas.toDataURL('image/png');
 
-      const consentMarketing = !!document.getElementById('chkConsentMarketing')?.checked;
-
-      // Generate Causal Identity Bundle via BongplayID
-      const session = window.BongplayID ? BongplayID.createVisitSession({
-        phone: guardianPhone,
-        guardianName: guardianName,
-        residence: residence,
-        children: children,
-        consent_marketing: consentMarketing
-      }) : {
+      const consentRecord = {
+        id: recordId,
         site_id: 'bongplay_bonghwa',
-        visit_id: 'vst_' + Date.now(),
-        household_id: 'hh_' + Math.random().toString(36).slice(2, 8),
-        campaign_id: 'cmp_walkin',
-        ticket_ids: [],
-        visitor_ids: []
-      };
-
-      window.currentPassSession = session;
-
-      const newRecord = {
-        id: 'c_' + Date.now(),
-        site_id: session.site_id,
-        visit_id: session.visit_id,
-        household_id: session.household_id,
-        booking_id: session.booking_id || null,
-        campaign_id: session.campaign_id,
-        visitor_ids: session.visitor_ids,
-        ticket_ids: session.ticket_ids,
-        passCode: passCode,
-        timestamp: now.toLocaleString('ko-KR', { hour12: false }),
-        guardianName: guardianName,
-        guardianPhone: guardianPhone,
-        residence: residence,
+        visit_id: visitId,
+        household_id: householdId,
+        pass_code: passCode,
+        guardian_name: guardianName,
+        guardian_phone: guardianPhone,
+        residence: residenceType,
         children: children,
-        signatureData: sigBase64,
-        isIssued: false, // Ticket issued flag
-        consentMarketing: consentMarketing,
-        createdDate: now.toISOString().split('T')[0]
+        signature_data: sigData,
+        consent_marketing: agreeMarketing,
+        is_issued: false,
+        arrival_at: now.toISOString(),
+        created_date: dateStr,
+        timestamp_text: BongplaySync.toLocalDatetimeLocalStr(now)
       };
 
-      consents.push(newRecord);
-      saveConsents();
-      if (window.BongplaySync) {
-        BongplaySync.upsert('safety_consents', {
-          id: newRecord.id,
-          site_id: newRecord.site_id,
-          visit_id: newRecord.visit_id,
-          household_id: newRecord.household_id,
-          booking_id: newRecord.booking_id,
-          campaign_id: newRecord.campaign_id,
-          ticket_ids: newRecord.ticket_ids,
-          pass_code: newRecord.passCode,
-          created_date: newRecord.createdDate,
-          timestamp_text: newRecord.timestamp,
-          guardian_name: newRecord.guardianName,
-          guardian_phone: newRecord.guardianPhone,
-          residence: newRecord.residence,
-          children: newRecord.children,
-          signature_data: newRecord.signatureData,
-          is_issued: newRecord.isIssued,
-          consent_marketing: newRecord.consentMarketing
-        });
-        BongplaySync.broadcast({ type: 'DATA_CHANGED', table: 'safety_consents' });
-      }
+      // Save via BongplaySync (offline resilient outbox)
+      await BongplaySync.upsert('safety_consents', consentRecord);
 
-      // Broadcast to other tabs (Ticket Desk)
-      if (syncChannel) {
-        syncChannel.postMessage({ type: 'NEW_CONSENT', record: newRecord });
-      }
+      // Render Voucher
+      document.getElementById('voucherCodeText').textContent = passCode;
+      document.getElementById('voucherGuardianText').textContent = guardianName;
+      document.getElementById('voucherPeopleCountText').textContent = `총 ${children.length + 1}명 (성인 1 · 아동 ${children.length})`;
 
-      // Show Success Card to Customer
-      document.getElementById('consentForm').classList.add('hidden');
-      const successCard = document.getElementById('consentSuccessCard');
-      successCard.classList.remove('hidden');
+      // Render QR
+      const qrEl = document.getElementById('voucherQrCode');
+      qrEl.innerHTML = '';
+      const gateUrl = `${window.location.origin}${window.location.pathname.replace('consent.html', 'gate.html')}?pass=${encodeURIComponent(passCode)}`;
+      new QRCode(qrEl, {
+        text: gateUrl,
+        width: 180,
+        height: 180,
+        colorDark: '#022c22',
+        colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.M
+      });
 
-      document.getElementById('passCodeDisplay').textContent = passCode;
-      document.getElementById('passGuardianName').textContent = guardianName;
-      document.getElementById('passChildrenSummary').textContent = children.length === 1 
-        ? children[0].name 
-        : `${children[0].name} 외 ${children.length - 1}명`;
-      document.getElementById('passTimestamp').textContent = newRecord.timestamp;
-
-      // Scroll to top
+      // Switch view
+      document.getElementById('formSection').classList.add('hidden');
+      document.getElementById('voucherSection').classList.remove('hidden');
+      lucide.createIcons();
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
-    function resetCustomerForm() {
+    // 5. Reset for New Guest
+    function resetForNewGuest() {
       document.getElementById('consentForm').reset();
       clearSignature();
-      document.getElementById('consentForm').classList.remove('hidden');
-      document.getElementById('consentSuccessCard').classList.add('hidden');
-      
-      // Reset children to 1 row
       const container = document.getElementById('childrenContainer');
-      container.innerHTML = `
-        <div class="child-row bg-slate-950/70 border border-slate-800 rounded-xl p-3 flex items-center gap-2.5">
-          <span class="w-6 h-6 rounded-full bg-slate-800 text-brand-400 font-black text-xs flex items-center justify-center shrink-0 child-num">1</span>
-          <input type="text" name="childName[]" required placeholder="아동 이름" class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500">
-          <select name="childAge[]" class="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none focus:border-brand-500">
-            <option value="3~4세">3~4세 (영유아)</option>
-            <option value="5~7세" selected>5~7세 (미취학)</option>
-            <option value="초등 저학년">초등 1~3학년</option>
-            <option value="초등 고학년">초등 4~6학년</option>
-            <option value="중학생이상">중학생 이상</option>
-          </select>
-          <button type="button" onclick="removeChildRow(this)" class="text-slate-500 hover:text-red-400 p-1.5 shrink-0 opacity-40 hover:opacity-100 transition">
-            <i data-lucide="trash-2" class="w-4 h-4"></i>
-          </button>
-        </div>
-      `;
-      lucide.createIcons();
+      const rows = container.querySelectorAll('.child-row');
+      for (let i = 1; i < rows.length; i++) rows[i].remove();
+      document.getElementById('voucherSection').classList.add('hidden');
+      document.getElementById('formSection').classList.remove('hidden');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
-    // -----------------------------------------------------------------
-    // STORAGE MANAGEMENT
-    // -----------------------------------------------------------------
-    function loadConsents() {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        consents = raw ? JSON.parse(raw) : [];
-      } catch (e) {
-        console.error('Error loading consents:', e);
-        consents = [];
-      }
-      updateUnprocessedBadge();
+    // 6. Survey Handling
+    function openSurveyModal(passCode) {
+      document.getElementById('surveyTargetPass').textContent = passCode;
+      document.getElementById('surveyModal').classList.remove('hidden');
     }
-
-    function saveConsents() {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(consents));
-        updateUnprocessedBadge();
-      } catch (e) {
-        console.error('Error saving consents:', e);
-      }
+    function closeSurveyModal() {
+      document.getElementById('surveyModal').classList.add('hidden');
     }
-
-    // -----------------------------------------------------------------
-    // DATE & DAY-OF-WEEK FILTER HELPERS
-    // -----------------------------------------------------------------
-    function toLocalDateStr(d) {
-      if (!d) d = new Date();
-      if (typeof d === 'string' || typeof d === 'number') d = new Date(d);
-      if (isNaN(d.getTime())) return '';
-      const yr = d.getFullYear();
-      const mo = String(d.getMonth() + 1).padStart(2, '0');
-      const da = String(d.getDate()).padStart(2, '0');
-      return `${yr}-${mo}-${da}`;
-    }
-
-    function getTodayYmd() {
-      return toLocalDateStr(new Date());
-    }
-
-    function getConsentDateStr(rec) {
-      if (!rec) return getTodayYmd();
-      if (rec.createdDate && /^\d{4}-\d{2}-\d{2}$/.test(rec.createdDate)) return rec.createdDate;
-      if (rec.created_date && /^\d{4}-\d{2}-\d{2}$/.test(rec.created_date)) return rec.created_date;
-      if (rec.arrival_at) {
-        const s = toLocalDateStr(rec.arrival_at);
-        if (s) return s;
-      }
-      if (rec.ticket_issued_at) {
-        const s = toLocalDateStr(rec.ticket_issued_at);
-        if (s) return s;
-      }
-      if (rec.timestamp || rec.timestamp_text) {
-        const txt = String(rec.timestamp || rec.timestamp_text);
-        const m = txt.match(/(\d{4})[.-]\s*(\d{1,2})[.-]\s*(\d{1,2})/);
-        if (m) {
-          return `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}`;
-        }
-      }
-      if (rec.id && String(rec.id).startsWith('c_')) {
-        const ts = parseInt(String(rec.id).replace('c_', ''), 10);
-        if (!isNaN(ts) && ts > 1000000000000) {
-          const s = toLocalDateStr(new Date(ts));
-          if (s) return s;
-        }
-      }
-      return getTodayYmd();
-    }
-
-    function getFilteredConsentsByDate() {
-      const todayYmd = getTodayYmd();
-      if (currentDateFilter === 'all') {
-        return consents;
-      } else if (currentDateFilter === 'today') {
-        return consents.filter(c => getConsentDateStr(c) === todayYmd);
-      } else {
-        return consents.filter(c => getConsentDateStr(c) === currentDateFilter);
-      }
-    }
-
-    function getWeeklyTabsData() {
-      const now = new Date();
-      now.setDate(now.getDate() + (weekOffset * 7));
-
-      const dayOfWeek = now.getDay(); // 0: Sun, 1: Mon, ... 6: Sat
-      const diffToMon = (dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
-      const monday = new Date(now);
-      monday.setDate(now.getDate() + diffToMon);
-      monday.setHours(0, 0, 0, 0);
-
-      const dayNames = ['월', '화', '수', '목', '금', '토', '일'];
-      const todayYmd = getTodayYmd();
-      const yest = new Date();
-      yest.setDate(yest.getDate() - 1);
-      const yestYmd = toLocalDateStr(yest);
-
-      const tabs = [];
-      for (let i = 0; i < 7; i++) {
-        const d = new Date(monday);
-        d.setDate(monday.getDate() + i);
-        const ymd = toLocalDateStr(d);
-        const count = consents.filter(c => getConsentDateStr(c) === ymd).length;
-        const waitCount = consents.filter(c => getConsentDateStr(c) === ymd && !c.isIssued).length;
-
-        tabs.push({
-          dayName: dayNames[i],
-          dateObj: d,
-          ymd: ymd,
-          monthDay: `${d.getMonth() + 1}/${d.getDate()}`,
-          isToday: (ymd === todayYmd),
-          isYesterday: (ymd === yestYmd),
-          isWeekend: (i >= 5),
-          count: count,
-          waitCount: waitCount
-        });
-      }
-      return tabs;
-    }
-
-    function renderDateFilterBar() {
-      const container = document.getElementById('weeklyDayTabsContainer');
-      if (!container) return;
-
-      const todayYmd = getTodayYmd();
-      const yest = new Date();
-      yest.setDate(yest.getDate() - 1);
-      const yestYmd = toLocalDateStr(yest);
-
-      const tabs = getWeeklyTabsData();
-      container.innerHTML = '';
-
-      tabs.forEach(tab => {
-        const isSelected = (currentDateFilter === 'today' && tab.isToday) || (currentDateFilter === tab.ymd);
-
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.onclick = () => setDateFilter(tab.isToday ? 'today' : tab.ymd);
-
-        let activeStyle = '';
-        if (isSelected) {
-          activeStyle = 'bg-brand-600 text-white ring-2 ring-brand-400 shadow-lg shadow-brand-600/30 border-brand-500';
+    function selectScore(score) {
+      selectedSurveyScore = score;
+      document.querySelectorAll('.score-btn').forEach((b, idx) => {
+        if (idx + 1 === score) {
+          b.className = 'score-btn p-2 bg-amber-500/20 border border-amber-400 text-amber-300 font-bold rounded-xl';
         } else {
-          activeStyle = 'bg-slate-950/80 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700';
+          b.className = 'score-btn p-2 bg-slate-950 border border-slate-800 rounded-xl hover:border-amber-400';
         }
-
-        const dayColor = tab.isToday 
-          ? 'text-brand-300' 
-          : (tab.dayName === '일' ? 'text-rose-400' : (tab.dayName === '토' ? 'text-cyan-400' : 'text-slate-300'));
-
-        btn.className = `p-2.5 rounded-xl border transition text-left flex flex-col justify-between ${activeStyle}`;
-        btn.innerHTML = `
-          <div class="flex items-center justify-between gap-1 w-full">
-            <span class="text-xs font-black ${isSelected ? 'text-white' : dayColor}">
-              ${tab.dayName}요일
-            </span>
-            ${tab.isToday ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-black bg-brand-400 text-slate-950">오늘</span>' : (tab.isYesterday ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">어제</span>' : '')}
-          </div>
-          <div class="text-[11px] font-mono mt-1 ${isSelected ? 'text-brand-100' : 'text-slate-400'}">
-            ${tab.monthDay}
-          </div>
-          <div class="mt-2 flex items-center justify-between gap-1 w-full pt-1.5 border-t ${isSelected ? 'border-brand-500/60' : 'border-slate-800/60'}">
-            <span class="text-xs font-black font-mono ${tab.count > 0 ? (isSelected ? 'text-white' : 'text-emerald-400 font-bold') : (isSelected ? 'text-brand-200' : 'text-slate-600')}">
-              ${tab.count}건
-            </span>
-            ${tab.waitCount > 0 ? `<span class="px-1 py-0.2 text-[9px] font-black rounded ${isSelected ? 'bg-amber-400 text-slate-950' : 'bg-amber-950/80 text-amber-300 border border-amber-800'}">대기 ${tab.waitCount}</span>` : ''}
-          </div>
-        `;
-        container.appendChild(btn);
       });
-
-      // Update badgeActiveDateFilter
-      const badgeActive = document.getElementById('badgeActiveDateFilter');
-      if (badgeActive) {
-        if (currentDateFilter === 'today') {
-          const now = new Date();
-          const days = ['일', '월', '화', '수', '목', '금', '토'];
-          badgeActive.textContent = `오늘 (${now.getMonth() + 1}/${now.getDate()} ${days[now.getDay()]})`;
-          badgeActive.className = 'px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-brand-950 text-brand-300 border border-brand-800';
-        } else if (currentDateFilter === 'all') {
-          badgeActive.textContent = `전체 기간 (${consents.length}건)`;
-          badgeActive.className = 'px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-950 text-blue-300 border border-blue-800';
-        } else {
-          const parts = currentDateFilter.split('-');
-          const dObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-          const days = ['일', '월', '화', '수', '목', '금', '토'];
-          const isYest = (currentDateFilter === yestYmd);
-          badgeActive.textContent = `${isYest ? '어제 ' : ''}${parseInt(parts[1])}/${parseInt(parts[2])}(${days[dObj.getDay()]})`;
-          badgeActive.className = isYest 
-            ? 'px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-950 text-amber-300 border border-amber-800'
-            : 'px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-slate-800 text-slate-300 border border-slate-700';
-        }
-      }
-
-      // Update '전체 기간' button style
-      const btnAll = document.getElementById('btnFilterDateAll');
-      if (btnAll) {
-        if (currentDateFilter === 'all') {
-          btnAll.className = 'px-3 py-1.5 rounded-xl font-bold text-[11px] transition bg-blue-600 text-white shadow-md border border-blue-500';
-        } else {
-          btnAll.className = 'px-3 py-1.5 rounded-xl font-bold text-[11px] transition bg-slate-950 text-slate-400 hover:text-white border border-slate-800';
-        }
-      }
-
-      // Update custom date picker value
-      const dateInput = document.getElementById('customDateInput');
-      if (dateInput) {
-        dateInput.value = (currentDateFilter === 'today' ? todayYmd : (currentDateFilter === 'all' ? '' : currentDateFilter));
-      }
     }
-
-    function setDateFilter(dateVal) {
-      currentDateFilter = dateVal;
-      renderAdminDashboard();
-    }
-
-    function changeWeek(offset) {
-      if (offset === 0) {
-        weekOffset = 0;
-        currentDateFilter = 'today';
-      } else {
-        weekOffset += offset;
-      }
-      renderAdminDashboard();
-    }
-
-    function onCustomDateChange(e) {
-      if (e.target.value) {
-        currentDateFilter = e.target.value;
-        renderAdminDashboard();
-      }
-    }
-
-    function updateUnprocessedBadge() {
-      const todayYmd = getTodayYmd();
-      const waiting = consents.filter(c => !c.isIssued && getConsentDateStr(c) === todayYmd).length;
-      const badge = document.getElementById('badgeUnprocessedCount');
-      if (badge) {
-        if (waiting > 0) {
-          badge.textContent = waiting;
-          badge.classList.remove('hidden');
-        } else {
-          badge.classList.add('hidden');
-        }
-      }
-    }
-
-    // -----------------------------------------------------------------
-    // ADMIN DESK: RENDER LIST & STATS
-    // -----------------------------------------------------------------
-    function renderAdminDashboard() {
-      renderDateFilterBar();
-
-      // 1. Stats (Filtered by selected date)
-      const dateConsents = getFilteredConsentsByDate();
-      const totalConsents = dateConsents.length;
-      const totalKids = dateConsents.reduce((sum, c) => sum + (c.children ? c.children.length : 0), 0);
-      const totalAdults = totalConsents;
-      const totalPeople = totalAdults + totalKids;
-
-      const waitingConsents = dateConsents.filter(c => !c.isIssued);
-      const waitingKids = waitingConsents.reduce((sum, c) => sum + (c.children ? c.children.length : 0), 0);
-      const waitingAdults = waitingConsents.length;
-      const waitingPeople = waitingAdults + waitingKids;
-
-      const doneConsents = dateConsents.filter(c => c.isIssued);
-      const doneKids = doneConsents.reduce((sum, c) => sum + (c.children ? c.children.length : 0), 0);
-      const doneAdults = doneConsents.length;
-      const donePeople = doneAdults + doneKids;
-
-      document.getElementById('statTotalConsents').textContent = totalConsents;
-      document.getElementById('statTotalChildren').textContent = totalKids;
-      document.getElementById('statWaitingConsents').textContent = waitingConsents.length;
-      document.getElementById('statCompletedConsents').textContent = doneConsents.length;
-
-      // Dynamic Card 1 title
-      const statCard1Title = document.getElementById('statCard1Title');
-      if (statCard1Title) {
-        if (currentDateFilter === 'today') {
-          statCard1Title.textContent = '오늘 누적 서약';
-        } else if (currentDateFilter === 'all') {
-          statCard1Title.textContent = '전체 누적 서약';
-        } else {
-          const parts = currentDateFilter.split('-');
-          const dObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-          const days = ['일', '월', '화', '수', '목', '금', '토'];
-          statCard1Title.textContent = `${parseInt(parts[1])}/${parseInt(parts[2])}(${days[dObj.getDay()]}) 서약`;
-        }
-      }
-
-      // Subtexts for explicit clarity
-      const elTotalSub = document.getElementById('statTotalPeopleSub');
-      if (elTotalSub) elTotalSub.textContent = `총 ${totalPeople}명 (성인 ${totalAdults} · 아동 ${totalKids})`;
-
-      const elDoneSub = document.getElementById('statCompletedPeopleSub');
-      if (elDoneSub) elDoneSub.textContent = `총 ${donePeople}명 (성인 ${doneAdults} · 아동 ${doneKids})`;
-
-      const elWaitSub = document.getElementById('statWaitingPeopleSub');
-      if (elWaitSub) elWaitSub.textContent = `총 ${waitingPeople}명 (성인 ${waitingAdults} · 아동 ${waitingKids})`;
-
-      const elKidsSub = document.getElementById('statChildrenBreakdown');
-      if (elKidsSub) elKidsSub.textContent = `발권 ${doneKids}명 · 대기 ${waitingKids}명`;
-
-      updateUnprocessedBadge();
-      renderAdminList();
-    }
-
-    function setFilter(f) {
-      currentFilter = f;
-      const bAll = document.getElementById('btnFilterAll');
-      const bWait = document.getElementById('btnFilterWait');
-      const bDone = document.getElementById('btnFilterDone');
-
-      [bAll, bWait, bDone].forEach(b => b.className = 'px-2.5 py-1 rounded-lg text-slate-400 hover:text-white');
-
-      if (f === 'all') bAll.className = 'px-2.5 py-1 rounded-lg bg-slate-800 text-white';
-      if (f === 'waiting') bWait.className = 'px-2.5 py-1 rounded-lg bg-amber-950 text-amber-300 font-bold border border-amber-800/60';
-      if (f === 'done') bDone.className = 'px-2.5 py-1 rounded-lg bg-blue-950 text-blue-300 font-bold border border-blue-800/60';
-
-      renderAdminList();
-    }
-
-    function renderAdminList() {
-      const tbody = document.getElementById('adminTableBody');
-      const emptyState = document.getElementById('adminEmptyState');
-      const q = document.getElementById('adminSearchInput').value.trim().toLowerCase();
-
-      tbody.innerHTML = '';
-
-      // 1. First filter by selected date / day-of-week tab
-      let filtered = [...getFilteredConsentsByDate()].reverse();
-
-      // 2. Apply status tab filter (all, waiting, done)
-      if (currentFilter === 'waiting') {
-        filtered = filtered.filter(c => !c.isIssued);
-      } else if (currentFilter === 'done') {
-        filtered = filtered.filter(c => c.isIssued);
-      }
-
-      // 3. Apply search query (Guardian name, phone, passcode, child name)
-      if (q) {
-        filtered = filtered.filter(c => 
-          (c.guardianName && c.guardianName.toLowerCase().includes(q)) ||
-          (c.guardianPhone && c.guardianPhone.replace(/-/g, '').includes(q)) ||
-          (c.passCode && c.passCode.toLowerCase().includes(q)) ||
-          (c.children && c.children.some(k => k.name && k.name.toLowerCase().includes(q)))
-        );
-      }
-
-      if (filtered.length === 0) {
-        emptyState.classList.remove('hidden');
-        const emptyMsg = document.getElementById('adminEmptyMsg');
-        const emptySub = document.getElementById('adminEmptySub');
-        if (emptyMsg) {
-          if (currentDateFilter === 'today') {
-            emptyMsg.textContent = '오늘 접수된 안전서약 내역이 없습니다.';
-            if (emptySub) emptySub.innerHTML = '고객이 모바일로 서약을 제출하면 실시간으로 자동 갱신됩니다. <button type="button" onclick="setDateFilter(\'all\')" class="underline text-brand-400 font-bold ml-1">전체 기간 보기</button>';
-          } else if (currentDateFilter === 'all') {
-            emptyMsg.textContent = '접수된 안전서약 내역이 없습니다.';
-            if (emptySub) emptySub.textContent = '고객이 모바일로 서약을 제출하면 실시간으로 자동 갱신됩니다.';
-          } else {
-            emptyMsg.textContent = `선택하신 일자(${currentDateFilter})에 접수된 서약 내역이 없습니다.`;
-            if (emptySub) emptySub.innerHTML = `<button type="button" onclick="setDateFilter('today')" class="underline text-brand-400 font-bold mr-2">오늘 서약 보기</button> <button type="button" onclick="setDateFilter('all')" class="underline text-slate-400 font-bold">전체 기간 보기</button>`;
-          }
-        }
-        return;
-      } else {
-        emptyState.classList.add('hidden');
-      }
-
-      const todayYmd = getTodayYmd();
-      const yest = new Date();
-      yest.setDate(yest.getDate() - 1);
-      const yestYmd = toLocalDateStr(yest);
-
-      filtered.forEach(rec => {
-        const tr = document.createElement('tr');
-        tr.className = `hover:bg-slate-800/40 transition cursor-pointer ${rec.isIssued ? 'opacity-80' : 'bg-slate-900/40'}`;
-
-        const kidsList = (rec.children && Array.isArray(rec.children)) ? rec.children : (rec.children ? [rec.children] : []);
-        const kidsCount = kidsList.length;
-        const partySize = kidsCount + 1;
-        const kidsStr = kidsList.length > 0
-          ? kidsList.map(k => `${k.name || '아동'}(${k.age || ''})`).join(', ')
-          : '동반 아동 없음';
-
-        const recDateYmd = getConsentDateStr(rec);
-        let dateBadge = '';
-        if (recDateYmd === todayYmd) {
-          dateBadge = '<span class="px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-emerald-950 text-emerald-300 border border-emerald-800">오늘</span>';
-        } else if (recDateYmd === yestYmd) {
-          dateBadge = '<span class="px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-amber-950 text-amber-300 border border-amber-800">어제(수)</span>';
-        } else {
-          const parts = recDateYmd.split('-');
-          const dObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-          const days = ['일', '월', '화', '수', '목', '금', '토'];
-          dateBadge = `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300">${parseInt(parts[1])}/${parseInt(parts[2])}(${days[dObj.getDay()]})</span>`;
-        }
-
-        const timeStr = rec.timestamp ? (rec.timestamp.split(' ')[1] || (window.BongplaySync ? BongplaySync.toLocalTimeStr(rec.arrival_at) : '')) : '-';
-
-        tr.innerHTML = `
-          <td class="p-3.5 font-mono font-black text-brand-400 whitespace-nowrap" onclick="openConsentDetail('${rec.id}')">
-            ${rec.passCode}
-          </td>
-          <td class="p-3.5 whitespace-nowrap" onclick="openConsentDetail('${rec.id}')">
-            <div class="flex items-center gap-1.5">
-              <span class="font-bold text-white text-xs">${rec.guardianName}</span>
-              <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-cyan-300 border border-slate-700">총 ${partySize}명</span>
-            </div>
-            <div class="text-[11px] font-mono text-slate-400">${rec.guardianPhone} (성인 1 · 아동 ${kidsCount})</div>
-          </td>
-          <td class="p-3.5 whitespace-nowrap" onclick="openConsentDetail('${rec.id}')">
-            <span class="px-2 py-0.5 rounded text-[10px] font-bold ${rec.residence === '봉화군민' ? 'bg-brand-950 text-brand-300 border border-brand-800' : 'bg-slate-800 text-slate-400'}">
-              ${rec.residence}
-            </span>
-          </td>
-          <td class="p-3.5 max-w-xs truncate" onclick="openConsentDetail('${rec.id}')" title="${kidsStr}">
-            <div class="text-slate-200 font-medium truncate">${kidsStr}</div>
-            <div class="text-[10px] text-slate-500 font-semibold">아동 ${kidsCount}명</div>
-          </td>
-          <td class="p-3.5 whitespace-nowrap text-slate-400 font-mono text-[11px]" onclick="openConsentDetail('${rec.id}')">
-            <div class="flex items-center gap-1.5">
-              ${dateBadge}
-              <span class="text-white font-mono">${timeStr}</span>
-            </div>
-          </td>
-          <td class="p-3.5 text-center" onclick="openConsentDetail('${rec.id}')">
-            <img src="${rec.signatureData}" class="h-6 w-14 object-contain inline-block bg-white/90 rounded px-1" alt="서명">
-          </td>
-          <td class="p-3.5 text-center whitespace-nowrap">
-            ${(() => {
-              if (!rec.isIssued) {
-                return `
-                  <button onclick="toggleIssueStatus('${rec.id}', event)" class="px-2.5 py-1 rounded-lg text-xs font-bold transition bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20">
-                    ⚡ 발권 (${partySize}명 팔찌)
-                  </button>`;
-              } else if (!rec.entry_at) {
-                return `
-                  <div class="flex items-center justify-center gap-1.5">
-                    <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-950 text-blue-300 border border-blue-800">발권완료 (${partySize}명)</span>
-                    <button onclick="markGateEntry('${rec.id}', event)" class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition">
-                      🚪 입장
-                    </button>
-                  </div>`;
-              } else if (!rec.exit_at) {
-                const entryTime = (window.BongplaySync && BongplaySync.toLocalTimeStr) ? BongplaySync.toLocalTimeStr(rec.entry_at) : (function(iso){ try { var d=new Date(iso); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); } catch(e){ return (iso||'').slice(11,16); } })(rec.entry_at);
-                return `
-                  <div class="flex items-center justify-center gap-1.5">
-                    <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">🟢 이용중 (${partySize}명 · ${entryTime})</span>
-                    <button onclick="markGateExit('${rec.id}', event)" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">
-                      🏁 퇴장
-                    </button>
-                  </div>`;
-              } else {
-                return `
-                  <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400">
-                    🏁 퇴장 (${partySize}명 · ${rec.stay_duration_minutes || 0}분 체류)
-                  </span>`;
-              }
-            })()}
-          </td>
-          <td class="p-3.5 text-center whitespace-nowrap">
-            <button onclick="deleteConsent('${rec.id}', event)" title="삭제" class="p-1.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-slate-800 transition">
-              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-            </button>
-          </td>
-        `;
-        tbody.appendChild(tr);
-      });
-
-      lucide.createIcons();
-    }
-
-    function toggleIssueStatus(id, e) {
-      if (e) e.stopPropagation();
-      const item = consents.find(c => c.id === id);
-      if (item) {
-        item.isIssued = !item.isIssued;
-        const now = new Date().toISOString();
-        if (item.isIssued) {
-          item.ticket_issued_at = item.ticket_issued_at || now;
-          item.arrival_at = item.arrival_at || item.created_at || now;
-          item.entry_at = item.entry_at || now; // Auto-entry on ticketing for swift kiosk flow
-        }
-
-        // Ensure Causal IDs exist
-        if (!item.site_id) item.site_id = 'bongplay_bonghwa';
-        if (!item.visit_id && window.BongplayID) {
-          item.visit_id = BongplayID.generateVisitId();
-          item.household_id = BongplayID.generateHouseholdId(item.guardianPhone);
-        }
-
-        // When issued, ensure ticket_ledger entries are generated and synced
-        if (item.isIssued) {
-          if (!item.ticket_ids || !item.ticket_ids.length) {
-            const count = (item.children ? item.children.length : 0) + 1;
-            item.ticket_ids = [];
-            for (let i = 1; i <= count; i++) {
-              item.ticket_ids.push(window.BongplayID ? BongplayID.generateTicketId(item.visit_id, i) : `tkt_${item.id}_${i}`);
-            }
-          }
-
-          // Record individual tickets in ticket_ledger
-          try {
-            const rawLedger = localStorage.getItem('bongplay_ticket_ledger');
-            const ledger = rawLedger ? JSON.parse(rawLedger) : [];
-            item.ticket_ids.forEach((tId, idx) => {
-              const ticketRow = {
-                ticket_id: tId,
-                site_id: item.site_id,
-                visit_id: item.visit_id,
-                household_id: item.household_id,
-                visitor_id: (item.visitor_ids && item.visitor_ids[idx]) || null,
-                ticket_type: idx === 0 ? 'adult' : 'child',
-                issued_at: new Date().toISOString(),
-                status: 'active'
-              };
-              ledger.push(ticketRow);
-              if (window.BongplaySync) BongplaySync.upsert('ticket_ledger', ticketRow);
-            });
-            localStorage.setItem('bongplay_ticket_ledger', JSON.stringify(ledger));
-          } catch(err) { console.warn('Ticket ledger update error:', err); }
-        }
-
-        saveConsents();
-
-        // 당일 실시간 방문객 지표 동기화 (master / operations 반영)
-        try {
-          const dNow = new Date();
-          const todayStr = window.BongplaySync ? BongplaySync.toLocalDateStr(dNow) : dNow.toISOString().slice(0, 10);
-          const rawD = localStorage.getItem('bongplay_dashboard_data');
-          const dData = rawD ? JSON.parse(rawD) : { date: todayStr, todayRevenue: 0, todayVisitors: 0, monthRevenue: 0 };
-          const totalVis = consents
-            .filter(c => c.isIssued && ((c.createdDate === todayStr) || (c.arrival_at || '').slice(0, 10) === todayStr))
-            .reduce((sum, c) => sum + ((c.children ? c.children.length : 0) + 1), 0);
-          dData.date = todayStr;
-          dData.todayVisitors = Math.max(dData.todayVisitors || 0, totalVis);
-          localStorage.setItem('bongplay_dashboard_data', JSON.stringify(dData));
-          localStorage.setItem('bongtteurak_dashboard_data', JSON.stringify(dData));
-        } catch(e) { console.warn('Visitor sync error:', e); }
-
-        if (window.BongplaySync) {
-          BongplaySync.upsert('safety_consents', {
-            id: item.id,
-            site_id: item.site_id,
-            visit_id: item.visit_id,
-            household_id: item.household_id,
-            booking_id: item.booking_id || null,
-            campaign_id: item.campaign_id || 'cmp_walkin',
-            ticket_ids: item.ticket_ids,
-            is_issued: item.isIssued,
-            arrival_at: item.arrival_at,
-            ticket_issued_at: item.ticket_issued_at,
-            entry_at: item.entry_at,
-            exit_at: item.exit_at,
-            stay_duration_minutes: item.stay_duration_minutes,
-            party_size: (item.children ? item.children.length : 0) + 1,
-            child_count: item.children ? item.children.length : 0,
-            adult_count: 1,
-            first_or_repeat: item.first_or_repeat || 'first',
-            created_date: item.createdDate || (item.arrival_at ? item.arrival_at.slice(0, 10) : new Date().toISOString().slice(0, 10)),
-            guardian_name: item.guardianName,
-            guardian_phone: item.guardianPhone,
-            residence: item.residence,
-            pass_code: item.passCode,
-            children: item.children,
-            signature_data: item.signatureData
-          });
-
-          if (BongplaySync.broadcast) {
-            BongplaySync.broadcast({ type: 'DATA_CHANGED', table: 'safety_consents', item: item });
-          }
-        }
-        renderAdminDashboard();
-      }
-    }
-
-    function markGateEntry(id, e) {
-      if (e) e.stopPropagation();
-      const item = consents.find(c => c.id === id);
-      if (item) {
-        item.entry_at = new Date().toISOString();
-        saveConsents();
-        if (window.BongplaySync) {
-          if (BongplaySync.patch) {
-            BongplaySync.patch('safety_consents', item.id, {
-              entry_at: item.entry_at,
-              arrival_at: item.arrival_at || item.entry_at
-            });
-          } else {
-            BongplaySync.upsert('safety_consents', { id: item.id, entry_at: item.entry_at });
-          }
-        }
-        renderAdminDashboard();
-      }
-    }
-
-    function markGateExit(id, e) {
-      if (e) e.stopPropagation();
-      const item = consents.find(c => c.id === id);
-      if (item) {
-        const exitTime = new Date().toISOString();
-        item.exit_at = exitTime;
-        if (item.entry_at) {
-          const diffMs = new Date(exitTime).getTime() - new Date(item.entry_at).getTime();
-          item.stay_duration_minutes = Math.max(0, Math.round(diffMs / 60000));
-        }
-        saveConsents();
-        if (window.BongplaySync) {
-          if (BongplaySync.patch) {
-            BongplaySync.patch('safety_consents', item.id, {
-              exit_at: item.exit_at,
-              stay_duration_minutes: item.stay_duration_minutes
-            });
-          } else {
-            BongplaySync.upsert('safety_consents', {
-              id: item.id,
-              exit_at: item.exit_at,
-              stay_duration_minutes: item.stay_duration_minutes
-            });
-          }
-        }
-        renderAdminDashboard();
-      }
-    }
-
-    async function deleteConsent(id, e) {
-      if (e) e.stopPropagation();
-      if (confirm('해당 서약서 기록을 삭제하시겠습니까? (삭제 후 복구 불가)')) {
-        consents = consents.filter(c => c.id !== id);
-        saveConsents();
-        renderAdminDashboard();
-        if (window.BongplaySync) {
-          const delRes = await BongplaySync.remove('safety_consents', id);
-          if (!delRes || !delRes.ok) {
-            console.warn('클라우드 삭제 실패:', delRes);
-            alert('클라우드 DB 삭제 통신 오류: ' + ((delRes && (delRes.detail || delRes.reason)) || '확인 필요'));
-          }
-        }
-      }
-    }
-
-    // -----------------------------------------------------------------
-    // MODAL DETAIL VIEW (LEGAL ARCHIVE)
-    // -----------------------------------------------------------------
-    function openConsentDetail(id) {
-      const rec = consents.find(c => c.id === id);
-      if (!rec) return;
-      currentModalId = id;
-
-      document.getElementById('mPassCode').textContent = rec.passCode;
-      document.getElementById('mGuardianName').textContent = rec.guardianName;
-      document.getElementById('mGuardianPhone').textContent = rec.guardianPhone;
-      document.getElementById('mResidence').textContent = rec.residence;
-      document.getElementById('mTimestamp').textContent = rec.timestamp;
-      document.getElementById('mSignatureImg').src = rec.signatureData;
-
-      // Causal IDs
-      const visitEl = document.getElementById('mVisitId');
-      const hhEl = document.getElementById('mHouseholdId');
-      if (visitEl) visitEl.textContent = rec.visit_id || '(미발급/레거시)';
-      if (hhEl) hhEl.textContent = rec.household_id || (window.BongplayID ? BongplayID.generateHouseholdId(rec.guardianPhone) : '-');
-
-      // P0-2 Visit Lifecycle Timestamps
-      const fmtTime = (iso) => {
-        if (!iso) return '-';
-        try {
-          const d = new Date(iso);
-          return isNaN(d.getTime()) ? iso : d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        } catch(e) { return iso; }
+    async function submitExitSurvey() {
+      const pass = document.getElementById('surveyTargetPass').textContent;
+      const comment = document.getElementById('surveyComment').value.trim();
+      const surveyPayload = {
+        id: 'surv_' + Date.now(),
+        pass_code: pass,
+        score: selectedSurveyScore,
+        comment: comment,
+        submitted_at: new Date().toISOString()
       };
-      const lcArr = document.getElementById('mLcArrival');
-      const lcIss = document.getElementById('mLcIssued');
-      const lcEnt = document.getElementById('mLcEntry');
-      const lcExt = document.getElementById('mLcExit');
-      const lcStay = document.getElementById('mLcStayDuration');
-      if (lcArr) lcArr.textContent = fmtTime(rec.arrival_at || rec.timestamp);
-      if (lcIss) lcIss.textContent = fmtTime(rec.ticket_issued_at);
-      if (lcEnt) lcEnt.textContent = fmtTime(rec.entry_at);
-      if (lcExt) lcExt.textContent = fmtTime(rec.exit_at);
-      if (lcStay) {
-        if (rec.stay_duration_minutes !== undefined && rec.stay_duration_minutes !== null) {
-          lcStay.textContent = `${rec.stay_duration_minutes}분`;
-        } else if (rec.entry_at && !rec.exit_at) {
-          const elapsed = Math.max(0, Math.round((Date.now() - new Date(rec.entry_at).getTime()) / 60000));
-          lcStay.textContent = `이용중 (${elapsed}분 경과)`;
-        } else {
-          lcStay.textContent = '-';
-        }
-      }
-
-      document.getElementById('mChildCount').textContent = rec.children.length;
-      const kidsContainer = document.getElementById('mChildrenList');
-      kidsContainer.innerHTML = rec.children.map((k, i) => `
-        <div class="flex items-center justify-between text-xs py-1 border-b border-slate-800 last:border-0">
-          <span class="text-white font-bold">${i + 1}. ${k.name}</span>
-          <span class="text-slate-400 font-mono">${k.age}</span>
-        </div>
-      `).join('');
-
-      // Status button inside modal
-      const btnStatus = document.getElementById('btnModalToggleStatus');
-      const lblStatus = document.getElementById('lblModalToggleStatus');
-      if (rec.isIssued) {
-        btnStatus.className = 'px-4 py-2 bg-blue-900 text-blue-200 font-bold text-xs rounded-xl flex items-center gap-1.5 transition';
-        lblStatus.textContent = '발권 취소(대기 전환)';
-      } else {
-        btnStatus.className = 'px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition';
-        lblStatus.textContent = '발권 완료로 변경';
-      }
-
-      document.getElementById('consentDetailModal').classList.remove('hidden');
-      lucide.createIcons();
-    }
-
-    function closeConsentModal() {
-      document.getElementById('consentDetailModal').classList.add('hidden');
-      currentModalId = null;
-    }
-
-    function toggleCurrentModalStatus() {
-      if (!currentModalId) return;
-      toggleIssueStatus(currentModalId);
-      openConsentDetail(currentModalId); // refresh modal state
-    }
-
-    // Single Consent Print for Legal Audit
-    function printSingleConsent() {
-      const printContents = document.getElementById('modalPrintSection').innerHTML;
-      const originalContents = document.body.innerHTML;
-
-      const printWindow = window.open('', '_blank');
-      printWindow.document.write(`
-        <html>
-          <head>
-            <title>리틀포레스트 봉플레이 - 법정 안전이용동의서</title>
-            <style>
-              body { font-family: sans-serif; padding: 30px; color: #111; }
-              h2 { border-bottom: 2px solid #047857; padding-bottom: 10px; }
-              table { width: 100%; border-collapse: collapse; margin: 15px 0; }
-              th, td { border: 1px solid #ccc; padding: 8px 12px; text-align: left; }
-              th { background: #f3f4f6; }
-              .sig-box { border: 2px solid #000; padding: 10px; display: inline-block; margin-top: 10px; }
-            </style>
-          </head>
-          <body>
-            <h2>리틀포레스트 봉플레이 이용자 안전수칙 및 법적 보호자 서약서</h2>
-            ${printContents}
-            <div style="margin-top: 30px; text-align: right; font-weight: bold; line-height: 1.6;">
-              리틀포레스트 봉플레이 운영사무국 귀하<br>
-              <span style="font-size: 11px; font-weight: normal; color: #555;">(경상북도 봉화군 봉화읍 유록길 22 / 긴급연락처: 010-5931-4144)</span>
-            </div>
-            <script>
-              window.onload = function() { window.print(); window.close(); }
-            <\/script>
-          <a href="../index.html" class="no-print" style="position:fixed;left:12px;bottom:12px;z-index:9999;display:flex;align-items:center;gap:6px;padding:9px 14px;border-radius:14px;background:rgba(15,23,42,.94);border:1px solid #334155;color:#cbd5e1;font-size:11px;font-weight:700;text-decoration:none;box-shadow:0 4px 16px rgba(0,0,0,.4);backdrop-filter:blur(8px)">&#8592; 메인</a>
-</body>
-        </html>
-      `);
-      printWindow.document.close();
-    }
-
-    // -----------------------------------------------------------------
-    // EXPORT TO CSV (EXCEL FRIENDLY WITH BOM)
-    // -----------------------------------------------------------------
-    function exportConsentsToExcel() {
-      const listToExport = getFilteredConsentsByDate();
-      if (listToExport.length === 0) {
-        alert('선택하신 기간/일자에 내보낼 서약서 데이터가 없습니다.');
-        return;
-      }
-
-      let csv = "\uFEFF서약번호,접수일자,접수일시,보호자성명,보호자연락처,거주지역,동반아동명단,발권상태,입장시각,퇴장시각,체류시간(분)\n";
-
-      listToExport.forEach(c => {
-        const kids = (c.children && Array.isArray(c.children))
-          ? c.children.map(k => `${k.name || '아동'}(${k.age || ''})`).join('; ')
-          : '';
-        const recDate = getConsentDateStr(c);
-        const row = [
-          `"${c.passCode || ''}"`,
-          `"${recDate}"`,
-          `"${c.timestamp || ''}"`,
-          `"${c.guardianName || ''}"`,
-          `"${c.guardianPhone || ''}"`,
-          `"${c.residence || ''}"`,
-          `"${kids}"`,
-          `"${!c.isIssued ? '대기중' : (!c.entry_at ? '발권완료' : (!c.exit_at ? '이용중' : '퇴장완료'))}"`,
-          `"${c.entry_at || ''}"`,
-          `"${c.exit_at || ''}"`,
-          `"${c.stay_duration_minutes || 0}"`
-        ];
-        csv += row.join(',') + "\n";
-      });
-
-      const dateSuffix = currentDateFilter === 'today' ? getTodayYmd() : (currentDateFilter === 'all' ? '전체' : currentDateFilter);
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.setAttribute('href', url);
-      link.setAttribute('download', `봉플레이_안전서약명부_${dateSuffix}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    }
-
-    // -----------------------------------------------------------------
-    // BANNER VIEW: DYNAMIC QR CODE GENERATION
-    // -----------------------------------------------------------------
-    function generatePrintQrCode() {
-      const qrContainer = document.getElementById('liveBannerQrCode');
-      if (!qrContainer) return;
-      qrContainer.innerHTML = '';
-
-      // Current page URL with ?mode=customer parameter or absolute path
-      const currentUrl = window.location.href.split('?')[0];
-
-      try {
-        new QRCode(qrContainer, {
-          text: currentUrl,
-          width: 220,
-          height: 220,
-          colorDark: "#064e3b", // Forest deep green
-          colorLight: "#ffffff",
-          correctLevel: QRCode.CorrectLevel.H
-        });
-      } catch (e) {
-        console.warn('QRCode library not ready or error:', e);
-      }
-    }
-
-    // -----------------------------------------------------------------
-    // SOUND NOTIFICATION
-    // -----------------------------------------------------------------
-    function playChimeSound() {
-      try {
-        const audio = document.getElementById('audioChime');
-        if (audio) audio.play().catch(() => {});
-      } catch (e) {}
-    }
-
-    // -----------------------------------------------------------------
-    // MOCK DATA INJECTION (FOR DEMO/TESTING)
-    // -----------------------------------------------------------------
-    async function injectMockData() {
-      const now = new Date();
-      const todayYmd = window.BongplaySync ? BongplaySync.toLocalDateStr(now) : now.toISOString().slice(0, 10);
-      const curTime = now.getTime();
-      
-      const t1 = new Date(curTime - 40 * 60000); // 40분 전
-      const t2 = new Date(curTime - 15 * 60000); // 15분 전
-      const t3 = now; // 방금
-
-      const fmtT = (d) => d.toLocaleString('ko-KR', { hour12: false });
-      const passPrefix = `BONG-${todayYmd.replace(/-/g, '').slice(4)}`;
-
-      const samples = [
-        {
-          id: 'c_' + t1.getTime(),
-          site_id: 'bongplay_bonghwa',
-          pass_code: `${passPrefix}-001`,
-          passCode: `${passPrefix}-001`,
-          timestamp: fmtT(t1),
-          timestamp_text: fmtT(t1),
-          arrival_at: t1.toISOString(),
-          ticket_issued_at: null,
-          entry_at: null,
-          exit_at: null,
-          guardianName: '[시연]김민준',
-          guardian_name: '[시연]김민준',
-          guardianPhone: '010-3456-7890',
-          guardian_phone: '010-3456-7890',
-          residence: '봉화군민',
-          children: [{ name: '김하은', age: '5~7세' }, { name: '김도윤', age: '초등 저학년' }],
-          signatureData: createMockSignature('김민준'),
-          signature_data: createMockSignature('김민준'),
-          isIssued: false,
-          is_issued: false,
-          createdDate: todayYmd,
-          created_date: todayYmd
-        },
-        {
-          id: 'c_' + t2.getTime(),
-          site_id: 'bongplay_bonghwa',
-          pass_code: `${passPrefix}-002`,
-          passCode: `${passPrefix}-002`,
-          timestamp: fmtT(t2),
-          timestamp_text: fmtT(t2),
-          arrival_at: t2.toISOString(),
-          guardianName: '[시연]박서연',
-          guardian_name: '[시연]박서연',
-          guardianPhone: '010-8765-4321',
-          guardian_phone: '010-8765-4321',
-          residence: '일반 (타지역)',
-          children: [{ name: '이지후', age: '초등 고학년' }],
-          signatureData: createMockSignature('박서연'),
-          signature_data: createMockSignature('박서연'),
-          isIssued: false,
-          is_issued: false,
-          createdDate: todayYmd,
-          created_date: todayYmd
-        },
-        {
-          id: 'c_' + t3.getTime(),
-          site_id: 'bongplay_bonghwa',
-          pass_code: `${passPrefix}-003`,
-          passCode: `${passPrefix}-003`,
-          timestamp: fmtT(t3),
-          timestamp_text: fmtT(t3),
-          arrival_at: t3.toISOString(),
-          guardianName: '[시연]최은지',
-          guardian_name: '[시연]최은지',
-          guardianPhone: '010-5544-2211',
-          guardian_phone: '010-5544-2211',
-          residence: '경북도민',
-          children: [{ name: '정유나', age: '3~4세' }, { name: '정우진', age: '5~7세' }],
-          signatureData: createMockSignature('최은지'),
-          signature_data: createMockSignature('최은지'),
-          isIssued: false,
-          is_issued: false,
-          createdDate: todayYmd,
-          created_date: todayYmd
-        }
-      ];
-
-      for (const s of samples) {
-        consents.push(s);
-        if (window.BongplaySync) {
-          await BongplaySync.upsert('safety_consents', s);
-        }
-      }
-      saveConsents();
-      renderAdminDashboard();
-      if (window.BongplaySync) {
-        await BongplaySync.pullAll();
-      }
-      alert('시연용 당일 서약서 샘플 3건이 클라우드 DB(Supabase)에 성공적으로 등록되었습니다!');
-    }
-
-    function createMockSignature(name) {
-      const c = document.createElement('canvas');
-      c.width = 200;
-      c.height = 100;
-      const ctx = c.getContext('2d');
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, 200, 100);
-      ctx.font = 'bold 24px sans-serif';
-      ctx.fillStyle = '#15803d';
-      ctx.fillText(name + ' (서명)', 30, 55);
-      return c.toDataURL();
-    }
-
-    // -----------------------------------------------------------------
-    // P1-4 EXIT EXPERIENCE SURVEY MODAL HANDLING
-    // -----------------------------------------------------------------
-    function initNpsButtons() {
-      const container = document.getElementById('npsButtonGroup');
-      if (!container || container.children.length > 0) return;
-      for (let i = 0; i <= 10; i++) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = `btn-nps flex-1 py-1.5 rounded-lg border text-center font-bold text-xs transition ${
-          i === 10 ? 'border-amber-500 bg-amber-500/20 text-amber-300 font-black' : 'border-slate-800 bg-slate-950 text-slate-400 hover:text-white'
-        }`;
-        btn.textContent = i;
-        btn.onclick = () => setSurveyScore('nps', i);
-        btn.setAttribute('data-score', i);
-        container.appendChild(btn);
-      }
-    }
-
-    let currentSurveyConsentId = null;
-
-    function openExitSurveyModal(identifier) {
-      initNpsButtons();
-      setSurveyScore('satisfaction', 5);
-      setSurveyScore('nps', 10);
-      document.getElementById('surveyImprovementReason').value = '';
-
-      populateSurveyVisitorSelect();
-
-      // Find matching consent record
-      let match = null;
-      if (identifier) {
-        match = consents.find(c => 
-          c.passCode === identifier || 
-          c.id === identifier || 
-          c.visit_id === identifier || 
-          (c.guardianPhone && c.guardianPhone.replace(/-/g, '').endsWith(String(identifier).replace(/-/g, '')))
-        );
-      } else if (window.currentPassSession && window.currentPassSession.visit_id) {
-        match = consents.find(c => c.visit_id === window.currentPassSession.visit_id);
-      }
-
-      if (match) {
-        bindSurveyVisitor(match);
-        showSurveyLookup(false);
-      } else {
-        // Look for any active visitor currently in the park
-        const activeOne = consents.slice().reverse().find(c => c.isIssued && !c.exit_at) || consents[consents.length - 1];
-        if (activeOne) {
-          bindSurveyVisitor(activeOne);
-          showSurveyLookup(false);
-        } else {
-          showSurveyLookup(true);
-        }
-      }
-
-      document.getElementById('exitSurveyModal').classList.remove('hidden');
-      lucide.createIcons();
-    }
-
-    function bindSurveyVisitor(rec) {
-      currentSurveyConsentId = rec ? rec.id : null;
-      const targetVisitId = rec ? (rec.visit_id || ('vst_' + rec.id)) : ('vst_' + Date.now());
-      const targetHhId = rec ? (rec.household_id || 'hh_anonymous') : 'hh_anonymous';
-      const targetCampId = rec ? (rec.campaign_id || 'cmp_walkin') : 'cmp_walkin';
-
-      document.getElementById('surveyVisitId').value = targetVisitId;
-      document.getElementById('surveyHouseholdId').value = targetHhId;
-      document.getElementById('surveyCampaignId').value = targetCampId;
-      document.getElementById('surveyConsentId').value = rec ? rec.id : '';
-
-      if (rec) {
-        document.getElementById('surveyGuardianLabel').textContent = rec.guardianName;
-        document.getElementById('surveyPassCodeLabel').textContent = rec.passCode || '-';
-        document.getElementById('surveyKnownVisitorBox').classList.remove('hidden');
-      } else {
-        document.getElementById('surveyKnownVisitorBox').classList.add('hidden');
-      }
-    }
-
-    function showSurveyLookup(show) {
-      const lBox = document.getElementById('surveyLookupBox');
-      const btnCancel = document.getElementById('btnCancelLookup');
-      if (show) {
-        lBox.classList.remove('hidden');
-        if (currentSurveyConsentId) {
-          btnCancel.classList.remove('hidden');
-        }
-      } else {
-        lBox.classList.add('hidden');
-      }
-    }
-
-    function populateSurveyVisitorSelect(filterQuery) {
-      const sel = document.getElementById('surveyVisitorSelect');
-      if (!sel) return;
-      sel.innerHTML = '<option value="">-- 오늘 이용 고객 선택 --</option>';
-      let list = consents.slice().reverse();
-      if (filterQuery) {
-        const q = filterQuery.toLowerCase().replace(/-/g, '');
-        list = list.filter(c => 
-          (c.guardianName && c.guardianName.toLowerCase().includes(q)) ||
-          (c.guardianPhone && c.guardianPhone.replace(/-/g, '').includes(q)) ||
-          (c.passCode && c.passCode.toLowerCase().includes(q))
-        );
-      }
-      list.forEach(c => {
-        const opt = document.createElement('option');
-        opt.value = c.id;
-        const stateStr = c.exit_at ? '🏁퇴장' : (c.entry_at ? '🟢이용중' : (c.isIssued ? '발권' : '대기'));
-        const phoneTail = (c.guardianPhone || '').replace(/-/g, '').slice(-4);
-        opt.textContent = `[${stateStr}] ${c.guardianName} (${phoneTail}) - ${c.passCode}`;
-        if (c.id === currentSurveyConsentId) opt.selected = true;
-        sel.appendChild(opt);
-      });
-    }
-
-    function filterSurveyVisitors() {
-      const q = document.getElementById('surveySearchInput').value.trim();
-      populateSurveyVisitorSelect(q);
-      const sel = document.getElementById('surveyVisitorSelect');
-      if (sel.options.length === 2) {
-        sel.selectedIndex = 1;
-        onSurveyVisitorSelected(sel.value);
-      }
-    }
-
-    function onSurveyVisitorSelected(consentId) {
-      if (!consentId) return;
-      const rec = consents.find(c => c.id === consentId);
-      if (rec) {
-        bindSurveyVisitor(rec);
-        showSurveyLookup(false);
-      }
-    }
-
-    function openExitSurveyModalFromPass() {
-      const last = consents[consents.length - 1];
-      openExitSurveyModal(last?.passCode || last?.visit_id);
-    }
-
-    function closeExitSurveyModal() {
-      document.getElementById('exitSurveyModal').classList.add('hidden');
-    }
-
-    function setSurveyScore(type, score) {
-      if (type === 'satisfaction') {
-        document.getElementById('surveySatisfactionScore').value = score;
-        const labels = ['', '1점 (매우 불만)', '2점 (불만족)', '3점 (보통)', '4점 (만족)', '5점 (매우 만족)'];
-        document.getElementById('labelSatisfactionScore').textContent = labels[score] || (score + '점');
-        document.querySelectorAll('.btn-sat').forEach(b => {
-          const s = parseInt(b.getAttribute('data-score'));
-          if (s === score) {
-            b.className = 'btn-sat p-2 rounded-xl border-2 border-amber-500 bg-amber-500/20 text-amber-300 font-black';
-          } else {
-            b.className = 'btn-sat p-2 rounded-xl border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-300 font-bold';
-          }
-        });
-      } else if (type === 'nps') {
-        document.getElementById('surveyNpsScore').value = score;
-        let desc = score >= 9 ? '적극 추천(추천자)' : (score >= 7 ? '보통(수동자)' : '개선필요(비추천자)');
-        document.getElementById('labelNpsScore').textContent = `${score}점 (${desc})`;
-        document.querySelectorAll('.btn-nps').forEach(b => {
-          const s = parseInt(b.getAttribute('data-score'));
-          if (s === score) {
-            b.className = 'btn-nps flex-1 py-1.5 rounded-lg border-2 border-amber-500 bg-amber-500/20 text-amber-300 font-black';
-          } else {
-            b.className = 'btn-nps flex-1 py-1.5 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white';
-          }
-        });
-      }
-    }
-
-    function submitExitSurvey(e) {
-      e.preventDefault();
-      const visitId = document.getElementById('surveyVisitId').value;
-      const hhId = document.getElementById('surveyHouseholdId').value;
-      const campId = document.getElementById('surveyCampaignId').value;
-      const consentId = document.getElementById('surveyConsentId').value;
-      const satScore = parseInt(document.getElementById('surveySatisfactionScore').value) || 5;
-      const npsScore = parseInt(document.getElementById('surveyNpsScore').value) || 10;
-      const waitSat = parseInt(document.getElementById('surveyWaitSatisfaction').value) || 4;
-      const favFacility = document.getElementById('surveyFavoriteFacility').value;
-      const revisit = document.querySelector('input[name="surveyRevisit"]:checked')?.value || 'yes';
-      const reason = document.getElementById('surveyImprovementReason').value.trim();
-
-      // 1. 퇴장 시각 및 체류 시간 자동 기록 (safety_consents 연계 반영)
-      const rec = consents.find(c => c.id === consentId || (visitId && c.visit_id === visitId));
-      if (rec) {
-        const exitTime = new Date().toISOString();
-        rec.exit_at = exitTime;
-        if (rec.entry_at) {
-          const diffMs = new Date(exitTime).getTime() - new Date(rec.entry_at).getTime();
-          rec.stay_duration_minutes = Math.max(0, Math.round(diffMs / 60000));
-        } else {
-          rec.stay_duration_minutes = 90; // 기본 체류시간 90분
-        }
-        saveConsents();
-        if (window.BongplaySync) {
-          if (BongplaySync.patch) {
-            BongplaySync.patch('safety_consents', rec.id, {
-              exit_at: rec.exit_at,
-              stay_duration_minutes: rec.stay_duration_minutes
-            });
-          } else {
-            BongplaySync.upsert('safety_consents', {
-              id: rec.id,
-              exit_at: rec.exit_at,
-              stay_duration_minutes: rec.stay_duration_minutes
-            });
-          }
-        }
-        renderAdminDashboard();
-      }
-
-      // 2. 고객 경험 설문(customer_experience_surveys) 기록
-      const survey = window.BongplayID ? BongplayID.recordCustomerSurvey({
-        visit_id: visitId,
-        household_id: hhId,
-        campaign_id: campId,
-        satisfaction_score: satScore,
-        recommendation_score: npsScore,
-        wait_satisfaction: waitSat,
-        favorite_facility: favFacility,
-        improvement_reason: reason,
-        revisit_intent: revisit
-      }) : {
-        survey_id: 'srv_' + Date.now(),
-        satisfaction_score: satScore,
-        recommendation_score: npsScore
-      };
-
-      if (window.BongplaySync && survey) {
-        BongplaySync.upsert('customer_experience_surveys', {
-          survey_id: survey.survey_id,
-          site_id: survey.site_id || 'bongplay_bonghwa',
-          visit_id: survey.visit_id,
-          household_id: survey.household_id,
-          campaign_id: survey.campaign_id,
-          surveyed_at: survey.surveyed_at || new Date().toISOString(),
-          satisfaction_score: survey.satisfaction_score,
-          recommendation_score: survey.recommendation_score,
-          wait_satisfaction: survey.wait_satisfaction,
-          favorite_facility: survey.favorite_facility,
-          improvement_reason: survey.improvement_reason,
-          revisit_intent: survey.revisit_intent
-        });
-      }
-
-      closeExitSurveyModal();
-      const guardianName = rec ? rec.guardianName : '고객';
-      alert(`🎉 ${guardianName} 님, 소중한 의견 감사합니다!\n퇴장 처리가 완료되었습니다.\n\n[다음 방문 10% 감사 할인 쿠폰]\n쿠폰코드: BONG-NPS-${Math.random().toString(36).substring(2, 7).toUpperCase()}\n\n다음 방문 시 매표소에 제시하시면 즉시 10% 할인이 적용됩니다.`);
-    }
-
-    // ================= 클라우드 DB 연동 =================
-    function openDbModal() {
-      if (!window.BongplaySync) return;
-      const cfg = BongplaySync.getConfig();
-      if (cfg) {
-        document.getElementById('dbUrlInput').value = cfg.url || '';
-        document.getElementById('dbKeyInput').value = cfg.key || '';
-      }
-      document.getElementById('deviceLabelInput').value = BongplaySync.getDeviceLabel() || '매표소';
-      document.getElementById('dbQueueCount').textContent = BongplaySync.getQueue().length;
-      document.getElementById('dbTestResult').classList.add('hidden');
-      document.getElementById('dbModal').classList.remove('hidden');
-      if (window.lucide) lucide.createIcons();
-    }
-    function closeDbModal() {
-      document.getElementById('dbModal').classList.add('hidden');
-    }
-    function saveDbConfig() {
-      if (!window.BongplaySync) return;
-      const url = document.getElementById('dbUrlInput').value.trim();
-      const key = document.getElementById('dbKeyInput').value.trim();
-      const label = document.getElementById('deviceLabelInput').value;
-      BongplaySync.setDeviceLabel(label);
-      if (!url || !key) {
-        BongplaySync.setConfig(null, null);
-        alert('DB 연동이 해제되었습니다. (로컬 저장만 사용)');
-      } else {
-        BongplaySync.setConfig(url, key);
-        alert('DB 설정이 저장되었습니다. 대기 중인 데이터를 동기화합니다.');
-        BongplaySync.flushQueue();
-      }
-      updateDbBadge();
-      closeDbModal();
-    }
-    async function testDbConnection() {
-      if (!window.BongplaySync) return;
-      const url = document.getElementById('dbUrlInput').value.trim();
-      const key = document.getElementById('dbKeyInput').value.trim();
-      if (!url || !key) { alert('URL과 key를 모두 입력하십시오.'); return; }
-      BongplaySync.setConfig(url, key);
-      const box = document.getElementById('dbTestResult');
-      box.className = 'rounded-xl p-3 text-[11px] font-bold bg-slate-800 text-slate-300';
-      box.textContent = '연결 확인 중...';
-      box.classList.remove('hidden');
-      const r = await BongplaySync.testConnection();
-      if (r.ok) {
-        box.className = 'rounded-xl p-3 text-[11px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30';
-        box.textContent = '✓ ' + r.msg;
-      } else {
-        box.className = 'rounded-xl p-3 text-[11px] font-bold bg-rose-500/15 text-rose-300 border border-rose-500/30';
-        box.textContent = '✗ ' + r.msg;
-      }
-    }
-    function updateDbBadge() {
-      const el = document.getElementById('dbSyncText');
-      const btn = document.getElementById('dbSyncBtn');
-      if (!el || !window.BongplaySync) return;
-      const st = BongplaySync.getStatus();
-      if (!st.configured) {
-        el.textContent = 'DB 미연동';
-        btn.className = 'px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-700 text-xs font-bold shadow-sm ml-1';
-      } else if (!st.online) {
-        el.textContent = '오프라인 (대기 ' + st.pending + ')';
-        btn.className = 'px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 bg-amber-900/40 hover:bg-amber-900/60 text-amber-300 border border-amber-600/50 text-xs font-bold shadow-sm ml-1 animate-pulse';
-      } else if (st.pending > 0) {
-        el.textContent = '동기화 대기 ' + st.pending;
-        btn.className = 'px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 bg-amber-900/40 hover:bg-amber-900/60 text-amber-300 border border-amber-600/50 text-xs font-bold shadow-sm ml-1';
-      } else {
-        el.textContent = '동기화 정상 · ' + BongplaySync.getDeviceLabel();
-        btn.className = 'px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 bg-emerald-900/40 hover:bg-emerald-900/60 text-emerald-300 border border-emerald-600/50 text-xs font-bold shadow-sm ml-1';
-      }
-    }
-    if (window.BongplaySync) {
-      BongplaySync.onStatusChange(updateDbBadge);
-      updateDbBadge();
-      if (BongplaySync.onDataChange) {
-        BongplaySync.onDataChange((detail) => {
-          if (!detail || !detail.table || detail.table === 'safety_consents') {
-            loadConsents();
-            renderAdminDashboard();
-          }
-        });
-      }
-    }
-
-    function toggleFullScreen() {
-      if (!document.fullscreenElement && !document.webkitFullscreenElement && !document.msFullscreenElement) {
-        if (document.documentElement.requestFullscreen) {
-          document.documentElement.requestFullscreen().catch(() => {});
-        } else if (document.documentElement.webkitRequestFullscreen) {
-          document.documentElement.webkitRequestFullscreen();
-        } else if (document.documentElement.msRequestFullscreen) {
-          document.documentElement.msRequestFullscreen();
-        }
-      } else {
-        if (document.exitFullscreen) {
-          document.exitFullscreen().catch(() => {});
-        } else if (document.webkitExitFullscreen) {
-          document.webkitExitFullscreen();
-        } else if (document.msExitFullscreen) {
-          document.msExitFullscreen();
-        }
-      }
+      await BongplaySync.upsert('guest_surveys', surveyPayload);
+      alert('소중한 의견 감사합니다! 안전한 귀갓길 되십시오.');
+      closeSurveyModal();
     }
   </script>
-
-  <!-- ===== 클라우드 DB 연동 설정 모달 ===== -->
-  <div id="dbModal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-    <div class="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-lg p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center space-x-2.5">
-          <div class="w-9 h-9 rounded-xl bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center">
-            <i data-lucide="database" class="w-4 h-4 text-emerald-400"></i>
-          </div>
-          <h3 class="font-black text-base text-white">클라우드 DB 연동 (3개 기기 동기화)</h3>
-        </div>
-        <button onclick="closeDbModal()" class="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 hover:bg-slate-700">
-          <i data-lucide="x" class="w-4 h-4"></i>
-        </button>
-      </div>
-
-      <div class="space-y-3 text-xs text-slate-300">
-        <div>
-          <label class="block text-slate-400 font-bold mb-1">이 기기의 위치 (라벨)</label>
-          <select id="deviceLabelInput" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-white text-xs outline-none focus:border-emerald-500">
-            <option value="매표소">매표소</option>
-            <option value="현장">현장(야외)</option>
-            <option value="사무실">사무실</option>
-            <option value="대표">대표 개인기기</option>
-          </select>
-        </div>
-
-        <div>
-          <label class="block text-slate-400 font-bold mb-1">Supabase Project URL</label>
-          <input type="text" id="dbUrlInput" placeholder="https://xxxxx.supabase.co" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white font-mono text-xs outline-none focus:border-emerald-500">
-        </div>
-
-        <div>
-          <label class="block text-slate-400 font-bold mb-1">anon public key</label>
-          <input type="password" id="dbKeyInput" placeholder="eyJhbGci..." class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white font-mono text-xs outline-none focus:border-emerald-500">
-        </div>
-
-        <div id="dbTestResult" class="hidden rounded-xl p-3 text-[11px] font-bold"></div>
-
-        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1.5 text-[11px] text-slate-400">
-          <p>• 오프라인 상태에서도 동의서는 태블릿에 즉시 암호화 저장되며, 와이파이 연결 시 자동으로 클라우드에 업로드됩니다.</p>
-          <p>• 대기 중인 동기화 항목: <b id="dbQueueCount" class="text-white">0</b>건</p>
-        </div>
-      </div>
-
-      <div class="pt-3 border-t border-slate-800 flex items-center justify-end gap-2">
-        <button onclick="testDbConnection()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold">연결 테스트</button>
-        <button onclick="saveDbConfig()" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black shadow-lg">저장</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ================================================================= -->
-  <!-- MODAL: P1-4 EXIT EXPERIENCE & NPS SURVEY MODAL (퇴장 10초 설문)     -->
-  <!-- ================================================================= -->
-  <div id="exitSurveyModal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-    <div class="bg-slate-900 border border-amber-500/40 rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl space-y-4 my-auto animate-scale-in">
-      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
-        <div class="flex items-center gap-2">
-          <div class="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
-            <i data-lucide="star" class="w-4 h-4"></i>
-          </div>
-          <div>
-            <h3 class="text-sm sm:text-base font-black text-white">퇴장 고객경험 & NPS 10초 설문 (P1-4)</h3>
-            <p class="text-[11px] text-amber-400 font-medium">설문 완료 시 다음 방문 10% 감사 할인 쿠폰 즉시 발급</p>
-          </div>
-        </div>
-        <button type="button" onclick="closeExitSurveyModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
-          <i data-lucide="x" class="w-5 h-5"></i>
-        </button>
-      </div>
-
-      <form id="exitSurveyForm" onsubmit="submitExitSurvey(event)" class="space-y-4 text-xs">
-        <input type="hidden" id="surveyVisitId">
-        <input type="hidden" id="surveyHouseholdId">
-        <input type="hidden" id="surveyCampaignId">
-        <input type="hidden" id="surveyConsentId">
-
-        <!-- Customer Identification & Visit Link Banner -->
-        <div id="surveyKnownVisitorBox" class="bg-emerald-950/40 border border-emerald-800/60 p-3 rounded-2xl flex items-center justify-between">
-          <div class="flex items-center gap-2.5">
-            <div class="w-7 h-7 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
-              <i data-lucide="user-check" class="w-4 h-4"></i>
-            </div>
-            <div>
-              <div class="font-black text-white text-xs flex items-center gap-1.5">
-                <span id="surveyGuardianLabel">방문객</span>
-                <span class="text-[10px] font-normal text-slate-400">보호자 님</span>
-              </div>
-              <div class="text-[10px] text-slate-400 mt-0.5">
-                접수번호: <b id="surveyPassCodeLabel" class="font-mono text-emerald-400">BONG-0917-001</b>
-              </div>
-            </div>
-          </div>
-          <button type="button" onclick="showSurveyLookup(true)" class="text-[10px] text-slate-400 hover:text-amber-400 underline font-semibold px-2 py-1">
-            다른 고객 찾기
-          </button>
-        </div>
-
-        <!-- Standalone / QR Scan Customer Lookup -->
-        <div id="surveyLookupBox" class="hidden bg-slate-950 p-3 rounded-2xl border border-slate-800 space-y-2">
-          <div class="flex items-center justify-between text-[11px]">
-            <span class="text-slate-300 font-bold flex items-center gap-1">
-              <i data-lucide="search" class="w-3.5 h-3.5 text-amber-400"></i>
-              <span>퇴장 고객 찾기 (전화번호 뒷 4자리 또는 이름)</span>
-            </span>
-            <button type="button" onclick="showSurveyLookup(false)" id="btnCancelLookup" class="text-[10px] text-slate-500 hover:text-slate-300 hidden">취소</button>
-          </div>
-          <div class="flex gap-2">
-            <input type="text" id="surveySearchInput" oninput="filterSurveyVisitors()" placeholder="휴대폰 뒷 4자리 또는 성명 입력..." class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 outline-none focus:border-amber-500">
-            <select id="surveyVisitorSelect" onchange="onSurveyVisitorSelected(this.value)" class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-2 text-xs text-emerald-300 outline-none focus:border-amber-500">
-              <option value="">-- 오늘 이용 고객 선택 --</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- Q1. 전반적 만족도 (1~5) -->
-        <div class="space-y-1.5">
-          <div class="font-bold text-slate-200 flex items-center justify-between">
-            <span>1. 오늘 봉플레이 이용은 전반적으로 어떠셨나요?</span>
-            <span id="labelSatisfactionScore" class="text-amber-400 font-black">5점 (매우 만족)</span>
-          </div>
-          <input type="hidden" id="surveySatisfactionScore" value="5">
-          <div class="grid grid-cols-5 gap-1.5 text-center">
-            <button type="button" onclick="setSurveyScore('satisfaction', 1)" class="btn-sat p-2 rounded-xl border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-300 font-bold" data-score="1">1점<br><span class="text-[10px] font-normal">매우불만</span></button>
-            <button type="button" onclick="setSurveyScore('satisfaction', 2)" class="btn-sat p-2 rounded-xl border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-300 font-bold" data-score="2">2점<br><span class="text-[10px] font-normal">불만</span></button>
-            <button type="button" onclick="setSurveyScore('satisfaction', 3)" class="btn-sat p-2 rounded-xl border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-300 font-bold" data-score="3">3점<br><span class="text-[10px] font-normal">보통</span></button>
-            <button type="button" onclick="setSurveyScore('satisfaction', 4)" class="btn-sat p-2 rounded-xl border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-300 font-bold" data-score="4">4점<br><span class="text-[10px] font-normal">만족</span></button>
-            <button type="button" onclick="setSurveyScore('satisfaction', 5)" class="btn-sat p-2 rounded-xl border-2 border-amber-500 bg-amber-500/20 text-amber-300 font-black" data-score="5">5점<br><span class="text-[10px]">매우만족</span></button>
-          </div>
-        </div>
-
-        <!-- Q2. NPS 추천 지수 (0~10) -->
-        <div class="space-y-1.5">
-          <div class="font-bold text-slate-200 flex items-center justify-between">
-            <span>2. 지인/가족에게 봉플레이를 추천하시겠습니까? (NPS)</span>
-            <span id="labelNpsScore" class="text-amber-400 font-black">10점 (적극 추천)</span>
-          </div>
-          <input type="hidden" id="surveyNpsScore" value="10">
-          <div class="flex items-center gap-1 overflow-x-auto pb-1 text-center">
-            <div id="npsButtonGroup" class="flex gap-1 w-full justify-between"></div>
-          </div>
-          <div class="flex justify-between text-[10px] text-slate-500 px-1">
-            <span>0점: 절대 비추천</span>
-            <span>7~8점: 수동적 보통</span>
-            <span>9~10점: 적극 추천</span>
-          </div>
-        </div>
-
-        <!-- Q3. 대기시간 만족도 및 최선호 시설 -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div class="space-y-1.5">
-            <label class="font-bold text-slate-200 block">3. 대기시간 만족도 (1~5)</label>
-            <select id="surveyWaitSatisfaction" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-amber-500">
-              <option value="5">5점 - 대기 거의 없이 쾌적함</option>
-              <option value="4" selected>4점 - 대기시간 적당했음</option>
-              <option value="3">3점 - 약간 붐볐으나 양호</option>
-              <option value="2">2점 - 대기가 다소 길어 피로함</option>
-              <option value="1">1점 - 대기가 너무 길어 불편함</option>
-            </select>
-          </div>
-
-          <div class="space-y-1.5">
-            <label class="font-bold text-slate-200 block">4. 가장 만족했던 시설</label>
-            <select id="surveyFavoriteFacility" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-amber-500">
-              <option value="전체 네트 어드벤처" selected>네트 어드벤처 (스마트 볼풀)</option>
-              <option value="짚라인 & 짚코스터">숲속 짚라인 & 롤러코스터</option>
-              <option value="실내 트램펄린">실내 퐁퐁 트램펄린</option>
-              <option value="숲 모래놀이터">야외 숲 모래놀이터</option>
-              <option value="카페 & 패밀리 쉼터">카페테리아 & 가족 쉼터</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- Q4. 재방문 의향 -->
-        <div class="space-y-1.5">
-          <label class="font-bold text-slate-200 block">5. 향후 재방문 의향</label>
-          <div class="grid grid-cols-3 gap-2">
-            <label class="flex items-center justify-center gap-1.5 p-2 rounded-xl border border-slate-700 bg-slate-800/60 cursor-pointer hover:border-amber-500 text-center">
-              <input type="radio" name="surveyRevisit" value="yes" checked class="accent-amber-500">
-              <span class="text-white font-bold">반드시 재방문</span>
-            </label>
-            <label class="flex items-center justify-center gap-1.5 p-2 rounded-xl border border-slate-700 bg-slate-800/60 cursor-pointer hover:border-amber-500 text-center">
-              <input type="radio" name="surveyRevisit" value="maybe" class="accent-amber-500">
-              <span class="text-white font-bold">기회되면 재방문</span>
-            </label>
-            <label class="flex items-center justify-center gap-1.5 p-2 rounded-xl border border-slate-700 bg-slate-800/60 cursor-pointer hover:border-amber-500 text-center">
-              <input type="radio" name="surveyRevisit" value="no" class="accent-amber-500">
-              <span class="text-white font-bold">개선 필요</span>
-            </label>
-          </div>
-        </div>
-
-        <!-- Q5. 개선 의견 -->
-        <div class="space-y-1.5">
-          <label class="font-bold text-slate-200 block">6. 개선 필요 사항 / 바라는 점 (선택)</label>
-          <textarea id="surveyImprovementReason" rows="2" placeholder="직원 친절도, 시설 청결, 대기 동선 등 의견을 적어주세요." class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"></textarea>
-        </div>
-
-        <div class="pt-2 flex items-center justify-end gap-2">
-          <button type="button" onclick="closeExitSurveyModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl transition">
-            닫기
-          </button>
-          <button type="submit" class="px-5 py-2 bg-gradient-to-r from-amber-500 to-brand-500 hover:from-amber-600 hover:to-brand-600 text-slate-950 font-black rounded-xl transition flex items-center gap-1.5 shadow-lg shadow-amber-500/20">
-            <i data-lucide="check" class="w-4 h-4"></i>
-            <span>설문 제출 및 쿠폰 받기</span>
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
 </body>
 </html>

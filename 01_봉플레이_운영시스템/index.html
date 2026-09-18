@@ -21,6 +21,14 @@
   <script src="assets/config.js"></script>
   <script src="assets/bongplay-sync.js"></script>
   <link rel="stylesheet" href="assets/print.css">
+  <link rel="manifest" href="manifest.json">
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(err => console.warn('SW register error:', err));
+      });
+    }
+  </script>
 </head>
 <body class="bg-slate-950 text-slate-200 min-h-screen w-full max-w-full overflow-x-hidden">
 
@@ -140,16 +148,40 @@
 
   <!-- 고객 응대 & 현장 기록 -->
   <p class="text-[11px] font-black text-slate-500 mb-2.5 px-1 tracking-wider">고객 응대 & 현장 기록</p>
-  <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+  <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
 
     <a href="pages/consent.html" class="bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl p-4 transition group">
       <div class="flex items-center gap-3">
         <div class="w-10 h-10 rounded-xl bg-teal-600/20 flex items-center justify-center shrink-0">
-          <i data-lucide="file-signature" class="w-5 h-5 text-teal-400"></i>
+          <i data-lucide="smartphone" class="w-5 h-5 text-teal-400"></i>
         </div>
         <div class="flex-1 min-w-0">
-          <p class="font-bold text-sm text-white">안전이용 동의서</p>
-          <p class="text-[11px] text-slate-500 mt-0.5">고객 서명 · 매표소 발권 관리</p>
+          <p class="font-bold text-sm text-white">모바일 안전서약</p>
+          <p class="text-[11px] text-teal-400 font-semibold mt-0.5">손님 전용 · 20초 전자서명 바우처</p>
+        </div>
+      </div>
+    </a>
+
+    <a href="pages/consent-desk.html" class="bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl p-4 transition group">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-emerald-600/20 flex items-center justify-center shrink-0">
+          <i data-lucide="ticket" class="w-5 h-5 text-emerald-400"></i>
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="font-bold text-sm text-white">매표·서약 관리데스크</p>
+          <p class="text-[11px] text-emerald-400 font-semibold mt-0.5">직원 전용 · 접수 대조 &amp; 즉시 발권</p>
+        </div>
+      </div>
+    </a>
+
+    <a href="pages/gate.html" class="bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl p-4 transition group">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-sky-600/20 flex items-center justify-center shrink-0">
+          <i data-lucide="scan-line" class="w-5 h-5 text-sky-400"></i>
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="font-bold text-sm text-white">게이트 관제 스캐너</p>
+          <p class="text-[11px] text-sky-400 font-semibold mt-0.5">실시간 원내 체류인원 &amp; QR 스캔</p>
         </div>
       </div>
     </a>

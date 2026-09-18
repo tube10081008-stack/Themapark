@@ -1,0 +1,16 @@
+{
+  "name": "리틀포레스트 봉플레이 운영시스템",
+  "short_name": "봉플레이",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#022c22",
+  "theme_color": "#16a34a",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "./assets/images/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}

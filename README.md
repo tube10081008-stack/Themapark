@@ -29,9 +29,9 @@ c:/Users/bongp/OneDrive/문서/new/
 ├── 📁 01_봉플레이_운영시스템/         ← [현장 메인] 스마트 현장 관제 및 발권·안전 플랫폼
 │   ├── 📦 bongplay_deploy.zip       ← ★ Netlify 원클릭 배포 파일 (~400 KB)
 │   ├── index.html                   ← 메인 포털 허브 (단말 바로가기)
-│   ├── pages/                       ← 관제 대시보드 11종 (master, operations, consent, metaverse, simulator 등)
+│   ├── pages/                       ← 관제 대시보드 13종 (master, operations, consent, consent-desk, gate, closing 등)
 │   ├── forms/                       ← 표준 행정 서식 12종 (포털 index.html 및 근로계약서, 사고보고서 등 11개 서식)
-│   ├── assets/                      ← 공통 스크립트, CSS, config.js (환경설정)
+│   ├── assets/                      ← 공통 스크립트, CSS, config.js (환경설정, 오프라인 IndexedDB 동기화, 화면 꺼짐 방지)
 │   ├── netlify/                     ← Netlify Functions (디스코드 웹훅 서버리스 보안 프록시)
 │   ├── database/                    ← [내부용] DB 관리 스크립트 (FINAL_SUPABASE_SETUP.sql, ops_test_kit.sql)
 │   ├── backend_ai/                  ← [내부용] AI 코파일럿 백엔드 (FastAPI main.py, Dockerfile)
@@ -60,3 +60,33 @@ c:/Users/bongp/OneDrive/문서/new/
 ├── 📄 모두의창업 2기 지원서.pdf        ← 정부지원사업 제출 서류
 └── 📄 README.md                     ← [본 문서] 전체 프로젝트 인덱스 가이드
 ```
+
+---
+
+## 🎡 봉플레이 현장 운영 7대 핵심 인프라 (BP-001 ~ BP-007)
+
+개장 당일 현장 운영이 완벽히 동작하도록 구축된 7대 핵심 운영 백본입니다:
+
+| 티켓 | 과제명 | 구현 내용 | 주요 파일 |
+|---|---|---|---|
+| **BP-001** | IndexedDB 오프라인 아웃박스 & 멱등 FIFO 동기화 | LTE/Wi-Fi 음영 지역에서도 발권·서약이 멈추지 않는 오프라인 큐 및 재연결 자동 플러시 구현 | `assets/bongplay-sync.js` |
+| **BP-002** | 3-Tier 역할 분리 및 개인정보 노출 원천 차단 | 손님 모바일 화면(`consent.html`)에서 타인 개인정보 로드 제거 및 전용 발권 데스크(`consent-desk.html`) 분리 | `pages/consent.html`<br>`pages/consent-desk.html` |
+| **BP-003** | 하드 세이프티 인터록 (점검 미완료/기상악화 잠금) | 아침 안전점검 미완료 시 POS 발권 차단, 풍속 ≥12m/s 시 짚코스터 자동 판매 잠금, 아동 신장/체중 사전 검증 | `pages/operations.html`<br>`pages/consent-desk.html` |
+| **BP-004** | QR 기반 4단계 방문자 루프 & 게이트 관제 | USB 바코드건/카메라 스캐너 지원, 동시 체류 인원 실시간 게이지, 1-클릭 입장(+N)/퇴장(-N)/설문 연계 | `pages/gate.html` |
+| **BP-005** | 통합 POS 결제 & 마감 원장(Closing Ledger) 시재 검증 | 시스템 원장 자동 집계(DB+로컬), 현금 실시재 불일치 시 사유 입력 강제, 마감 후 원장 잠금(`is_locked`) | `pages/closing.html` |
+| **BP-006** | Zero-CDN 자립화 & 키오스크 화면 꺼짐 방지 | Service Worker 오프라인 캐싱, PWA Manifest 지원, Screen Wake Lock API 적용으로 현장 단말 절전 방지 | `assets/bongplay-wakelock.js`<br>`sw.js`, `manifest.json` |
+| **BP-007** | 개인정보 라이프사이클 & 자동 마스킹·파기 | 사고 없는 90일 경과 방문객 전화번호 마스킹 및 서명 파기, 사고 이력 3년 영구 보존, 준수 증빙 JSON 익스포트 | `pages/management.html` |
+
+### 🔄 현장 개장 당일 완결 루프 (Day-One Loop)
+```
+[1. QR 서약 (손님 모바일)]
+       ↓
+[2. 발권 확인 (매표 데스크)] ──(안전점검 미완료 시 잠금)──→ [결제 및 밴딩 발권]
+       ↓
+[3. 게이트 입장 (바코드건 스캔)] ──→ [실시간 재원 인원 카운팅 & 과밀 방지]
+       ↓
+[4. 게이트 퇴장 (바코드건 스캔)] ──→ [만족도 설문 QR 즉시 팝업 안내]
+       ↓
+[5. 마감 정산 (시재금 검증)] ──→ [전산 원장 vs 실금고 일치 확인 후 장부 잠금]
+```
+
