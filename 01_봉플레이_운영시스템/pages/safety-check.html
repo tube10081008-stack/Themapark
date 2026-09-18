@@ -1,0 +1,2534 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>봉플레이 일일 안전점검 일지 (법정 규격)</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
+  <!-- Canvas Signature Pad -->
+  <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800;900&display=swap');
+    html, body {
+      max-width: 100vw;
+      overflow-x: hidden !important;
+      width: 100%;
+    }
+    body {
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      box-sizing: border-box;
+    }
+
+    /* Suppress Netlify floating badges and overlays */
+    [data-netlify-drawer],
+    #netlify-drawer,
+    .netlify-badge,
+    div[class*="netlify"],
+    iframe[src*="netlify"],
+    div[id*="netlify"] {
+      display: none !important;
+      visibility: hidden !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+    }
+
+    /* Screen vs Print Separation */
+    @media screen {
+      .print-only {
+        display: none !important;
+      }
+    }
+
+    @media print {
+      @page {
+        size: A4 portrait;
+        margin: 8mm 10mm 8mm 10mm;
+      }
+      body {
+        background: white !important;
+        color: #000 !important;
+        font-size: 8pt !important;
+        line-height: 1.25 !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+      .print-only {
+        display: block !important;
+      }
+      .official-table th, .official-table td {
+        border: 1px solid #111 !important;
+        padding: 3px 5px !important;
+        font-size: 7.5pt !important;
+      }
+      .official-table th {
+        background-color: #f1f5f9 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .page-break {
+        page-break-before: always;
+      }
+    }
+  </style>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../assets/config.js"></script>
+  <script src="../assets/bongplay-sync.js"></script>
+  <script src="../assets/bongplay-id.js"></script>
+  <link rel="stylesheet" href="../assets/print.css">
+
+  <style>
+    /* 공문서 A4 1장 단일 페이지 강제 최적화 (오버라이드) */
+    @media print {
+      @page {
+        size: A4 portrait !important;
+        margin: 4mm 6mm 4mm 6mm !important;
+      }
+      html, body {
+        background: #fff !important;
+        color: #000 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        font-size: 7pt !important;
+        line-height: 1.15 !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      body::before {
+        display: none !important; /* print.css 공통 상단 헤더 제거하여 1페이지 확보 */
+      }
+      .no-print {
+        display: none !important;
+      }
+      .print-only {
+        display: block !important;
+      }
+      #officialPrintReport {
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+        page-break-inside: avoid !important;
+      }
+      .official-table {
+        border-collapse: collapse !important;
+        width: 100% !important;
+        margin-bottom: 3px !important;
+      }
+      .official-table th, .official-table td {
+        border: 1px solid #222 !important;
+        padding: 1.5px 3px !important;
+        font-size: 6.8pt !important;
+        line-height: 1.15 !important;
+        vertical-align: middle !important;
+      }
+      .official-table th {
+        background-color: #f1f5f9 !important;
+        font-weight: 800 !important;
+      }
+      #p-photos-wrapper {
+        page-break-before: always !important; /* 사진 증빙이 있을 경우에만 2페이지 부록으로 분리 */
+      }
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen w-full max-w-full overflow-x-hidden">
+
+  <!-- ========================================== -->
+  <!-- 1. SCREEN UI (태블릿/스마트폰 전용 인터랙티브 화면) -->
+  <!-- ========================================== -->
+  <div class="screen-ui no-print w-full max-w-full overflow-x-hidden">
+
+    <!-- Top Global Header (Mobile-First Compact) -->
+    <header class="sticky top-0 z-40 bg-slate-900 text-white border-b border-slate-800 shadow-md w-full">
+      <div class="max-w-6xl mx-auto px-2.5 sm:px-4 py-2 sm:py-2.5 flex items-center justify-between gap-1.5 sm:gap-2">
+        
+        <!-- Left: Logo & Title -->
+        <div class="flex items-center space-x-1.5 sm:space-x-2.5 shrink-0">
+          <div class="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-emerald-500 flex items-center justify-center text-slate-950 font-black shadow-md shadow-emerald-500/20 shrink-0">
+            <i data-lucide="shield-check" class="w-4 h-4 sm:w-5 sm:h-5 text-white"></i>
+          </div>
+          <div>
+            <div class="flex items-center space-x-1 sm:space-x-1.5">
+              <span class="font-black text-xs sm:text-sm tracking-tight text-white whitespace-nowrap"><span class="hidden sm:inline">봉플레이 </span>안전점검</span>
+              <span class="text-[9px] sm:text-[10px] bg-emerald-500/20 text-emerald-400 font-bold px-1.5 py-0.2 rounded border border-emerald-500/30 whitespace-nowrap">법정일일</span>
+            </div>
+            <p class="text-[10px] text-slate-400 font-medium hidden md:block">어린이놀이시설 안전관리법 시행규칙 제16조 대응</p>
+          </div>
+        </div>
+
+        <!-- Right: Actions -->
+        <div class="flex items-center space-x-1 sm:space-x-2 shrink-0">
+          <!-- DB Sync Status Button -->
+          <button onclick="openDbModal()" id="dbSyncBtn" class="flex items-center space-x-1 px-2 sm:px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg text-xs font-bold transition shadow-sm" title="클라우드 DB 동기화">
+            <i data-lucide="database" class="w-3.5 h-3.5 text-emerald-400 shrink-0"></i>
+            <span id="dbSyncDot" class="w-1.5 h-1.5 rounded-full bg-emerald-400 sm:hidden"></span>
+            <span id="dbSyncText" class="hidden sm:inline text-[11px] whitespace-nowrap">DB 미연동</span>
+          </button>
+
+          <!-- History Button (Always Available) -->
+          <button onclick="openHistoryModal()" class="flex items-center space-x-1 px-2 sm:px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition" title="점검 이력">
+            <i data-lucide="calendar" class="w-3.5 h-3.5 text-amber-400 shrink-0"></i>
+            <span class="hidden sm:inline text-[11px]">이력</span>
+            <span class="font-mono text-[11px] text-amber-300 font-bold" id="historyCount">0</span>
+          </button>
+
+          <!-- Desktop Buttons (Hidden on Mobile) -->
+          <button onclick="openEquipmentModal()" class="hidden lg:flex items-center space-x-1.5 px-3 py-1.5 bg-indigo-900/60 hover:bg-indigo-800/80 text-indigo-200 text-xs font-semibold rounded-lg border border-indigo-700/50 transition" title="개체별 안전장비 라이프사이클">
+            <i data-lucide="tag" class="w-3.5 h-3.5 text-indigo-400"></i>
+            <span>장비(P0-7)</span>
+          </button>
+
+          <button onclick="openFacilityIntervalModal()" class="hidden lg:flex items-center space-x-1.5 px-3 py-1.5 bg-amber-900/60 hover:bg-amber-800/80 text-amber-200 text-xs font-semibold rounded-lg border border-amber-700/50 transition" title="시설 가동/중단 구간">
+            <i data-lucide="timer" class="w-3.5 h-3.5 text-amber-400"></i>
+            <span>가동구간(P0-8)</span>
+          </button>
+
+          <button onclick="printOfficialReport()" class="hidden md:flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-md transition" title="감사용 공식 보고서 인쇄">
+            <i data-lucide="printer" class="w-3.5 h-3.5"></i>
+            <span>인쇄/PDF</span>
+          </button>
+
+          <!-- Fullscreen Toggle -->
+          <button onclick="toggleFullScreen()" class="flex items-center p-1.5 sm:px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg text-xs font-bold transition shadow-sm" title="전체화면 전환">
+            <i data-lucide="maximize" class="w-3.5 h-3.5 shrink-0"></i>
+            <span class="hidden sm:inline text-[11px]">전체화면</span>
+          </button>
+
+          <!-- Mobile Submenu Toggle -->
+          <button onclick="toggleMobileSubmenu()" class="lg:hidden p-1.5 px-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition shrink-0" title="추가 메뉴">
+            <i data-lucide="more-vertical" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Mobile Dropdown Submenu (Collapsible) -->
+      <div id="mobileSubmenu" class="hidden lg:hidden border-t border-slate-800/80 bg-slate-950 px-3 py-2 grid grid-cols-3 gap-1.5 text-center text-xs">
+        <button onclick="openEquipmentModal(); toggleMobileSubmenu();" class="py-1.5 px-2 bg-indigo-950/60 text-indigo-300 border border-indigo-800/50 rounded-lg font-bold flex items-center justify-center gap-1">
+          <i data-lucide="tag" class="w-3 h-3"></i> 장비(P0-7)
+        </button>
+        <button onclick="openFacilityIntervalModal(); toggleMobileSubmenu();" class="py-1.5 px-2 bg-amber-950/60 text-amber-300 border border-amber-800/50 rounded-lg font-bold flex items-center justify-center gap-1">
+          <i data-lucide="timer" class="w-3 h-3"></i> 가동구간
+        </button>
+        <button onclick="printOfficialReport(); toggleMobileSubmenu();" class="py-1.5 px-2 bg-emerald-950/60 text-emerald-300 border border-emerald-800/50 rounded-lg font-bold flex items-center justify-center gap-1">
+          <i data-lucide="printer" class="w-3 h-3"></i> 서식 인쇄
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="max-w-6xl mx-auto px-3 sm:px-4 py-4 sm:py-6 w-full max-w-full overflow-x-hidden">
+
+      <!-- Action Bar -->
+      <div class="mb-4 sm:mb-6">
+        <div class="bg-white rounded-2xl p-3.5 sm:p-5 border border-slate-200 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-3 sm:gap-4">
+          <div>
+            <div class="flex items-center space-x-2 flex-wrap gap-y-1">
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800">
+                <i data-lucide="clock" class="w-3 h-3 mr-1"></i> 개장 전 필수 업무
+              </span>
+              <span class="text-[11px] text-slate-500">소재지: 경북 봉화군 유록길 22</span>
+            </div>
+            <h1 class="text-base sm:text-xl font-black text-slate-900 mt-1">오늘의 개장 전 안전점검 일지</h1>
+            <p class="text-xs text-slate-500 mt-0.5 leading-relaxed">매일 아침 09:30 개장 전 전 구역을 점검하고 이상 유무를 기록하여 서명합니다.</p>
+          </div>
+
+          <!-- Quick Action Buttons -->
+          <div class="grid grid-cols-3 sm:flex items-center gap-1.5 sm:gap-2 w-full md:w-auto">
+            <button onclick="markAllPass()" class="flex items-center justify-center space-x-1 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs rounded-xl border border-emerald-200 transition">
+              <i data-lucide="check-check" class="w-3.5 h-3.5"></i>
+              <span>전체 정상</span>
+            </button>
+            <button onclick="resetCurrentForm()" class="flex items-center justify-center space-x-1 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold text-xs rounded-xl transition">
+              <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+              <span>초기화</span>
+            </button>
+            <button onclick="saveChecklist()" class="flex items-center justify-center space-x-1 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow transition">
+              <i data-lucide="save" class="w-3.5 h-3.5 text-emerald-400"></i>
+              <span>일지 저장</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Today's Inspection Status Notice Banner -->
+      <div id="todayAuditBanner" class="mb-4 p-3.5 sm:p-4 rounded-2xl border transition-all duration-300 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-sm"></div>
+
+      <!-- Inspector & Facility Meta Grid -->
+      <div class="bg-white rounded-2xl p-3.5 sm:p-5 border border-slate-200 shadow-sm mb-5">
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3 text-xs">
+          <div>
+            <span class="text-slate-500 font-medium block">시설명</span>
+            <span class="font-bold text-slate-900">리틀포레스트 봉플레이</span>
+          </div>
+          <div>
+            <span class="text-slate-500 font-medium block">소재지</span>
+            <span class="font-semibold text-slate-900">봉화군 봉화읍 유록길 22</span>
+          </div>
+          <div>
+            <div class="flex items-center justify-between">
+              <span class="text-slate-500 font-medium block">점검일시</span>
+              <button type="button" onclick="initDateTime()" class="text-[11px] font-bold text-emerald-600 hover:text-emerald-700 underline flex items-center gap-0.5">
+                <i data-lucide="clock" class="w-3 h-3"></i> 현재시각
+              </button>
+            </div>
+            <input type="datetime-local" id="inspectDateTime" class="mt-0.5 font-bold text-slate-900 bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs w-full">
+          </div>
+          <div>
+            <span class="text-slate-500 font-medium block">날씨 / 기온</span>
+            <div class="flex items-center space-x-1 mt-0.5">
+              <select id="weatherSelect" class="font-semibold text-slate-900 bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs flex-1">
+                <option value="맑음">☀️ 맑음</option>
+                <option value="구름조금">⛅ 구름조금</option>
+                <option value="흐림">☁️ 흐림</option>
+                <option value="비">🌧️ 비(강우)</option>
+                <option value="눈">❄️ 눈(강설)</option>
+              </select>
+              <input type="text" id="temperature" value="21℃" placeholder="기온" class="w-16 font-semibold text-slate-900 bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs text-center">
+            </div>
+          </div>
+
+          <div>
+            <span class="text-slate-500 font-medium block">안전관리책임자</span>
+            <input type="text" id="managerName" value="홍성현" class="mt-0.5 font-bold text-slate-900 bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs w-full">
+          </div>
+          <div>
+            <span class="text-slate-500 font-medium block">당일 현장점검자</span>
+            <input type="text" id="inspectorName" value="김주성" placeholder="점검자 성명" class="mt-0.5 font-bold text-slate-900 bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs w-full">
+            <div class="flex flex-wrap gap-1 mt-1">
+              <button type="button" onclick="document.getElementById('inspectorName').value='김주성'" class="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded text-[10px] font-bold">김주성</button>
+              <button type="button" onclick="document.getElementById('inspectorName').value='박기원'" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 rounded text-[10px] text-slate-700 font-semibold">박기원</button>
+              <button type="button" onclick="document.getElementById('inspectorName').value='홍성현'" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 rounded text-[10px] text-slate-700 font-semibold">홍성현</button>
+              <button type="button" onclick="document.getElementById('inspectorName').value='김지연'" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 rounded text-[10px] text-slate-700 font-semibold">김지연</button>
+            </div>
+          </div>
+          <div>
+            <span class="text-slate-500 font-medium block">비상 연락처</span>
+            <span class="font-bold text-slate-900">010-5931-4144</span>
+          </div>
+          <div>
+            <span class="text-slate-500 font-medium block">최종 점검판정</span>
+            <span id="overallStatusBadge" class="inline-block mt-0.5 px-2.5 py-0.5 rounded-full font-bold text-xs bg-slate-100 text-slate-700 border border-slate-300">
+              점검 대기 (0/22)
+            </span>
+          </div>
+        </div>
+
+        <!-- Real-time Progress Bar (Responsive Multi-Row on Mobile) -->
+        <div class="mt-3.5 pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          <div class="flex items-center space-x-2 text-xs font-semibold w-full sm:w-auto">
+            <span class="text-slate-500 whitespace-nowrap">진행률:</span>
+            <div class="flex-1 sm:w-44 h-2.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+              <div id="checkProgressBar" class="h-full bg-emerald-500 rounded-full transition-all duration-300" style="width: 0%;"></div>
+            </div>
+            <span id="checkProgressText" class="text-emerald-700 font-black whitespace-nowrap text-xs">0 / 22 (0%)</span>
+          </div>
+          <div class="flex items-center justify-end space-x-3 text-xs">
+            <span class="flex items-center space-x-1 font-semibold text-emerald-600">
+              <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
+              <span>양호 <b id="countGood">0</b></span>
+            </span>
+            <span class="flex items-center space-x-1 font-semibold text-amber-600">
+              <span class="w-2 h-2 rounded-full bg-amber-500 inline-block"></span>
+              <span>주의 <b id="countWarn">0</b></span>
+            </span>
+            <span class="flex items-center space-x-1 font-semibold text-rose-600">
+              <span class="w-2 h-2 rounded-full bg-rose-500 inline-block"></span>
+              <span>정비 <b id="countBad">0</b></span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Inspection Items Section (4 Categories) -->
+      <div class="space-y-6">
+
+        <!-- 1. 야외 포레스트 어드벤처 & 짚라인 -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="bg-gradient-to-r from-emerald-800 to-teal-800 text-white px-5 py-3 flex items-center justify-between">
+            <div class="flex items-center space-x-2.5">
+              <i data-lucide="compass" class="w-5 h-5 text-emerald-300"></i>
+              <h3 class="font-bold text-sm tracking-wide">1. 야외 포레스트 어드벤처 & 짚라인 구역 (고위험 관리군)</h3>
+            </div>
+            <span class="text-[11px] bg-white/20 px-2 py-0.5 rounded font-medium">총 6개 항목</span>
+          </div>
+          <div class="divide-y divide-slate-100" id="group-adventure"></div>
+        </div>
+
+        <!-- 2. 실내 놀이동 -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="bg-gradient-to-r from-blue-800 to-indigo-800 text-white px-5 py-3 flex items-center justify-between">
+            <div class="flex items-center space-x-2.5">
+              <i data-lucide="home" class="w-5 h-5 text-blue-300"></i>
+              <h3 class="font-bold text-sm tracking-wide">2. 실내 놀이동 (정글짐, 트램펄린, 유아존)</h3>
+            </div>
+            <span class="text-[11px] bg-white/20 px-2 py-0.5 rounded font-medium">총 6개 항목</span>
+          </div>
+          <div class="divide-y divide-slate-100" id="group-indoor"></div>
+        </div>
+
+        <!-- 3. 야외 플레이존 -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="bg-gradient-to-r from-amber-700 to-orange-700 text-white px-5 py-3 flex items-center justify-between">
+            <div class="flex items-center space-x-2.5">
+              <i data-lucide="sun" class="w-5 h-5 text-amber-300"></i>
+              <h3 class="font-bold text-sm tracking-wide">3. 야외 플레이존 (모래놀이터, 언덕 슬로프, 수로, 관정)</h3>
+            </div>
+            <span class="text-[11px] bg-white/20 px-2 py-0.5 rounded font-medium">총 5개 항목</span>
+          </div>
+          <div class="divide-y divide-slate-100" id="group-outdoor"></div>
+        </div>
+
+        <!-- 4. 소방 / 응급구호 / 방역 -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="bg-gradient-to-r from-rose-800 to-red-800 text-white px-5 py-3 flex items-center justify-between">
+            <div class="flex items-center space-x-2.5">
+              <i data-lucide="cross" class="w-5 h-5 text-rose-300"></i>
+              <h3 class="font-bold text-sm tracking-wide">4. 응급구호 / 소방 / 방역 및 비상대응</h3>
+            </div>
+            <span class="text-[11px] bg-white/20 px-2 py-0.5 rounded font-medium">총 5개 항목</span>
+          </div>
+          <div class="divide-y divide-slate-100" id="group-safety"></div>
+        </div>
+
+      </div>
+
+      <!-- Deficiency & Actions Record -->
+      <div class="mt-6 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+        <div class="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
+          <div class="flex items-center space-x-2">
+            <i data-lucide="wrench" class="w-4 h-4 text-amber-500"></i>
+            <h3 class="font-bold text-sm text-slate-900">지적사항 및 즉각 조치내용 (보수/정비 기록)</h3>
+          </div>
+          <span class="text-xs text-slate-500">주의/불량 항목 발생 시 필수 기재</span>
+        </div>
+
+        <div class="space-y-3">
+          <textarea id="actionNotes" rows="3" placeholder="예: [1-5 하강구역] 짚라인 도착지 바크가 일부 유실되어 보충 1포대 포설 완료. / [2-4 볼풀장] 파손된 공 3개 수거 폐기." class="w-full text-xs text-slate-800 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"></textarea>
+
+          <!-- Photo Upload & Preview -->
+          <div class="flex items-center justify-between">
+            <label class="cursor-pointer inline-flex items-center space-x-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition border border-slate-300">
+              <i data-lucide="camera" class="w-4 h-4 text-emerald-600"></i>
+              <span>현장 정비/점검 사진 첨부</span>
+              <input type="file" id="photoInput" accept="image/*" multiple capture="environment" class="hidden" onchange="handlePhotoUpload(event)">
+            </label>
+            <span class="text-[11px] text-slate-400">스마트폰 카메라로 즉시 촬영 또는 갤러리 선택</span>
+          </div>
+
+          <div id="photoPreviewGrid" class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3"></div>
+        </div>
+      </div>
+
+      <!-- Final Judgment & Digital Signature -->
+      <div class="mt-6 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+        <div class="flex items-center space-x-2 border-b border-slate-100 pb-2 mb-4">
+          <i data-lucide="pen-tool" class="w-4 h-4 text-emerald-600"></i>
+          <h3 class="font-bold text-sm text-slate-900">종합 판정 및 점검자 전자 서명</h3>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+          <div class="space-y-3">
+            <label class="block text-xs font-bold text-slate-700">금일 종합 판정 결과:</label>
+            <div class="grid grid-cols-3 gap-2">
+              <label class="cursor-pointer p-3 border-2 rounded-xl text-center flex flex-col items-center justify-center transition" id="lbl-pass">
+                <input type="radio" name="finalDecision" value="pass" checked onchange="updateDecisionUI()" class="hidden">
+                <span class="text-sm font-black text-emerald-700">개장 승인 (정상)</span>
+                <span class="text-[11px] text-slate-500 mt-0.5">운영 지장 없음</span>
+              </label>
+              <label class="cursor-pointer p-3 border-2 rounded-xl text-center flex flex-col items-center justify-center transition" id="lbl-warn">
+                <input type="radio" name="finalDecision" value="warn" onchange="updateDecisionUI()" class="hidden">
+                <span class="text-sm font-black text-amber-700">조건부 개장 (주의)</span>
+                <span class="text-[11px] text-slate-500 mt-0.5">특정 기구 제한</span>
+              </label>
+              <label class="cursor-pointer p-3 border-2 rounded-xl text-center flex flex-col items-center justify-center transition" id="lbl-stop">
+                <input type="radio" name="finalDecision" value="stop" onchange="updateDecisionUI()" class="hidden">
+                <span class="text-sm font-black text-rose-700">개장 중지 (위험)</span>
+                <span class="text-[11px] text-slate-500 mt-0.5">긴급 정비 요망</span>
+              </label>
+            </div>
+
+            <div class="text-xs text-slate-500 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100">
+              본인은 어린이놀이시설 안전관리법 제15조 및 관계 규정에 의거하여 <b>리틀포레스트 봉플레이</b>의 모든 놀이 시설 및 소방·응급 장비의 점검을 누락 없이 성실히 수행하였음을 확인합니다.
+            </div>
+          </div>
+
+          <!-- Signature Pad -->
+          <div>
+            <div class="flex items-center justify-between mb-1.5">
+              <span class="text-xs font-bold text-slate-800">현장 점검자 / 안전관리책임자 서명:</span>
+              <button type="button" onclick="clearSignature()" class="text-[11px] text-slate-500 hover:text-rose-600 font-semibold underline">
+                서명 지우기
+              </button>
+            </div>
+            <div class="border-2 border-dashed border-slate-300 rounded-xl overflow-hidden bg-white relative">
+              <canvas id="signaturePad" class="w-full h-36 touch-none"></canvas>
+              <div id="signPlaceholder" class="absolute inset-0 flex items-center justify-center pointer-events-none text-slate-300 text-xs font-medium">
+                손가락이나 터치펜으로 여기에 서명하세요
+              </div>
+            </div>
+            <div class="flex items-center justify-between mt-1 text-[11px] text-slate-400">
+              <span>봉플레이 안전관리책임자 (인/서명)</span>
+              <span>봉화군청 감사 증빙 규격</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom Action Bar -->
+      <div class="mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-900 text-white p-5 rounded-2xl shadow-xl">
+        <div class="flex items-center space-x-3">
+          <div class="w-9 h-9 rounded-lg bg-emerald-500 flex items-center justify-center text-slate-950 font-black">
+            <i data-lucide="check" class="w-5 h-5 text-white"></i>
+          </div>
+          <div>
+            <p class="text-xs text-slate-400">점검이 완료되면 일지를 저장하거나 감사용 공식 보고서로 출력하세요.</p>
+            <h4 class="font-bold text-sm text-white">일일 점검표 저장 및 법정 공문서 A4 PDF 출력</h4>
+          </div>
+        </div>
+
+        <div class="flex items-center space-x-2.5 w-full sm:w-auto">
+          <button onclick="saveChecklist()" class="flex-1 sm:flex-none flex items-center justify-center space-x-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-sm rounded-xl shadow-lg transition">
+            <i data-lucide="save" class="w-4 h-4"></i>
+            <span>점검표 저장 완료</span>
+          </button>
+          <button onclick="printOfficialReport()" class="flex-1 sm:flex-none flex items-center justify-center space-x-2 px-5 py-3 bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold text-sm rounded-xl border border-slate-700 transition">
+            <i data-lucide="printer" class="w-4 h-4"></i>
+            <span>감사용 서식 인쇄</span>
+          </button>
+        </div>
+      </div>
+
+    </main>
+
+  </div>
+
+  <!-- ========================================== -->
+  <!-- 2. OFFICIAL PRINT REPORT (군청 감사용 A4 단일/표준 공문서 양식) -->
+  <!-- ========================================== -->
+  <div id="officialPrintReport" class="official-print-report print-only">
+    
+    <!-- Top Doc Standard Note -->
+    <div style="display: flex; justify-content: space-between; font-size: 6.8pt; color: #444; border-bottom: 1px solid #777; padding-bottom: 1px; margin-bottom: 3px;">
+      <span>[어린이놀이시설 안전관리법 시행규칙 제16조 관련 서식]</span>
+      <span>보존연한: 3년 │ 주무부서: 봉화군청 문화관광과 (조은정 주무관 054-679-6355)</span>
+    </div>
+
+    <!-- Title Box -->
+    <div style="text-align: center; margin-bottom: 3px;">
+      <h1 style="font-size: 12.5pt; font-weight: 900; letter-spacing: 2px; margin: 0; text-decoration: underline;">
+        어린이놀이시설 일일 안전점검 기록부
+      </h1>
+      <p style="font-size: 6.8pt; color: #555; margin: 1px 0 0 0;">
+        시설명: 리틀포레스트 봉플레이 (BongPlay) │ 소재지: 경상북도 봉화군 봉화읍 유록길 22
+      </p>
+    </div>
+
+    <!-- Meta Info Table -->
+    <table class="official-table" style="width: 100%; margin-bottom: 3px;">
+      <tr>
+        <th style="width: 14%; text-align: center;">시 설 명</th>
+        <td style="width: 36%; font-weight: bold;">리틀포레스트 봉플레이</td>
+        <th style="width: 14%; text-align: center;">소 재 지</th>
+        <td style="width: 36%;">경상북도 봉화군 봉화읍 유록길 22</td>
+      </tr>
+      <tr>
+        <th style="text-align: center;">점검일시</th>
+        <td id="p-date" style="font-weight: bold;">2026-09-09 09:30</td>
+        <th style="text-align: center;">날씨 / 기온</th>
+        <td id="p-weather">맑음 (21℃)</td>
+      </tr>
+      <tr>
+        <th style="text-align: center;">현장점검자</th>
+        <td id="p-inspector" style="font-weight: bold;">홍성현</td>
+        <th style="text-align: center;">안전관리책임자</th>
+        <td id="p-manager" style="font-weight: bold;">홍성현 (010-5931-4144)</td>
+      </tr>
+      <tr>
+        <th style="text-align: center;">종합 판정</th>
+        <td colspan="3" id="p-decision" style="text-align: center; font-weight: 900; font-size: 8pt;">
+          ■ 적합 (개장 승인)   □ 조건부 주의   □ 부적합 (사용 중지)
+        </td>
+      </tr>
+    </table>
+
+    <!-- 22 Items Inspection Table -->
+    <table class="official-table" style="width: 100%; margin-bottom: 3px;">
+      <thead>
+        <tr>
+          <th style="width: 6%; text-align: center;">연번</th>
+          <th style="width: 20%; text-align: center;">점검 구역</th>
+          <th style="width: 48%; text-align: center;">점검 대상 및 주요 점검 기준</th>
+          <th style="width: 12%; text-align: center;">점검결과</th>
+          <th style="width: 14%; text-align: center;">비고 / 상태</th>
+        </tr>
+      </thead>
+      <tbody id="p-table-body">
+        <!-- Dynamically injected rows -->
+      </tbody>
+    </table>
+
+    <!-- Deficiencies and Action Taken Summary Box -->
+    <div style="border: 1px solid #111; padding: 3px 5px; margin-bottom: 3px; font-size: 6.8pt;">
+      <div style="font-weight: bold; margin-bottom: 1px;">[지적사항 및 즉각 정비·조치 결과]</div>
+      <div id="p-actionNotes" style="min-height: 18px; white-space: pre-wrap; line-height: 1.25;">
+        특이사항 없음. 전 구역 놀이기구 및 소방·응급 구호 장비 정상 가동 확인 완료.
+      </div>
+    </div>
+
+    <!-- Official Confirmation & Signatures -->
+    <div style="border: 1px solid #111; padding: 3px 6px; font-size: 6.8pt; text-align: center;">
+      <p style="margin: 0 0 2px 0; line-height: 1.25;">
+        「어린이놀이시설 안전관리법」 제15조 및 동법 시행규칙 제16조에 따라
+        리틀포레스트 봉플레이의 일일 안전점검을 이상 없이 성실히 수행하였음을 확인합니다.
+      </p>
+      <div style="font-weight: bold; margin-bottom: 2px;" id="p-sign-date">2026년 09월 09일</div>
+      
+      <div style="display: flex; justify-content: space-around; align-items: center; padding: 0 20px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span>현장점검자: <b id="p-inspector-sign-name">홍성현</b></span>
+          <div style="width: 60px; height: 22px; border: 1px dashed #777; display: flex; align-items: center; justify-content: center; position: relative;">
+            <img id="p-sign-img-inspector" style="max-height: 100%; max-width: 100%; object-fit: contain; display: none;">
+            <span id="p-sign-text-inspector" style="font-size: 6.5pt; color: #888;">(서명)</span>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span>안전관리책임자: <b id="p-manager-sign-name">홍성현</b></span>
+          <div style="width: 60px; height: 22px; border: 1px dashed #777; display: flex; align-items: center; justify-content: center; position: relative;">
+            <img id="p-sign-img-manager" style="max-height: 100%; max-width: 100%; object-fit: contain; display: none;">
+            <span id="p-sign-text-manager" style="font-size: 6.5pt; color: #888;">(인)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Photo Attachments on Print (if any) -->
+    <div id="p-photos-wrapper" style="margin-top: 6px; display: none;">
+      <div style="font-weight: bold; font-size: 7.5pt; margin-bottom: 2px;">[현장 확인 사진 증빙]</div>
+      <div id="p-photos-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;"></div>
+    </div>
+
+  </div>
+
+  <!-- Modal: Equipment Lifecycle & Predictive Maintenance (P0-7) (No-Print) -->
+  <div id="equipmentModal" class="no-print fixed inset-0 z-50 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-3xl max-w-3xl w-full p-6 shadow-2xl max-h-[90vh] flex flex-col text-slate-200">
+      <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-9 h-9 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center">
+            <i data-lucide="shield" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="font-black text-base text-white flex items-center gap-2">
+              개체별 안전장비 라이프사이클 및 AI 예지보전 (P0-7)
+              <span class="text-[10px] px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-700 font-mono font-bold">SERIAL-TRACKED</span>
+            </h3>
+            <p class="text-xs text-slate-400">하네스 · 트롤리 · 헬멧 · 카라비너 개체별 누적 사용횟수 및 내구연한 모니터링</p>
+          </div>
+        </div>
+        <button onclick="closeEquipmentModal()" class="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700 transition">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- AI Predictive Maintenance Alert Banner -->
+      <div id="equipAiAlertBanner" class="my-3 p-3 rounded-2xl bg-slate-950 border border-slate-800 text-xs hidden"></div>
+
+      <!-- Search & Filter Bar -->
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pb-2">
+        <div class="flex gap-1.5 overflow-x-auto text-xs font-semibold">
+          <button onclick="filterEquipmentTab('ALL')" class="equip-tab-btn active px-3 py-1.5 rounded-lg bg-indigo-600 text-white" data-type="ALL">전체 (<span id="eqTabCountAll">0</span>)</button>
+          <button onclick="filterEquipmentTab('HARNESS')" class="equip-tab-btn px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700" data-type="HARNESS">하네스 (<span id="eqTabCountHarness">0</span>)</button>
+          <button onclick="filterEquipmentTab('TROLLEY')" class="equip-tab-btn px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700" data-type="TROLLEY">트롤리 (<span id="eqTabCountTrolley">0</span>)</button>
+          <button onclick="filterEquipmentTab('HELMET')" class="equip-tab-btn px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700" data-type="HELMET">헬멧 (<span id="eqTabCountHelmet">0</span>)</button>
+          <button onclick="filterEquipmentTab('CARABINER')" class="equip-tab-btn px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700" data-type="CARABINER">카라비너 (<span id="eqTabCountCarabiner">0</span>)</button>
+        </div>
+
+        <div class="flex items-center gap-1.5">
+          <input type="text" id="equipSearchInput" placeholder="장비 ID / 명칭 검색..." oninput="renderEquipmentModal()" class="w-36 sm:w-44 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white placeholder-slate-500 font-sans">
+          <button onclick="openAddEquipmentModal()" class="px-2.5 py-1 text-[11px] font-bold bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shrink-0 flex items-center gap-1 transition shadow">
+            <i data-lucide="plus" class="w-3.5 h-3.5"></i> 장비 등록
+          </button>
+          <button onclick="quickBatchIncrementEquipment()" class="px-2.5 py-1 text-[11px] font-bold bg-indigo-950/60 hover:bg-indigo-900 border border-indigo-700 text-indigo-300 rounded-lg shrink-0 flex items-center gap-1 transition">
+            <i data-lucide="plus-circle" class="w-3 h-3"></i> +1회
+          </button>
+        </div>
+      </div>
+
+      <!-- Equipment Cards List -->
+      <div id="equipmentListContainer" class="flex-1 overflow-y-auto space-y-2 py-2 pr-1 max-h-[48vh]"></div>
+
+      <!-- Modal Footer -->
+      <div class="pt-3 border-t border-slate-800 flex items-center justify-between text-xs">
+        <span class="text-slate-500">※ 시설 운영(P0-3)에서 탑승 완료 기록 시 연동 장비 카운트가 자동 누적됩니다.</span>
+        <button onclick="closeEquipmentModal()" class="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl transition">
+          닫기
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Add New Equipment Asset -->
+  <div id="modalAddEquipment" class="no-print fixed inset-0 z-50 bg-black/70 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-indigo-500/50 rounded-3xl max-w-md w-full p-6 shadow-2xl text-slate-200 animate-scale-in space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center">
+            <i data-lucide="plus-circle" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h4 class="text-sm font-black text-white">신규 안전장비 개체 등록</h4>
+            <p class="text-[11px] text-slate-400">개체별 시리얼 넘버 및 안전 내구연한 부여</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeAddEquipmentModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form id="formAddEquipment" onsubmit="submitAddEquipment(event)" class="space-y-3 text-xs">
+        <div>
+          <label class="block font-bold text-slate-300 mb-1">장비 분류 (Type)</label>
+          <select id="addEquipType" onchange="autoSuggestEquipId()" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-semibold">
+            <option value="HARNESS">하네스 (HARNESS) - 안전 한도 1,500회</option>
+            <option value="TROLLEY">롤러 트롤리 (TROLLEY) - 안전 한도 3,000회</option>
+            <option value="HELMET">안전 헬멧 (HELMET) - 안전 한도 2,000회</option>
+            <option value="CARABINER">카라비너 (CARABINER) - 안전 한도 5,000회</option>
+          </select>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2.5">
+          <div>
+            <label class="block font-bold text-slate-300 mb-1">개체 시리얼 ID</label>
+            <input type="text" id="addEquipId" required placeholder="예: HARNESS-013" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono font-bold">
+          </div>
+          <div>
+            <label class="block font-bold text-slate-300 mb-1">안전 기준 한도(회)</label>
+            <input type="number" id="addEquipMaxSafe" value="1500" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono text-center">
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-bold text-slate-300 mb-1">장비 명칭</label>
+          <input type="text" id="addEquipName" required placeholder="예: 성인 전신 하네스 #13" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white">
+        </div>
+
+        <div class="grid grid-cols-2 gap-2.5">
+          <div>
+            <label class="block font-bold text-slate-300 mb-1">초기 누적 횟수</label>
+            <input type="number" id="addEquipUsage" value="0" min="0" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono text-center">
+          </div>
+          <div>
+            <label class="block font-bold text-slate-300 mb-1">배치 구역</label>
+            <input type="text" id="addEquipLocation" value="야외 짚라인 어드벤처" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs">
+          </div>
+        </div>
+
+        <div class="pt-2 flex items-center justify-end gap-2">
+          <button type="button" onclick="closeAddEquipmentModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl transition">
+            취소
+          </button>
+          <button type="submit" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg transition flex items-center gap-1.5">
+            <i data-lucide="check" class="w-4 h-4"></i>
+            <span>등록 완료</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Edit / Maintain Equipment Asset -->
+  <div id="modalEditEquipment" class="no-print fixed inset-0 z-50 bg-black/70 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-3xl max-w-md w-full p-6 shadow-2xl text-slate-200 animate-scale-in space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center">
+            <i data-lucide="wrench" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h4 class="text-sm font-black text-white">안전장비 수정 및 정비 기록</h4>
+            <span id="editEquipBadgeId" class="font-mono text-xs text-indigo-400 font-bold">HARNESS-001</span>
+          </div>
+        </div>
+        <button type="button" onclick="closeEditEquipmentModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form id="formEditEquipment" onsubmit="submitEditEquipment(event)" class="space-y-3 text-xs">
+        <input type="hidden" id="editEquipId">
+
+        <div>
+          <label class="block font-bold text-slate-300 mb-1">장비 명칭</label>
+          <input type="text" id="editEquipName" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white">
+        </div>
+
+        <div class="grid grid-cols-2 gap-2.5">
+          <div>
+            <label class="block font-bold text-slate-300 mb-1">누적 사용 횟수</label>
+            <input type="number" id="editEquipUsage" min="0" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono text-center">
+          </div>
+          <div>
+            <label class="block font-bold text-slate-300 mb-1">안전 기준 한도(회)</label>
+            <input type="number" id="editEquipMaxSafe" min="1" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono text-center">
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-bold text-slate-300 mb-1">운영 상태 (Status)</label>
+          <select id="editEquipStatus" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-semibold">
+            <option value="active">🟢 정상 가동 (Active)</option>
+            <option value="warn">🟡 점검 요망 (Warning/Inspect)</option>
+            <option value="retired">🔴 교체/폐기 (Retired)</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block font-bold text-slate-300 mb-1">점검 및 정비 메모 (선택)</label>
+          <input type="text" id="editEquipDefectNote" placeholder="예: 2026-09-15 롤러 베어링 구리스 주입 완료" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white">
+        </div>
+
+        <div class="pt-2 flex items-center justify-between gap-2 border-t border-slate-800">
+          <button type="button" onclick="deleteEquipmentConfirm()" class="px-3 py-2 bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800 font-bold rounded-xl transition flex items-center gap-1">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> 폐기/삭제
+          </button>
+          <div class="flex items-center gap-1.5">
+            <button type="button" onclick="closeEditEquipmentModal()" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl transition">
+              취소
+            </button>
+            <button type="submit" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl shadow-lg transition flex items-center gap-1">
+              <i data-lucide="save" class="w-3.5 h-3.5"></i>
+              <span>저장</span>
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Facility Operating Interval Control (P0-8) (No-Print) -->
+  <div id="facilityIntervalModal" class="no-print fixed inset-0 z-50 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-3xl max-w-2xl w-full p-6 shadow-2xl max-h-[90vh] flex flex-col text-slate-200">
+      <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center">
+            <i data-lucide="timer" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="font-black text-base text-white flex items-center gap-2">
+              시설 가동 / 중단 구간 제어 (P0-8)
+              <span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-700 font-mono font-bold">UPTIME TRACKING</span>
+            </h3>
+            <p class="text-xs text-slate-400">기상악화 · 점검 · 만석에 따른 구간별 가동시간 및 기회손실 추적</p>
+          </div>
+        </div>
+        <button onclick="closeFacilityIntervalModal()" class="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700 transition">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Facility Selector -->
+      <div class="mt-4 mb-3">
+        <label class="block text-xs font-bold text-slate-400 mb-1.5">대상 시설 선택</label>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <button type="button" onclick="selectIntervalFacility('outdoor_coaster')" class="fac-int-btn p-2 rounded-xl border border-amber-500/50 bg-amber-950/30 text-amber-300 text-xs font-bold text-center active" data-fac="outdoor_coaster">야외 짚라인</button>
+          <button type="button" onclick="selectIntervalFacility('outdoor_net')" class="fac-int-btn p-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 text-xs font-bold text-center" data-fac="outdoor_net">네트 어드벤처</button>
+          <button type="button" onclick="selectIntervalFacility('indoor_junglegym')" class="fac-int-btn p-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 text-xs font-bold text-center" data-fac="indoor_junglegym">실내 정글짐</button>
+          <button type="button" onclick="selectIntervalFacility('indoor_trampoline')" class="fac-int-btn p-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 text-xs font-bold text-center" data-fac="indoor_trampoline">실내 트램펄린</button>
+        </div>
+      </div>
+
+      <!-- Current Operating Status Banner -->
+      <div id="facilityCurrentStatusCard" class="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between mb-4"></div>
+
+      <!-- Status Change Action Buttons -->
+      <div class="space-y-2 mb-4">
+        <label class="block text-xs font-bold text-slate-400">가동 상태 전환 (클릭 즉시 구간 기록)</label>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+          <button type="button" onclick="handleFacilityStatusChange('OPEN')" class="p-2.5 rounded-xl bg-emerald-950/50 border border-emerald-700/60 hover:bg-emerald-900/60 text-emerald-300 font-bold flex items-center justify-center gap-1.5 transition">
+            <span>🟢 정상 가동 (OPEN)</span>
+          </button>
+          <button type="button" onclick="handleFacilityStatusChange('PAUSED_WEATHER')" class="p-2.5 rounded-xl bg-sky-950/50 border border-sky-700/60 hover:bg-sky-900/60 text-sky-300 font-bold flex items-center justify-center gap-1.5 transition">
+            <span>🌧️ 기상 중단 (비/돌풍)</span>
+          </button>
+          <button type="button" onclick="handleFacilityStatusChange('PAUSED_SAFETY')" class="p-2.5 rounded-xl bg-amber-950/50 border border-amber-700/60 hover:bg-amber-900/60 text-amber-300 font-bold flex items-center justify-center gap-1.5 transition">
+            <span>⚠️ 안전점검 중단</span>
+          </button>
+          <button type="button" onclick="handleFacilityStatusChange('PAUSED_MAINTENANCE')" class="p-2.5 rounded-xl bg-rose-950/50 border border-rose-700/60 hover:bg-rose-900/60 text-rose-300 font-bold flex items-center justify-center gap-1.5 transition">
+            <span>🛠️ 긴급 정비 중단</span>
+          </button>
+          <button type="button" onclick="handleFacilityStatusChange('CLOSED_CAPACITY')" class="p-2.5 rounded-xl bg-purple-950/50 border border-purple-700/60 hover:bg-purple-900/60 text-purple-300 font-bold flex items-center justify-center gap-1.5 transition">
+            <span>👥 정원 만석 대기</span>
+          </button>
+          <button type="button" onclick="handleFacilityStatusChange('CLOSED_SCHEDULED')" class="p-2.5 rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-750 text-slate-300 font-bold flex items-center justify-center gap-1.5 transition">
+            <span>🌙 영업 마감 (CLOSED)</span>
+          </button>
+        </div>
+        <div class="flex items-center gap-2 mt-2">
+          <input type="text" id="intervalReasonInput" placeholder="사유 (예: 우천 돌풍 초속 10m/s 이상 또는 롤러 긴급 급유)" class="flex-1 px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-200 placeholder-slate-600">
+          <input type="number" id="intervalImpactedInput" placeholder="영향 고객수" class="w-24 px-2 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-200 placeholder-slate-600 text-center">
+        </div>
+      </div>
+
+      <!-- Daily Metrics & History for Selected Facility -->
+      <div class="flex-1 overflow-y-auto space-y-2 pr-1 max-h-[26vh]">
+        <div class="flex items-center justify-between text-xs text-slate-400 font-bold px-1">
+          <span>오늘 가동 구간 이력</span>
+          <span id="intervalMetricsSummary" class="text-amber-400 font-mono">가동률: 100% (손실: 0원)</span>
+        </div>
+        <div id="intervalHistoryList" class="space-y-1.5 text-xs"></div>
+      </div>
+
+      <div class="pt-3 border-t border-slate-800 flex items-center justify-end">
+        <button onclick="closeFacilityIntervalModal()" class="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl transition">
+          닫기
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: History Logs Modal (No-Print) -->
+  <div id="historyModal" class="no-print fixed inset-0 z-50 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl max-h-[85vh] flex flex-col">
+      <div class="flex items-center justify-between pb-4 border-b border-slate-200">
+        <div class="flex items-center space-x-2">
+          <i data-lucide="folder-clock" class="w-5 h-5 text-emerald-600"></i>
+          <h3 class="font-black text-lg text-slate-900">누적 안전점검 일지 기록함</h3>
+        </div>
+        <button onclick="closeHistoryModal()" class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 hover:bg-slate-200">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="text-xs text-slate-500 py-2">
+        ※ 브라우저 로컬 저장소에 보관된 과거 점검 내역입니다. 클릭 시 해당 날짜의 점검표를 즉시 불러와 재인쇄할 수 있습니다.
+      </div>
+
+      <div id="historyList" class="flex-1 overflow-y-auto space-y-2 py-2 pr-1"></div>
+
+      <div class="pt-4 border-t border-slate-200 flex items-center justify-between">
+        <button onclick="exportHistoryCSV()" class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl transition flex items-center space-x-1.5">
+          <i data-lucide="download" class="w-3.5 h-3.5"></i>
+          <span>감사용 엑셀(CSV) 내보내기</span>
+        </button>
+        <button onclick="closeHistoryModal()" class="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition">
+          닫기
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Data definition for 22 items with causal link keys (facility_id, asset_id)
+    const inspectionItems = [
+      // 1. 야외 포레스트 어드벤처 & 짚라인
+      { id: '1_1', facility_id: 'outdoor_coaster', asset_id: 'zip_wire_main', group: '야외 어드벤처', sub: '짚라인', title: '[짚라인] 메인 와이어 장력 및 마모 상태', desc: '출발대~도착대 와이어 처짐 없음, 꼬임/단선/소선 끊김 현상 없음 확인' },
+      { id: '1_2', facility_id: 'outdoor_coaster', asset_id: 'zip_trolley_01', group: '야외 어드벤처', sub: '짚라인', title: '[짚라인] 롤러 트롤리 & 완충 스프링 브레이크', desc: '도착지 스프링 완충기 볼트 결속 확인, 트롤리 베어링 회전 소음 및 유격 점검' },
+      { id: '1_3', facility_id: 'outdoor_coaster', asset_id: 'zip_harness_02', group: '야외 어드벤처', sub: '보호장구', title: '[하네스/헬멧] 안전 보호구 결속 및 위생 소독', desc: '어린이 및 성인용 전신 하네스 웨빙 헤짐 없음, 카라비너 잠금장치 정상 작동' },
+      { id: '1_4', facility_id: 'outdoor_net', asset_id: 'net_tree_anchor', group: '야외 어드벤처', sub: '네트어드벤처', title: '[네트 어드벤처] 로프 결속 및 지지목 브래킷', desc: '네트 그물코 찢어짐 없음, 수목 보호대 이탈 없음, 2중 안전 샤클 체결 상태' },
+      { id: '1_5', facility_id: 'outdoor_coaster', asset_id: 'outdoor_ground_bark', group: '야외 어드벤처', sub: '하강바닥', title: '[하강구역 바닥] 우드칩(바크) 충격흡수재 두께(25cm)', desc: '낙하 위험구역 바크 포설 두께 25cm 이상 유지, 뾰족한 돌/유리 이물질 제거' },
+      { id: '1_6', facility_id: 'outdoor_deck', asset_id: 'outdoor_deck_railing', group: '야외 어드벤처', sub: '데크시설', title: '[출발/도착 데크] 안전 난간 흔들림 및 미끄럼방지', desc: '목재 데크 결함(가시 돋침) 없음, 계단 미끄럼 방지 패드 부착 상태 양호' },
+
+      // 2. 실내 놀이동
+      { id: '2_1', facility_id: 'indoor_junglegym', asset_id: 'jg_padding_bolts', group: '실내 놀이동', sub: '정글짐', title: '[대형 정글짐] 안전 폼패딩 마감 및 연결 볼트 너트', desc: '스틸 파이프 외벽 보호 쿠션 찢어짐 없음, 노출된 볼트 캡 마감 이상 없음' },
+      { id: '2_2', facility_id: 'indoor_trampoline', asset_id: 'tramp_spring_cover', group: '실내 놀이동', sub: '트램펄린', title: '[트램펄린] 도약면 매트 찢김 및 스프링 커버 패드', desc: '매트 구멍/실밥 풀림 없음, 스프링 노출 방지 보호패드 결속 완벽 확인' },
+      { id: '2_3', facility_id: 'indoor_junglegym', asset_id: 'slide_joint_pads', group: '실내 놀이동', sub: '미끄럼틀', title: '[미끄럼틀] 활강부 결합부 단차 및 정전기 방지', desc: '슬라이드 이음새 벌어짐/날카로운 모서리 없음, 하부 착지 매트 충격 흡수' },
+      { id: '2_4', facility_id: 'indoor_foampit', asset_id: 'foampit_balls_clean', group: '실내 놀이동', sub: '볼풀/유아', title: '[볼풀장 & 토들러존] 찌그러진 공 수거 및 위생 소독', desc: '깨지거나 찌그러진 공 분리 수거, 편백나무 큐브 이물질 선별 및 분무 소독' },
+      { id: '2_5', facility_id: 'indoor_junglegym', asset_id: 'indoor_fall_net', group: '실내 놀이동', sub: '추락방지망', title: '[추락방지 안전망] 2층 구조물 그물망 결속 상태', desc: '어린이 머리/손 끼임 방지 규격(8.9cm 이하 망목) 유지, 지퍼 마감 확인' },
+      { id: '2_6', facility_id: 'indoor_cafe', asset_id: 'indoor_hvac_floor', group: '실내 놀이동', sub: '실내환경', title: '[실내 공조 및 바닥재] 환기 시스템 및 바닥 미끄럼', desc: '공기청정 환기 디퓨저 가동, 음료 쏟음 등 미끄럼 위험 구역 건조 및 청결' },
+
+      // 3. 야외 플레이존
+      { id: '3_1', facility_id: 'outdoor_sand', asset_id: 'sand_screen_mesh', group: '야외 플레이존', sub: '모래놀이', title: '[모래놀이터] 모래 이물질 및 동물 배설물 검사', desc: '모래 전면 갈퀴질 완료, 덮개 차광막 개방 후 건조, 유리조각 등 위험물 전무' },
+      { id: '3_2', facility_id: 'outdoor_sled', asset_id: 'sled_turf_pegs', group: '야외 플레이존', sub: '슬로프썰매', title: '[슬로프 썰매장] 언덕 슬로프 인조잔디 고정 핀 돌출', desc: '잔디 매트 고정용 스틸 팩 돌출 여부 전수 확인, 하부 완충 블록 정상' },
+      { id: '3_3', facility_id: 'outdoor_water', asset_id: 'water_drain_valves', group: '야외 플레이존', sub: '수로/세족', title: '[체험 수로/세족장] 수질 청결 및 배수 밸브 상태', desc: '세족장 배수구 막힘 없음, 야외 수도꼭지 누수 없음, 미끄럼 방지 발판' },
+      { id: '3_4', facility_id: 'outdoor_water', asset_id: 'well_lock_cover', group: '야외 플레이존', sub: '토목/관정', title: '[토목/관정 기반] 관정 덮개 잠금 및 사면 배수로', desc: '지하수 관정 보호 덮개 시건장치 확인, 토사 유실 방지 배수로 그레이팅 유격 없음' },
+      { id: '3_5', facility_id: 'outdoor_deck', asset_id: 'sunshade_rope_pegs', group: '야외 플레이존', sub: '차광막', title: '[야외 차광막/텐트] 팩 지지 로프 결속 및 안전플래그', desc: '강풍 대비 스트링 장력 확인, 노란색 안전 플래그(어린이 걸림 방지) 장착' },
+
+      // 4. 소방 / 응급 / 방역
+      { id: '4_1', facility_id: 'indoor_cafe', asset_id: 'aed_battery_pack', group: '소방/응급구호', sub: '구급/AED', title: '[구급약품함 & AED] 의약품 유효기간 및 AED 배터리', desc: '소독약, 멸균거즈, 붕대, 밴드 수량 확보 및 AED 자체진단 정상 녹색불 점등' },
+      { id: '4_2', facility_id: 'general', asset_id: 'fire_extinguisher_08', group: '소방/응급구호', sub: '소화기', title: '[분말소화기] 구역별 8개소 게이지 압력 및 안전핀', desc: '녹색 정상 압력 범위 확인, 소화기 전면 장애물 적치 금지 상태 점검' },
+      { id: '4_3', facility_id: 'general', asset_id: 'emergency_exit_lights', group: '소방/응급구호', sub: '피난시설', title: '[비상 대피로 & 유도등] 비상구 개폐 및 유도등 점등', desc: '놀이동 비상구 2개소 잠금 해제, 피난 유도등 상시 점등, 복도 물건 적치 없음' },
+      { id: '4_4', facility_id: 'general', asset_id: 'safety_signage_boards', group: '소방/응급구호', sub: '안내표지', title: '[법정 안전수칙 표지판] 기구별 이용 연령 표기 선명성', desc: '신장 제한(100cm~), 최대 이용 인원, 보호자 동반 탑승 안내판 훼손 없음' },
+      { id: '4_5', facility_id: 'indoor_cafe', asset_id: 'cctv_nvr_channel16', group: '소방/응급구호', sub: 'CCTV관제', title: '[CCTV 관제 모니터] 사각지대 녹화 정상 가동', desc: '16채널 카메라 끊김 없음, 녹화 저장 장치(HDD) 정상 작동 녹화 표시등 점등' }
+    ];
+
+    const CHECKLIST_STORAGE_KEY = 'bongplay_safety_audit_logs';
+    let currentChecklist = {};
+    let attachedPhotos = [];
+    let signaturePad = null;
+
+    document.addEventListener('DOMContentLoaded', () => {
+      renderScreenChecklistItems();
+      lucide.createIcons();
+      initDateTime();
+      initSignaturePad();
+      loadLatestOrNew();
+      updateHistoryBadge();
+      updateDecisionUI();
+
+      // Hook print event to always prepare official table
+      window.onbeforeprint = prepareOfficialPrintReport;
+    });
+
+    function getMeasurementInputHtml(itemId) {
+      if (itemId === '1_1') {
+        return `
+          <div class="mt-2.5 pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2 text-xs bg-slate-50/80 p-2 rounded-xl">
+            <span class="inline-flex items-center text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
+              <i data-lucide="gauge" class="w-3 h-3 mr-1"></i>정량 실측(P0-6)
+            </span>
+            <label class="flex items-center gap-1 text-[11px] text-slate-600">
+              <span>장력:</span>
+              <input type="number" step="0.1" id="meas_1_1_tension" placeholder="8.5" class="w-14 px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded font-mono text-center"> kN
+            </label>
+            <label class="flex items-center gap-1 text-[11px] text-slate-600">
+              <span>처짐량:</span>
+              <input type="number" step="0.5" id="meas_1_1_sag" placeholder="12" class="w-14 px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded font-mono text-center"> cm
+            </label>
+            <label class="flex items-center gap-1 text-[11px] text-slate-600">
+              <span>소선파손:</span>
+              <input type="number" step="1" id="meas_1_1_strands" placeholder="0" class="w-12 px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded font-mono text-center"> 개
+            </label>
+          </div>
+        `;
+      } else if (itemId === '1_2') {
+        return `
+          <div class="mt-2.5 pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2 text-xs bg-slate-50/80 p-2 rounded-xl">
+            <span class="inline-flex items-center text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
+              <i data-lucide="gauge" class="w-3 h-3 mr-1"></i>정량 실측(P0-6)
+            </span>
+            <label class="flex items-center gap-1 text-[11px] text-slate-600">
+              <span>베어링 소음:</span>
+              <input type="number" step="1" id="meas_1_2_noise" placeholder="42" class="w-14 px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded font-mono text-center"> dB
+            </label>
+            <label class="flex items-center gap-1 text-[11px] text-slate-600">
+              <span>유격:</span>
+              <input type="number" step="0.1" id="meas_1_2_play" placeholder="0.5" class="w-14 px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded font-mono text-center"> mm
+            </label>
+          </div>
+        `;
+      } else if (itemId === '1_4') {
+        return `
+          <div class="mt-2.5 pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2 text-xs bg-slate-50/80 p-2 rounded-xl">
+            <span class="inline-flex items-center text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
+              <i data-lucide="gauge" class="w-3 h-3 mr-1"></i>정량 실측(P0-6)
+            </span>
+            <label class="flex items-center gap-1 text-[11px] text-slate-600">
+              <span>로프 장력:</span>
+              <input type="number" step="0.1" id="meas_1_4_tension" placeholder="3.2" class="w-14 px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded font-mono text-center"> kN
+            </label>
+            <label class="flex items-center gap-1 text-[11px] text-slate-600">
+              <span>변형량:</span>
+              <input type="number" step="0.5" id="meas_1_4_def" placeholder="2.0" class="w-14 px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded font-mono text-center"> cm
+            </label>
+          </div>
+        `;
+      } else if (itemId === '1_5') {
+        return `
+          <div class="mt-2.5 pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2 text-xs bg-slate-50/80 p-2 rounded-xl">
+            <span class="inline-flex items-center text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
+              <i data-lucide="gauge" class="w-3 h-3 mr-1"></i>정량 실측(P0-6)
+            </span>
+            <label class="flex items-center gap-1 text-[11px] text-slate-600">
+              <span>바크 포설 두께:</span>
+              <input type="number" step="1" id="meas_1_5_depth" placeholder="27" class="w-14 px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded font-mono text-center"> cm <span class="text-slate-400 text-[10px]">(기준 25cm 이상)</span>
+            </label>
+          </div>
+        `;
+      } else if (itemId === '4_1') {
+        return `
+          <div class="mt-2.5 pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2 text-xs bg-slate-50/80 p-2 rounded-xl">
+            <span class="inline-flex items-center text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
+              <i data-lucide="gauge" class="w-3 h-3 mr-1"></i>정량 실측(P0-6)
+            </span>
+            <label class="flex items-center gap-1 text-[11px] text-slate-600">
+              <span>AED 배터리:</span>
+              <input type="number" step="1" id="meas_4_1_battery" placeholder="98" class="w-14 px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded font-mono text-center"> %
+            </label>
+            <label class="flex items-center gap-1 text-[11px] text-slate-600">
+              <span>패드 잔여:</span>
+              <input type="number" step="1" id="meas_4_1_pad" placeholder="420" class="w-14 px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded font-mono text-center"> 일
+            </label>
+          </div>
+        `;
+      } else if (itemId === '4_2') {
+        return `
+          <div class="mt-2.5 pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2 text-xs bg-slate-50/80 p-2 rounded-xl">
+            <span class="inline-flex items-center text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
+              <i data-lucide="gauge" class="w-3 h-3 mr-1"></i>정량 실측(P0-6)
+            </span>
+            <label class="flex items-center gap-1 text-[11px] text-slate-600">
+              <span>소화기 지침 압력:</span>
+              <input type="number" step="0.05" id="meas_4_2_pressure" placeholder="0.85" class="w-14 px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded font-mono text-center"> MPa <span class="text-slate-400 text-[10px]">(0.7~0.98 정상)</span>
+            </label>
+          </div>
+        `;
+      } else if (itemId === '4_5') {
+        return `
+          <div class="mt-2.5 pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2 text-xs bg-slate-50/80 p-2 rounded-xl">
+            <span class="inline-flex items-center text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
+              <i data-lucide="gauge" class="w-3 h-3 mr-1"></i>정량 실측(P0-6)
+            </span>
+            <label class="flex items-center gap-1 text-[11px] text-slate-600">
+              <span>일일 끊김:</span>
+              <input type="number" step="1" id="meas_4_5_drop" placeholder="0" class="w-12 px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded font-mono text-center"> 분
+            </label>
+            <label class="flex items-center gap-1 text-[11px] text-slate-600">
+              <span>저장 잔여:</span>
+              <input type="number" step="1" id="meas_4_5_storage" placeholder="30" class="w-12 px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded font-mono text-center"> 일
+            </label>
+          </div>
+        `;
+      }
+      return '';
+    }
+
+    function renderScreenChecklistItems() {
+      const gAdv = document.getElementById('group-adventure');
+      const gInd = document.getElementById('group-indoor');
+      const gOut = document.getElementById('group-outdoor');
+      const gSaf = document.getElementById('group-safety');
+
+      inspectionItems.forEach(item => {
+        let container = gAdv;
+        if (item.id.startsWith('2_')) container = gInd;
+        else if (item.id.startsWith('3_')) container = gOut;
+        else if (item.id.startsWith('4_')) container = gSaf;
+
+        const row = document.createElement('div');
+        row.className = 'p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 check-item border-b border-slate-100 last:border-0 hover:bg-slate-50/70 transition';
+        row.setAttribute('data-id', item.id);
+        const measurementHtml = getMeasurementInputHtml(item.id);
+        row.innerHTML = `
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center space-x-2 flex-wrap gap-y-0.5">
+              <span class="font-mono font-black text-xs text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-1.5 py-0.2 rounded">${item.id.replace('_', '-')}</span>
+              <h4 class="text-sm font-bold text-slate-900">${item.title}</h4>
+            </div>
+            <p class="text-xs text-slate-500 mt-1 leading-relaxed">${item.desc}</p>
+            ${measurementHtml}
+          </div>
+          <div class="flex items-center w-full sm:w-auto mt-1 sm:mt-0 shrink-0">
+            <div class="grid grid-cols-3 sm:flex rounded-xl border border-slate-200 p-1 bg-slate-50 radio-group w-full sm:w-auto gap-1">
+              <button type="button" onclick="setItemStatus('${item.id}', '양호')" class="btn-status py-2 sm:py-1 px-3 text-xs font-bold rounded-lg transition text-slate-600 hover:bg-emerald-500 hover:text-white flex items-center justify-center gap-1 active:scale-95" data-status="양호">
+                <span>양호</span><span class="text-[10px] opacity-75">(○)</span>
+              </button>
+              <button type="button" onclick="setItemStatus('${item.id}', '주의')" class="btn-status py-2 sm:py-1 px-3 text-xs font-bold rounded-lg transition text-slate-600 hover:bg-amber-500 hover:text-white flex items-center justify-center gap-1 active:scale-95" data-status="주의">
+                <span>주의</span><span class="text-[10px] opacity-75">(△)</span>
+              </button>
+              <button type="button" onclick="setItemStatus('${item.id}', '불량')" class="btn-status py-2 sm:py-1 px-3 text-xs font-bold rounded-lg transition text-slate-600 hover:bg-rose-500 hover:text-white flex items-center justify-center gap-1 active:scale-95" data-status="불량">
+                <span>불량</span><span class="text-[10px] opacity-75">(×)</span>
+              </button>
+            </div>
+          </div>
+        `;
+        container.appendChild(row);
+      });
+    }
+
+    function initDateTime() {
+      const now = new Date();
+      now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+      document.getElementById('inspectDateTime').value = now.toISOString().slice(0, 16);
+    }
+
+    function initSignaturePad() {
+      const canvas = document.getElementById('signaturePad');
+      function resizeCanvas() {
+        const ratio = Math.max(window.devicePixelRatio || 1, 1);
+        canvas.width = canvas.offsetWidth * ratio;
+        canvas.height = canvas.offsetHeight * ratio;
+        canvas.getContext('2d').scale(ratio, ratio);
+      }
+      window.addEventListener('resize', resizeCanvas);
+      resizeCanvas();
+
+      signaturePad = new SignaturePad(canvas, {
+        backgroundColor: 'rgba(255, 255, 255, 0)',
+        penColor: 'rgb(15, 23, 42)',
+        minWidth: 1.5,
+        maxWidth: 3
+      });
+
+      signaturePad.addEventListener('beginStroke', () => {
+        document.getElementById('signPlaceholder').classList.add('hidden');
+      });
+    }
+
+    function clearSignature() {
+      if (signaturePad) {
+        signaturePad.clear();
+        document.getElementById('signPlaceholder').classList.remove('hidden');
+      }
+    }
+
+    function setItemStatus(id, status) {
+      currentChecklist[id] = status;
+      renderItemButtons(id, status);
+      updateStats();
+    }
+
+    function renderItemButtons(id, selectedStatus) {
+      const itemEl = document.querySelector(`.check-item[data-id="${id}"]`);
+      if (!itemEl) return;
+      const btns = itemEl.querySelectorAll('.btn-status');
+      btns.forEach(btn => {
+        const s = btn.getAttribute('data-status');
+        btn.classList.remove('bg-emerald-600', 'bg-amber-500', 'bg-rose-600', 'text-white', 'shadow-sm');
+        btn.classList.add('text-slate-600');
+
+        if (s === selectedStatus) {
+          btn.classList.remove('text-slate-600');
+          btn.classList.add('text-white', 'shadow-sm');
+          if (s === '양호') btn.classList.add('bg-emerald-600');
+          else if (s === '주의') btn.classList.add('bg-amber-500');
+          else if (s === '불량') btn.classList.add('bg-rose-600');
+        }
+      });
+    }
+
+    function markAllPass() {
+      initDateTime(); // 항상 현재 시각으로 일시 갱신
+      inspectionItems.forEach(item => {
+        currentChecklist[item.id] = '양호';
+        renderItemButtons(item.id, '양호');
+      });
+
+      // Autofill standard measurements (P0-6)
+      const setVal = (id, val) => {
+        const el = document.getElementById(id);
+        if (el && !el.value) el.value = val;
+      };
+      setVal('meas_1_1_tension', 8.5);
+      setVal('meas_1_1_sag', 12);
+      setVal('meas_1_1_strands', 0);
+      setVal('meas_1_2_noise', 42);
+      setVal('meas_1_2_play', 0.5);
+      setVal('meas_1_4_tension', 3.2);
+      setVal('meas_1_4_def', 2.0);
+      setVal('meas_1_5_depth', 27);
+      setVal('meas_4_1_battery', 98);
+      setVal('meas_4_1_pad', 420);
+      setVal('meas_4_2_pressure', 0.85);
+      setVal('meas_4_5_drop', 0);
+      setVal('meas_4_5_storage', 30);
+
+      const passRadio = document.querySelector('input[name="finalDecision"][value="pass"]');
+      if (passRadio) passRadio.checked = true;
+      updateDecisionUI();
+      updateStats();
+      showToast('22개 전 항목 및 실측 측정값이 [양호]로 체크되었습니다.');
+    }
+
+    function resetCurrentForm() {
+      if (!confirm('현재 작성 중인 점검표를 초기화하시겠습니까?')) return;
+      currentChecklist = {};
+      inspectionItems.forEach(item => {
+        renderItemButtons(item.id, null);
+      });
+      ['meas_1_1_tension','meas_1_1_sag','meas_1_1_strands','meas_1_2_noise','meas_1_2_play','meas_1_4_tension','meas_1_4_def','meas_1_5_depth','meas_4_1_battery','meas_4_1_pad','meas_4_2_pressure','meas_4_5_drop','meas_4_5_storage'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      document.getElementById('actionNotes').value = '';
+      attachedPhotos = [];
+      renderPhotoGrid();
+      clearSignature();
+      initDateTime();
+      updateStats();
+      updateDecisionUI();
+
+      const now = new Date();
+      now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+      const todayYmd = now.toISOString().slice(0, 10);
+      const logs = JSON.parse(localStorage.getItem(CHECKLIST_STORAGE_KEY) || '[]');
+      const todayLog = logs.find(l => (l.date || '').slice(0, 10) === todayYmd);
+      renderTodayAuditBanner(todayLog);
+
+      showToast('점검표가 초기화되었습니다.');
+    }
+
+    function updateStats() {
+      let good = 0, warn = 0, bad = 0;
+      inspectionItems.forEach(item => {
+        const s = currentChecklist[item.id];
+        if (s === '양호') good++;
+        else if (s === '주의') warn++;
+        else if (s === '불량') bad++;
+      });
+
+      const total = inspectionItems.length;
+      const done = good + warn + bad;
+      const pct = Math.round((done / total) * 100);
+
+      document.getElementById('countGood').innerText = good;
+      document.getElementById('countWarn').innerText = warn;
+      document.getElementById('countBad').innerText = bad;
+      document.getElementById('checkProgressBar').style.width = pct + '%';
+      document.getElementById('checkProgressText').innerText = `${done} / ${total} 완료 (${pct}%)`;
+
+      if (bad > 0) {
+        const stopR = document.querySelector('input[name="finalDecision"][value="stop"]');
+        if (stopR) stopR.checked = true;
+      } else if (warn > 0) {
+        const warnR = document.querySelector('input[name="finalDecision"][value="warn"]');
+        if (warnR) warnR.checked = true;
+      }
+      updateDecisionUI();
+    }
+
+    function updateDecisionUI() {
+      const selectedRadio = document.querySelector('input[name="finalDecision"]:checked');
+      const selected = selectedRadio ? selectedRadio.value : 'pass';
+      const passBox = document.getElementById('lbl-pass');
+      const warnBox = document.getElementById('lbl-warn');
+      const stopBox = document.getElementById('lbl-stop');
+      const badge = document.getElementById('overallStatusBadge');
+
+      const checkedCount = Object.keys(currentChecklist).filter(k => currentChecklist[k]).length;
+      const total = inspectionItems.length;
+
+      [passBox, warnBox, stopBox].forEach(b => {
+        if (b) {
+          b.classList.remove('border-emerald-500', 'bg-emerald-50', 'border-amber-500', 'bg-amber-50', 'border-rose-500', 'bg-rose-50', 'border-slate-200');
+          b.classList.add('border-slate-200');
+        }
+      });
+
+      if (checkedCount === 0) {
+        if (badge) {
+          badge.className = 'inline-block mt-0.5 px-2.5 py-0.5 rounded-full font-bold text-xs bg-slate-100 text-slate-700 border border-slate-300';
+          badge.innerText = '점검 대기 (0/22)';
+        }
+        return;
+      } else if (checkedCount < total) {
+        if (badge) {
+          badge.className = 'inline-block mt-0.5 px-2.5 py-0.5 rounded-full font-bold text-xs bg-indigo-50 text-indigo-700 border border-indigo-200';
+          badge.innerText = `점검 진행 중 (${checkedCount}/${total})`;
+        }
+      }
+
+      if (selected === 'pass') {
+        if (passBox) passBox.classList.add('border-emerald-500', 'bg-emerald-50');
+        if (checkedCount >= total && badge) {
+          badge.className = 'inline-block mt-0.5 px-2.5 py-0.5 rounded-full font-bold text-xs bg-emerald-100 text-emerald-800 border border-emerald-300';
+          badge.innerText = '정상 (개장 승인)';
+        }
+      } else if (selected === 'warn') {
+        if (warnBox) warnBox.classList.add('border-amber-500', 'bg-amber-50');
+        if (badge) {
+          badge.className = 'inline-block mt-0.5 px-2.5 py-0.5 rounded-full font-bold text-xs bg-amber-100 text-amber-800 border border-amber-300';
+          badge.innerText = '주의 (조건부 운영)';
+        }
+      } else {
+        if (stopBox) stopBox.classList.add('border-rose-500', 'bg-rose-50');
+        if (badge) {
+          badge.className = 'inline-block mt-0.5 px-2.5 py-0.5 rounded-full font-bold text-xs bg-rose-100 text-rose-800 border border-rose-300';
+          badge.innerText = '위험 (개장 중지)';
+        }
+      }
+    }
+
+    function handlePhotoUpload(e) {
+      const files = Array.from(e.target.files);
+      if (!files.length) return;
+
+      files.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          attachedPhotos.push({
+            id: Date.now() + Math.random(),
+            dataUrl: event.target.result
+          });
+          renderPhotoGrid();
+        };
+        reader.readAsDataURL(file);
+      });
+      e.target.value = '';
+    }
+
+    function renderPhotoGrid() {
+      const grid = document.getElementById('photoPreviewGrid');
+      grid.innerHTML = '';
+      attachedPhotos.forEach((p, idx) => {
+        const div = document.createElement('div');
+        div.className = 'relative group rounded-xl overflow-hidden border border-slate-200 bg-slate-100 aspect-video';
+        div.innerHTML = `
+          <img src="${p.dataUrl}" class="w-full h-full object-cover">
+          <button type="button" onclick="removePhoto(${idx})" class="absolute top-1 right-1 w-6 h-6 rounded-full bg-rose-600 text-white flex items-center justify-center opacity-80 hover:opacity-100 shadow">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+          </button>
+        `;
+        grid.appendChild(div);
+      });
+      lucide.createIcons();
+    }
+
+    function removePhoto(idx) {
+      attachedPhotos.splice(idx, 1);
+      renderPhotoGrid();
+    }
+
+    // ====================================================
+    // PREPARE OFFICIAL GOVERNMENT AUDIT REPORT (Print View)
+    // ====================================================
+    function prepareOfficialPrintReport() {
+      // 1. Meta values
+      const rawDt = document.getElementById('inspectDateTime').value || '';
+      const formattedDt = rawDt.replace('T', ' ');
+      document.getElementById('p-date').innerText = formattedDt || '2026-09-09 09:30';
+      document.getElementById('p-weather').innerText = `${document.getElementById('weatherSelect').value} (${document.getElementById('temperature').value || '21℃'})`;
+      
+      const inspector = document.getElementById('inspectorName').value || '홍성현';
+      const manager = document.getElementById('managerName').value || '홍성현';
+      document.getElementById('p-inspector').innerText = inspector;
+      document.getElementById('p-manager').innerText = `${manager} (010-5931-4144)`;
+      document.getElementById('p-inspector-sign-name').innerText = inspector;
+      document.getElementById('p-manager-sign-name').innerText = manager;
+
+      // Date for footer signature
+      const dateParts = rawDt.split('T')[0].split('-');
+      if (dateParts.length === 3) {
+        document.getElementById('p-sign-date').innerText = `${dateParts[0]}년 ${dateParts[1]}월 ${dateParts[2]}일`;
+      } else {
+        const today = new Date();
+        document.getElementById('p-sign-date').innerText = `${today.getFullYear()}년 ${String(today.getMonth()+1).padStart(2,'0')}월 ${String(today.getDate()).padStart(2,'0')}일`;
+      }
+
+      // 2. Decision Radio
+      const decision = document.querySelector('input[name="finalDecision"]:checked')?.value || 'pass';
+      if (decision === 'pass') {
+        document.getElementById('p-decision').innerHTML = `<span style="color:#047857; font-weight:900;">■ 적합 (개장 승인)</span> &nbsp;&nbsp; □ 조건부 주의 &nbsp;&nbsp; □ 부적합 (사용 중지)`;
+      } else if (decision === 'warn') {
+        document.getElementById('p-decision').innerHTML = `□ 적합 (개장 승인) &nbsp;&nbsp; <span style="color:#b45309; font-weight:900;">■ 조건부 주의 (부분 보완)</span> &nbsp;&nbsp; □ 부적합 (사용 중지)`;
+      } else {
+        document.getElementById('p-decision').innerHTML = `□ 적합 (개장 승인) &nbsp;&nbsp; □ 조건부 주의 &nbsp;&nbsp; <span style="color:#b91c1c; font-weight:900;">■ 부적합 (개장 불가 / 사용 중지)</span>`;
+      }
+
+      // 3. Compact 22-row Table Body
+      const tbody = document.getElementById('p-table-body');
+      tbody.innerHTML = '';
+      
+      inspectionItems.forEach((item, index) => {
+        const tr = document.createElement('tr');
+        const st = currentChecklist[item.id] || '양호';
+        
+        let statusBadge = '';
+        let noteText = '-';
+        if (st === '양호') {
+          statusBadge = '<span style="font-weight: bold; color: #000;">○ 양호</span>';
+        } else if (st === '주의') {
+          statusBadge = '<span style="font-weight: bold; color: #b45309;">△ 주의</span>';
+          noteText = '보완 조치 요망';
+        } else {
+          statusBadge = '<span style="font-weight: bold; color: #b91c1c;">× 정비요망</span>';
+          noteText = '즉시 사용 금지';
+        }
+
+        tr.innerHTML = `
+          <td style="text-align: center; font-weight: bold;">${index + 1}</td>
+          <td style="font-weight: 600; white-space: nowrap;">${item.group} &gt; ${item.sub}</td>
+          <td><b>${item.title.replace(/\[.*?\]\s*/, '')}</b><span style="color:#555;font-size:6.5pt;"> (${item.desc.slice(0, 24)}...)</span></td>
+          <td style="text-align: center; white-space: nowrap;">${statusBadge}</td>
+          <td style="text-align: center; font-size: 6.5pt; white-space: nowrap;">${noteText}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      // 4. Action notes
+      const notes = document.getElementById('actionNotes').value.trim();
+      document.getElementById('p-actionNotes').innerText = notes ? notes : '특이사항 없음. 전 구역 놀이시설 및 소방·응급 구호 장비 이상 없음 (정상 가동 승인).';
+
+      // 5. Signature image
+      if (signaturePad && !signaturePad.isEmpty()) {
+        const signData = signaturePad.toDataURL();
+        
+        const imgInspector = document.getElementById('p-sign-img-inspector');
+        imgInspector.src = signData;
+        imgInspector.style.display = 'block';
+        document.getElementById('p-sign-text-inspector').style.display = 'none';
+
+        const imgManager = document.getElementById('p-sign-img-manager');
+        imgManager.src = signData;
+        imgManager.style.display = 'block';
+        document.getElementById('p-sign-text-manager').style.display = 'none';
+      } else {
+        document.getElementById('p-sign-img-inspector').style.display = 'none';
+        document.getElementById('p-sign-text-inspector').style.display = 'block';
+        document.getElementById('p-sign-img-manager').style.display = 'none';
+        document.getElementById('p-sign-text-manager').style.display = 'block';
+      }
+
+      // 6. Photo Attachments
+      const photoWrap = document.getElementById('p-photos-wrapper');
+      const photoGrid = document.getElementById('p-photos-grid');
+      photoGrid.innerHTML = '';
+      if (attachedPhotos.length > 0) {
+        photoWrap.style.display = 'block';
+        attachedPhotos.slice(0, 4).forEach((p, i) => {
+          const pDiv = document.createElement('div');
+          pDiv.style.border = '1px solid #777';
+          pDiv.style.padding = '2px';
+          pDiv.style.textAlign = 'center';
+          pDiv.innerHTML = `
+            <img src="${p.dataUrl}" style="max-height: 80px; margin: 0 auto; object-fit: contain;">
+            <span style="font-size: 6.5pt; display: block; margin-top: 1px;">현장 점검 사진 #${i+1}</span>
+          `;
+          photoGrid.appendChild(pDiv);
+        });
+      } else {
+        photoWrap.style.display = 'none';
+      }
+    }
+
+    function printOfficialReport() {
+      prepareOfficialPrintReport();
+      window.print();
+    }
+
+    function saveChecklist() {
+      const unchecked = inspectionItems.filter(item => !currentChecklist[item.id]);
+      if (unchecked.length > 0) {
+        if (!confirm(`아직 점검되지 않은 항목이 ${unchecked.length}개 있습니다. 그대로 저장하시겠습니까?`)) {
+          return;
+        }
+      }
+
+      if (signaturePad.isEmpty()) {
+        if (!confirm('점검자 서명이 누락되었습니다. 서명 없이 저장하시겠습니까? (군청 제출 시 서명이 필수입니다.)')) {
+          return;
+        }
+      }
+
+      let staffId = 'staff_park';
+      const inspName = document.getElementById('inspectorName').value || '';
+      if (inspName.includes('박기원') || inspName.includes('기원')) staffId = 'staff_park';
+      else if (inspName.includes('홍성현') || inspName.includes('성현')) staffId = 'staff_hong';
+      else if (inspName.includes('김지연') || inspName.includes('지연')) staffId = 'staff_kim';
+      else if (inspName.includes('이서준') || inspName.includes('서준')) staffId = 'staff_lee';
+
+      const log = {
+        id: 'LOG_' + Date.now(),
+        site_id: 'bongplay_main',
+        staff_id: staffId,
+        facility_id: 'all_facilities',
+        date: document.getElementById('inspectDateTime').value,
+        weather: document.getElementById('weatherSelect').value,
+        temperature: document.getElementById('temperature').value,
+        inspector: inspName,
+        manager: document.getElementById('managerName').value,
+        checklist: { ...currentChecklist },
+        actionNotes: document.getElementById('actionNotes').value,
+        photos: attachedPhotos,
+        signature: signaturePad.isEmpty() ? null : signaturePad.toDataURL(),
+        decision: document.querySelector('input[name="finalDecision"]:checked')?.value || 'pass',
+        timestamp: new Date().toISOString()
+      };
+
+      // P0-6 Quantitative Measurements Recording
+      const recordedMeasurements = [];
+      if (window.BongplayID && BongplayID.recordAssetMeasurement) {
+        const checkAndRecord = (itemId, facId, assetId, metricName, elId, unit, min, max, warnCondition) => {
+          const el = document.getElementById(elId);
+          if (!el || el.value === '') return;
+          const val = parseFloat(el.value);
+          if (isNaN(val)) return;
+          const st = warnCondition(val) ? 'warn' : 'good';
+          const rec = BongplayID.recordAssetMeasurement({
+            inspection_event_id: log.id,
+            facility_id: facId,
+            asset_id: assetId,
+            inspection_item_id: itemId,
+            metric_name: metricName,
+            measured_value: val,
+            unit: unit,
+            normal_min: min,
+            normal_max: max,
+            status: st,
+            inspector: inspName
+          });
+          recordedMeasurements.push(rec);
+        };
+
+        checkAndRecord('1_1_tension', 'outdoor_coaster', 'zip_wire_main', '와이어 장력', 'meas_1_1_tension', 'kN', 7.0, 10.0, v => v < 7.0 || v > 10.0);
+        checkAndRecord('1_1_sag', 'outdoor_coaster', 'zip_wire_main', '와이어 처짐량', 'meas_1_1_sag', 'cm', 0, 20, v => v > 20);
+        checkAndRecord('1_1_strands', 'outdoor_coaster', 'zip_wire_main', '소선 파손수', 'meas_1_1_strands', '개', 0, 0, v => v > 0);
+        checkAndRecord('1_2_noise', 'outdoor_coaster', 'zip_trolley_01', '베어링 소음', 'meas_1_2_noise', 'dB', 20, 55, v => v > 55);
+        checkAndRecord('1_2_play', 'outdoor_coaster', 'zip_trolley_01', '베어링 유격', 'meas_1_2_play', 'mm', 0, 1.0, v => v > 1.0);
+        checkAndRecord('1_4_tension', 'outdoor_net', 'net_tree_anchor', '네트 로프 장력', 'meas_1_4_tension', 'kN', 2.5, 5.0, v => v < 2.5 || v > 5.0);
+        checkAndRecord('1_4_def', 'outdoor_net', 'net_tree_anchor', '네트 변형량', 'meas_1_4_def', 'cm', 0, 5.0, v => v > 5.0);
+        checkAndRecord('1_5_depth', 'outdoor_coaster', 'outdoor_ground_bark', '바크 포설 두께', 'meas_1_5_depth', 'cm', 25, 50, v => v < 25);
+        checkAndRecord('4_1_battery', 'indoor_cafe', 'aed_battery_pack', 'AED 배터리', 'meas_4_1_battery', '%', 30, 100, v => v < 30);
+        checkAndRecord('4_1_pad', 'indoor_cafe', 'aed_battery_pack', 'AED 패드 잔여일', 'meas_4_1_pad', '일', 30, 730, v => v < 30);
+        checkAndRecord('4_2_pressure', 'general', 'fire_extinguisher_08', '소화기 지침 압력', 'meas_4_2_pressure', 'MPa', 0.7, 0.98, v => v < 0.7 || v > 0.98);
+        checkAndRecord('4_5_drop', 'indoor_cafe', 'cctv_nvr_channel16', 'CCTV 영상 끊김', 'meas_4_5_drop', '분', 0, 5, v => v > 5);
+        checkAndRecord('4_5_storage', 'indoor_cafe', 'cctv_nvr_channel16', 'CCTV 저장 잔여일', 'meas_4_5_storage', '일', 14, 90, v => v < 14);
+      }
+      log.measurements = recordedMeasurements;
+
+      let logs = JSON.parse(localStorage.getItem(CHECKLIST_STORAGE_KEY) || '[]');
+      logs.unshift(log);
+      if (logs.length > 60) logs = logs.slice(0, 60);
+      localStorage.setItem(CHECKLIST_STORAGE_KEY, JSON.stringify(logs));
+
+      if (window.BongplaySync) {
+        BongplaySync.upsert('safety_audits', {
+          id: log.id,
+          site_id: 'bongplay_main',
+          staff_id: staffId,
+          facility_id: 'all_facilities',
+          audit_date: (log.date || '').slice(0, 10),
+          inspector: log.inspector,
+          decision: log.decision,
+          items: log.checklist,
+          note: log.actionNotes
+        });
+
+        if (BongplaySync.broadcast) {
+          BongplaySync.broadcast({ type: 'DATA_CHANGED', table: 'safety_audits', log: log });
+        }
+      }
+
+      updateHistoryBadge();
+      renderTodayAuditBanner(log);
+      showToast(`일일 안전점검표 및 실측치 ${recordedMeasurements.length}건이 저장되었습니다!`);
+    }
+
+    function updateHistoryBadge() {
+      const logs = JSON.parse(localStorage.getItem(CHECKLIST_STORAGE_KEY) || '[]');
+      document.getElementById('historyCount').innerText = logs.length;
+    }
+
+    function renderTodayAuditBanner(todayLog) {
+      const banner = document.getElementById('todayAuditBanner');
+      if (!banner) return;
+      const now = new Date();
+      now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+      const todayYmd = now.toISOString().slice(0, 10);
+
+      if (todayLog) {
+        const timeStr = (todayLog.date || '').slice(11, 16) || '완료';
+        const decMap = {
+          pass: ['정상 (개장 승인)', 'bg-emerald-100 text-emerald-800 border-emerald-300'],
+          warn: ['주의 (조건부 개장)', 'bg-amber-100 text-amber-800 border-amber-300'],
+          stop: ['위험 (개장 중지)', 'bg-rose-100 text-rose-800 border-rose-300']
+        };
+        const [decText, badgeCls] = decMap[todayLog.decision] || ['완료', 'bg-emerald-100 text-emerald-800 border-emerald-300'];
+
+        banner.className = 'mb-5 p-4 rounded-2xl border bg-emerald-50/90 border-emerald-200 text-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-sm';
+        banner.innerHTML = `
+          <div class="flex items-start md:items-center space-x-3">
+            <div class="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+              <i data-lucide="check-circle-2" class="w-6 h-6"></i>
+            </div>
+            <div>
+              <div class="flex items-center space-x-2">
+                <span class="font-black text-sm text-emerald-950">오늘(${todayYmd}) 안전점검 완료</span>
+                <span class="px-2 py-0.5 rounded-full text-[11px] font-bold border ${badgeCls}">${decText}</span>
+              </div>
+              <p class="text-xs text-slate-600 mt-0.5">
+                기록시간: <b>${timeStr}</b> │ 점검자: <b>${todayLog.inspector || '김주성'}</b> │ 관리책임자: <b>${todayLog.manager || '홍성현'}</b> │ 서명 및 실측치 기록 완료
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center space-x-2 shrink-0">
+            <button type="button" onclick="startFreshInspection()" class="px-3.5 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-sm">
+              <i data-lucide="plus-circle" class="w-3.5 h-3.5 text-indigo-600"></i>
+              <span>새로 다시 점검하기</span>
+            </button>
+            <button type="button" onclick="saveChecklist()" class="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-sm">
+              <i data-lucide="save" class="w-3.5 h-3.5"></i>
+              <span>수정사항 재저장</span>
+            </button>
+          </div>
+        `;
+      } else {
+        banner.className = 'mb-4 p-3.5 sm:p-4 rounded-2xl border bg-amber-50/90 border-amber-200 text-slate-800 flex items-center justify-between gap-3 shadow-sm';
+        banner.innerHTML = `
+          <div class="flex items-center space-x-3">
+            <div class="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+              <i data-lucide="alert-circle" class="w-5 h-5"></i>
+            </div>
+            <div>
+              <div class="flex items-center space-x-2">
+                <span class="font-black text-xs sm:text-sm text-amber-950">오늘(${todayYmd}) 안전점검 미실시</span>
+                <span class="px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-amber-200 text-amber-900 border border-amber-300">개장 전 대기</span>
+              </div>
+              <p class="text-[11px] sm:text-xs text-slate-600 mt-0.5">
+                오늘자 점검이 아직 등록되지 않았습니다. 현장 순회 점검 후 상단 [일지 저장]을 눌러주세요.
+              </p>
+            </div>
+          </div>
+        `;
+      }
+      if (window.lucide && typeof lucide.createIcons === 'function') {
+        lucide.createIcons();
+      }
+    }
+
+    function startFreshInspection() {
+      if (!confirm('오늘의 점검표를 새로 작성하시겠습니까? 현재 화면의 내용이 빈 점검표로 초기화됩니다.')) return;
+      currentChecklist = {};
+      inspectionItems.forEach(item => renderItemButtons(item.id, null));
+      ['meas_1_1_tension','meas_1_1_sag','meas_1_1_strands','meas_1_2_noise','meas_1_2_play','meas_1_4_tension','meas_1_4_def','meas_1_5_depth','meas_4_1_battery','meas_4_1_pad','meas_4_2_pressure','meas_4_5_drop','meas_4_5_storage'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      document.getElementById('actionNotes').value = '';
+      attachedPhotos = [];
+      renderPhotoGrid();
+      clearSignature();
+      initDateTime();
+      updateStats();
+      updateDecisionUI();
+      renderTodayAuditBanner(null);
+      showToast('새로운 점검 작성을 시작합니다.');
+    }
+
+    function openHistoryModal() {
+      const modal = document.getElementById('historyModal');
+      const list = document.getElementById('historyList');
+      const logs = JSON.parse(localStorage.getItem(CHECKLIST_STORAGE_KEY) || '[]');
+
+      list.innerHTML = '';
+      if (logs.length === 0) {
+        list.innerHTML = `<div class="text-center py-8 text-slate-400 text-xs">저장된 점검 일지가 없습니다.</div>`;
+      } else {
+        logs.forEach((item) => {
+          const div = document.createElement('div');
+          div.className = 'p-3.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-emerald-50/60 transition cursor-pointer flex items-center justify-between';
+          div.innerHTML = `
+            <div>
+              <div class="flex items-center space-x-2">
+                <span class="font-bold text-xs text-slate-900">${item.date ? item.date.replace('T', ' ') : '일시 미기재'}</span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold ${item.decision === 'pass' ? 'bg-emerald-100 text-emerald-800' : (item.decision === 'warn' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800')}">
+                  ${item.decision === 'pass' ? '정상(승인)' : (item.decision === 'warn' ? '주의' : '중지')}
+                </span>
+                <span class="text-[11px] text-slate-500">${item.weather} (${item.temperature})</span>
+              </div>
+              <p class="text-xs text-slate-600 mt-1">점검자: <b>${item.inspector || '미지정'}</b> │ 조치내역: ${item.actionNotes ? item.actionNotes.slice(0, 30) + '...' : '이상 없음'}</p>
+            </div>
+            <div class="flex items-center space-x-2">
+              <button onclick="event.stopPropagation(); loadLog('${item.id}')" class="px-2.5 py-1 text-xs bg-slate-900 text-white rounded-lg font-semibold hover:bg-slate-800">
+                불러오기
+              </button>
+              <button onclick="event.stopPropagation(); deleteLog('${item.id}')" class="p-1 text-slate-400 hover:text-rose-600 rounded">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+              </button>
+            </div>
+          `;
+          div.onclick = () => loadLog(item.id);
+          list.appendChild(div);
+        });
+      }
+      lucide.createIcons();
+      modal.classList.remove('hidden');
+    }
+
+    function closeHistoryModal() {
+      document.getElementById('historyModal').classList.add('hidden');
+    }
+
+    function loadLog(id, notify = true) {
+      const logs = JSON.parse(localStorage.getItem(CHECKLIST_STORAGE_KEY) || '[]');
+      const target = logs.find(l => l.id === id);
+      if (!target) return;
+
+      document.getElementById('inspectDateTime').value = target.date || '';
+      document.getElementById('weatherSelect').value = target.weather || '맑음';
+      document.getElementById('temperature').value = target.temperature || '20℃';
+      document.getElementById('inspectorName').value = target.inspector || '';
+      document.getElementById('managerName').value = target.manager || '홍성현';
+      document.getElementById('actionNotes').value = target.actionNotes || '';
+
+      currentChecklist = target.checklist || {};
+      inspectionItems.forEach(item => {
+        renderItemButtons(item.id, currentChecklist[item.id] || null);
+      });
+
+      // 정량 실측값 복원
+      if (target.measurements && Array.isArray(target.measurements)) {
+        const fieldMap = {
+          '1_1_tension': 'meas_1_1_tension',
+          '1_1_sag': 'meas_1_1_sag',
+          '1_1_strands': 'meas_1_1_strands',
+          '1_2_noise': 'meas_1_2_noise',
+          '1_2_play': 'meas_1_2_play',
+          '1_4_tension': 'meas_1_4_tension',
+          '1_4_def': 'meas_1_4_def',
+          '1_5_depth': 'meas_1_5_depth',
+          '4_1_battery': 'meas_4_1_battery',
+          '4_1_pad': 'meas_4_1_pad',
+          '4_2_pressure': 'meas_4_2_pressure',
+          '4_5_drop': 'meas_4_5_drop',
+          '4_5_storage': 'meas_4_5_storage'
+        };
+        target.measurements.forEach(m => {
+          const fid = fieldMap[m.inspection_item_id];
+          if (fid) {
+            const el = document.getElementById(fid);
+            if (el && m.measured_value !== undefined) el.value = m.measured_value;
+          }
+        });
+      }
+
+      attachedPhotos = target.photos || [];
+      renderPhotoGrid();
+
+      if (target.signature) {
+        signaturePad.fromDataURL(target.signature);
+        document.getElementById('signPlaceholder').classList.add('hidden');
+      } else {
+        clearSignature();
+      }
+
+      if (target.decision) {
+        const radio = document.querySelector(`input[name="finalDecision"][value="${target.decision}"]`);
+        if (radio) radio.checked = true;
+      }
+      updateDecisionUI();
+      updateStats();
+      closeHistoryModal();
+
+      const now = new Date();
+      now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+      const todayYmd = now.toISOString().slice(0, 10);
+      if ((target.date || '').slice(0, 10) === todayYmd) {
+        renderTodayAuditBanner(target);
+      }
+
+      if (notify) {
+        showToast(`${target.date ? target.date.replace('T', ' ') : '해당'} 일지를 불러왔습니다.`);
+      }
+    }
+
+    async function deleteLog(id) {
+      if (!confirm('이 점검 일지를 삭제하시겠습니까?')) return;
+      let logs = JSON.parse(localStorage.getItem(CHECKLIST_STORAGE_KEY) || '[]');
+      logs = logs.filter(l => l.id !== id);
+      localStorage.setItem(CHECKLIST_STORAGE_KEY, JSON.stringify(logs));
+      openHistoryModal();
+      updateHistoryBadge();
+
+      if (window.BongplaySync) {
+        await BongplaySync.remove('safety_audits', id);
+      }
+
+      const now = new Date();
+      now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+      const todayYmd = now.toISOString().slice(0, 10);
+      const todayLog = logs.find(l => (l.date || '').slice(0, 10) === todayYmd);
+      renderTodayAuditBanner(todayLog);
+    }
+
+    function loadLatestOrNew() {
+      const now = new Date();
+      now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+      const todayYmd = now.toISOString().slice(0, 10);
+
+      const logs = JSON.parse(localStorage.getItem(CHECKLIST_STORAGE_KEY) || '[]');
+      const todayLog = logs.find(l => (l.date || '').slice(0, 10) === todayYmd);
+
+      // 날씨/기온 자동 연동
+      if (window.BongplayID && typeof BongplayID.getLatestWeather === 'function') {
+        const wtr = BongplayID.getLatestWeather();
+        if (wtr) {
+          const tempEl = document.getElementById('temperature');
+          const wtrEl = document.getElementById('weatherSelect');
+          if (tempEl) tempEl.value = `${wtr.temperature}℃`;
+          if (wtrEl) {
+            if (wtr.rainfall > 0 || (wtr.weather_warning || '').includes('rain')) wtrEl.value = '비';
+            else if (wtr.wind_gust >= 12.0 || (wtr.weather_warning || '').includes('wind')) wtrEl.value = '흐림';
+            else wtrEl.value = '맑음';
+          }
+        }
+      }
+
+      if (todayLog) {
+        // 오늘 이미 작성한 일지가 있으면 불러오기
+        loadLog(todayLog.id, false);
+        renderTodayAuditBanner(todayLog);
+      } else {
+        // 오늘 점검이 아직 없으면 0/22 빈 점검표로 초기화 (자동 전체양호 실행 방지)
+        currentChecklist = {};
+        inspectionItems.forEach(item => renderItemButtons(item.id, null));
+        ['meas_1_1_tension','meas_1_1_sag','meas_1_1_strands','meas_1_2_noise','meas_1_2_play','meas_1_4_tension','meas_1_4_def','meas_1_5_depth','meas_4_1_battery','meas_4_1_pad','meas_4_2_pressure','meas_4_5_drop','meas_4_5_storage'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.value = '';
+        });
+        document.getElementById('actionNotes').value = '';
+        attachedPhotos = [];
+        renderPhotoGrid();
+        clearSignature();
+
+        updateStats();
+        updateDecisionUI();
+        renderTodayAuditBanner(null);
+      }
+    }
+
+    function exportHistoryCSV() {
+      const logs = JSON.parse(localStorage.getItem(CHECKLIST_STORAGE_KEY) || '[]');
+      if (!logs.length) {
+        alert('내보낼 점검 데이터가 없습니다.');
+        return;
+      }
+
+      let csv = "\uFEFF점검일시,날씨,기온,점검자,관리책임자,종합판정,특이사항및조치내역,점검항목수\n";
+      logs.forEach(l => {
+        const dt = (l.date || '').replace('T', ' ');
+        const dec = l.decision === 'pass' ? '개장승인' : (l.decision === 'warn' ? '조건부개장' : '개장중지');
+        const notes = '"' + (l.actionNotes || '').replace(/"/g, '""') + '"';
+        csv += `${dt},${l.weather},${l.temperature},${l.inspector},${l.manager},${dec},${notes},${Object.keys(l.checklist || {}).length}\n`;
+      });
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `봉플레이_안전점검일지_누적기록_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    function showToast(msg) {
+      const toast = document.createElement('div');
+      toast.className = 'no-print fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-2xl border border-slate-700 text-xs font-bold flex items-center space-x-2 transition-all transform duration-300';
+      toast.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-emerald-400"></i><span>${msg}</span>`;
+      document.body.appendChild(toast);
+      lucide.createIcons();
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-2');
+        setTimeout(() => toast.remove(), 300);
+      }, 2500);
+    }
+
+    // ==========================================
+    // P0-7: 개체별 안전장비 라이프사이클 관리 모달
+    // ==========================================
+    let currentEquipTab = 'ALL';
+
+    function openEquipmentModal() {
+      document.getElementById('equipmentModal').classList.remove('hidden');
+      renderEquipmentModal();
+      lucide.createIcons();
+    }
+
+    function closeEquipmentModal() {
+      document.getElementById('equipmentModal').classList.add('hidden');
+    }
+
+    function filterEquipmentTab(tabType) {
+      currentEquipTab = tabType;
+      document.querySelectorAll('.equip-tab-btn').forEach(btn => {
+        const isMatch = btn.getAttribute('data-type') === tabType;
+        btn.className = isMatch
+          ? 'equip-tab-btn active px-3 py-1.5 rounded-lg bg-indigo-600 text-white'
+          : 'equip-tab-btn px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700';
+      });
+      renderEquipmentModal();
+    }
+
+    function normalizeEquipItem(a) {
+      if (!a) return {};
+      let type = a.type;
+      if (!type) {
+        if (a.asset_id && a.asset_id.startsWith('HARNESS')) type = 'HARNESS';
+        else if (a.asset_id && a.asset_id.startsWith('TROLLEY')) type = 'TROLLEY';
+        else if (a.asset_id && a.asset_id.startsWith('HELMET')) type = 'HELMET';
+        else if (a.asset_id && a.asset_id.startsWith('CARABINER')) type = 'CARABINER';
+        else if (a.asset_type && a.asset_type.indexOf('harness') !== -1) type = 'HARNESS';
+        else if (a.asset_type && a.asset_type.indexOf('trolley') !== -1) type = 'TROLLEY';
+        else if (a.asset_type && a.asset_type.indexOf('helmet') !== -1) type = 'HELMET';
+        else type = 'CARABINER';
+      }
+      const usage = Number(a.cumulative_usage_count !== undefined ? a.cumulative_usage_count : (a.usage_count || 0));
+      const maxSafe = Number(a.max_safe_usage_count || (
+        type === 'TROLLEY' ? 3000 :
+        type === 'HARNESS' ? 1500 :
+        type === 'HELMET' ? 2000 : 5000
+      ));
+      const name = a.name || a.asset_name || a.asset_id || '안전장비';
+      return {
+        asset_id: a.asset_id || 'UNKNOWN',
+        name: name,
+        asset_name: name,
+        type: type,
+        asset_type: a.asset_type || (type.toLowerCase() + '_standard'),
+        usage_count: usage,
+        cumulative_usage_count: usage,
+        max_safe_usage_count: maxSafe,
+        location: a.location || '야외 짚라인 어드벤처',
+        status: a.status || 'active',
+        last_defect_note: a.last_defect_note || (a.repair_history && a.repair_history.length ? a.repair_history[0].note : null),
+        last_inspected_at: a.last_inspected_at || '-'
+      };
+    }
+
+    function renderEquipmentModal() {
+      if (!window.BongplayID) return;
+      const rawAssets = (typeof BongplayID.getEquipmentAssets === 'function') ? BongplayID.getEquipmentAssets() : [];
+      const assets = rawAssets.map(normalizeEquipItem);
+      const alerts = (typeof BongplayID.getPredictiveMaintenanceAlerts === 'function') ? BongplayID.getPredictiveMaintenanceAlerts() : [];
+
+      const totalAll = assets.length;
+      const totalHarness = assets.filter(a => a.type === 'HARNESS').length;
+      const totalTrolley = assets.filter(a => a.type === 'TROLLEY').length;
+      const totalHelmet = assets.filter(a => a.type === 'HELMET').length;
+      const totalCarabiner = assets.filter(a => a.type === 'CARABINER').length;
+
+      const elAll = document.getElementById('eqTabCountAll');
+      const elHar = document.getElementById('eqTabCountHarness');
+      const elTro = document.getElementById('eqTabCountTrolley');
+      const elHel = document.getElementById('eqTabCountHelmet');
+      const elCar = document.getElementById('eqTabCountCarabiner');
+      if (elAll) elAll.textContent = totalAll;
+      if (elHar) elHar.textContent = totalHarness;
+      if (elTro) elTro.textContent = totalTrolley;
+      if (elHel) elHel.textContent = totalHelmet;
+      if (elCar) elCar.textContent = totalCarabiner;
+
+      const banner = document.getElementById('equipAiAlertBanner');
+      if (banner) {
+        if (alerts.length > 0) {
+          banner.classList.remove('hidden');
+          banner.className = 'my-3 p-3 rounded-2xl bg-rose-950/40 border border-rose-800/80 text-xs text-rose-200';
+          banner.innerHTML = `
+            <div class="flex items-center gap-2 font-bold mb-1.5 text-rose-400">
+              <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+              <span>AI 예지보전 경보: 교체/정밀점검 권고 ${alerts.length}건 발생</span>
+            </div>
+            <div class="space-y-1 text-[11px]">
+              ${alerts.map(al => `
+                <div class="flex items-center justify-between">
+                  <span>• <b>[${al.asset_id}]</b> ${al.asset_name || al.name || ''} — ${al.message || al.title || '교체 권고'}</span>
+                  <span class="font-mono text-rose-300 font-bold">${al.usage_count ? al.usage_count.toLocaleString() + '회' : '주의'}</span>
+                </div>
+              `).join('')}
+            </div>
+          `;
+        } else {
+          banner.classList.remove('hidden');
+          banner.className = 'my-3 p-2.5 rounded-2xl bg-emerald-950/30 border border-emerald-800/50 text-xs text-emerald-300 flex items-center gap-2';
+          banner.innerHTML = `
+            <i data-lucide="check-circle" class="w-4 h-4 text-emerald-400"></i>
+            <span>전체 안전장비 마모율 정상 범위. 정밀 교체 대상 없음.</span>
+          `;
+        }
+      }
+
+      const qInput = document.getElementById('equipSearchInput');
+      const q = qInput ? qInput.value.trim().toLowerCase() : '';
+
+      let filtered = (currentEquipTab === 'ALL')
+        ? assets
+        : assets.filter(a => a.type === currentEquipTab);
+
+      if (q) {
+        filtered = filtered.filter(a =>
+          a.asset_id.toLowerCase().includes(q) ||
+          a.name.toLowerCase().includes(q) ||
+          (a.location && a.location.toLowerCase().includes(q))
+        );
+      }
+
+      const listContainer = document.getElementById('equipmentListContainer');
+      if (listContainer) {
+        if (!filtered.length) {
+          listContainer.innerHTML = `
+            <div class="p-8 text-center text-slate-500 text-xs space-y-2">
+              <i data-lucide="inbox" class="w-8 h-8 mx-auto text-slate-600"></i>
+              <p>해당 조건에 일치하는 안전장비가 없습니다.</p>
+              <button onclick="openAddEquipmentModal()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg text-xs">
+                + 신규 장비 등록하기
+              </button>
+            </div>
+          `;
+        } else {
+          listContainer.innerHTML = filtered.map(item => {
+            const usage = Number(item.cumulative_usage_count) || 0;
+            const maxSafe = Math.max(1, Number(item.max_safe_usage_count) || 1500);
+            const pct = Math.min(100, Math.round((usage / maxSafe) * 100));
+
+            let barColor = 'bg-emerald-500';
+            let statusBadge = '<span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold text-[10px]">정상</span>';
+            if (pct >= 85 || item.status === 'warn' || item.status === 'INSPECT_REQUIRED') {
+              barColor = 'bg-amber-500';
+              statusBadge = '<span class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold text-[10px]">점검요망</span>';
+            }
+            if (pct >= 95 || item.status === 'retired' || item.status === 'RETIRED' || item.status === 'DEFECTIVE') {
+              barColor = 'bg-rose-500';
+              statusBadge = '<span class="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 font-bold text-[10px]">교체/폐기</span>';
+            }
+
+            return `
+              <div class="bg-slate-950 p-3 rounded-2xl border border-slate-800 hover:border-slate-700 transition flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="font-mono font-bold text-xs text-indigo-400">${item.asset_id}</span>
+                    <span class="font-bold text-xs text-white">${item.name}</span>
+                    ${statusBadge}
+                    <span class="text-[10px] text-slate-500 font-mono">${item.location}</span>
+                  </div>
+                  <div class="mt-2 flex items-center gap-3 text-[11px] text-slate-400">
+                    <div class="flex-1 bg-slate-800 rounded-full h-2 overflow-hidden">
+                      <div class="${barColor} h-2 rounded-full transition-all" style="width: ${pct}%"></div>
+                    </div>
+                    <span class="font-mono text-slate-300 whitespace-nowrap">
+                      ${usage.toLocaleString()} / ${maxSafe.toLocaleString()}회 (${pct}%)
+                    </span>
+                  </div>
+                  ${item.last_defect_note ? `<p class="text-[10px] text-amber-400/90 mt-1">⚠️ 메모: ${item.last_defect_note}</p>` : ''}
+                </div>
+                <div class="flex items-center gap-1.5 shrink-0 justify-end flex-wrap">
+                  <button onclick="adjustEquipUsage('${item.asset_id}', 1)" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-lg border border-slate-700 transition">
+                    +1회
+                  </button>
+                  <button onclick="adjustEquipUsage('${item.asset_id}', 10)" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-lg border border-slate-700 transition">
+                    +10회
+                  </button>
+                  <button onclick="openEditEquipmentModal('${item.asset_id}')" class="px-2.5 py-1 bg-amber-950/60 hover:bg-amber-900 border border-amber-800 text-amber-300 text-xs font-bold rounded-lg transition flex items-center gap-1">
+                    <i data-lucide="wrench" class="w-3 h-3"></i> 수정/정비
+                  </button>
+                </div>
+              </div>
+            `;
+          }).join('');
+        }
+      }
+      lucide.createIcons();
+    }
+
+    function adjustEquipUsage(assetId, delta) {
+      if (window.BongplayID && typeof BongplayID.updateEquipmentUsage === 'function') {
+        BongplayID.updateEquipmentUsage(assetId, delta);
+        renderEquipmentModal();
+        showToast(`${assetId} 사용횟수 +${delta}회 누적되었습니다.`);
+      }
+    }
+
+    function quickBatchIncrementEquipment() {
+      if (!confirm('현재 운영 중인 전체 야외 장비(하네스, 트롤리, 헬멧, 카라비너)의 사용 횟수를 1회씩 일괄 누적하시겠습니까?')) return;
+      if (window.BongplayID && typeof BongplayID.incrementFacilityEquipmentUsage === 'function') {
+        BongplayID.incrementFacilityEquipmentUsage('outdoor_coaster', 1);
+        renderEquipmentModal();
+        showToast('전체 안전장비 1회 일괄 누적 완료');
+      }
+    }
+
+    // 신규 장비 등록 모달 제어
+    function openAddEquipmentModal() {
+      document.getElementById('modalAddEquipment').classList.remove('hidden');
+      autoSuggestEquipId();
+      lucide.createIcons();
+    }
+
+    function closeAddEquipmentModal() {
+      document.getElementById('modalAddEquipment').classList.add('hidden');
+    }
+
+    function autoSuggestEquipId() {
+      const type = document.getElementById('addEquipType').value;
+      const rawAssets = (window.BongplayID && typeof BongplayID.getEquipmentAssets === 'function') ? BongplayID.getEquipmentAssets() : [];
+      const sameTypeAssets = rawAssets.filter(a => {
+        const id = a.asset_id || '';
+        return id.startsWith(type);
+      });
+      const nextSeq = String(sameTypeAssets.length + 1).padStart(3, '0');
+      document.getElementById('addEquipId').value = `${type}-${nextSeq}`;
+
+      const maxSafeMap = {
+        HARNESS: 1500,
+        TROLLEY: 3000,
+        HELMET: 2000,
+        CARABINER: 5000
+      };
+      document.getElementById('addEquipMaxSafe').value = maxSafeMap[type] || 1500;
+      document.getElementById('addEquipName').value = `${type} #${parseInt(nextSeq, 10)}`;
+    }
+
+    function submitAddEquipment(e) {
+      e.preventDefault();
+      const assetId = document.getElementById('addEquipId').value.trim();
+      const assetName = document.getElementById('addEquipName').value.trim();
+      const type = document.getElementById('addEquipType').value;
+      const maxSafe = parseInt(document.getElementById('addEquipMaxSafe').value, 10) || 1500;
+      const usage = parseInt(document.getElementById('addEquipUsage').value, 10) || 0;
+      const location = document.getElementById('addEquipLocation').value.trim() || '야외 짚라인 어드벤처';
+
+      try {
+        if (window.BongplayID && typeof BongplayID.addEquipmentAsset === 'function') {
+          BongplayID.addEquipmentAsset({
+            asset_id: assetId,
+            asset_name: assetName,
+            type: type,
+            max_safe_usage_count: maxSafe,
+            usage_count: usage,
+            location: location,
+            status: 'active'
+          });
+        }
+        closeAddEquipmentModal();
+        renderEquipmentModal();
+        showToast(`새 안전장비 [${assetId}] 등록이 완료되었습니다.`);
+      } catch (err) {
+        alert(err.message || '장비 등록 중 오류가 발생했습니다.');
+      }
+    }
+
+    // 장비 수정/정비 모달 제어
+    function openEditEquipmentModal(assetId) {
+      const rawAssets = (window.BongplayID && typeof BongplayID.getEquipmentAssets === 'function') ? BongplayID.getEquipmentAssets() : [];
+      const item = rawAssets.find(a => a.asset_id === assetId);
+      if (!item) return;
+
+      document.getElementById('editEquipId').value = item.asset_id;
+      document.getElementById('editEquipBadgeId').textContent = item.asset_id;
+      document.getElementById('editEquipName').value = item.name || item.asset_name || item.asset_id;
+      document.getElementById('editEquipUsage').value = item.cumulative_usage_count || item.usage_count || 0;
+      document.getElementById('editEquipMaxSafe').value = item.max_safe_usage_count || 1500;
+      document.getElementById('editEquipStatus').value = item.status || 'active';
+      document.getElementById('editEquipDefectNote').value = item.last_defect_note || '';
+
+      document.getElementById('modalEditEquipment').classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    function closeEditEquipmentModal() {
+      document.getElementById('modalEditEquipment').classList.add('hidden');
+    }
+
+    function submitEditEquipment(e) {
+      e.preventDefault();
+      const assetId = document.getElementById('editEquipId').value;
+      const name = document.getElementById('editEquipName').value.trim();
+      const usage = parseInt(document.getElementById('editEquipUsage').value, 10) || 0;
+      const maxSafe = parseInt(document.getElementById('editEquipMaxSafe').value, 10) || 1500;
+      const status = document.getElementById('editEquipStatus').value;
+      const note = document.getElementById('editEquipDefectNote').value.trim();
+
+      if (window.BongplayID && typeof BongplayID.updateEquipmentAsset === 'function') {
+        BongplayID.updateEquipmentAsset(assetId, {
+          name: name,
+          asset_name: name,
+          usage_count: usage,
+          cumulative_usage_count: usage,
+          max_safe_usage_count: maxSafe,
+          status: status,
+          last_defect_note: note || null,
+          last_inspected_at: new Date().toISOString().slice(0, 10)
+        });
+      }
+      closeEditEquipmentModal();
+      renderEquipmentModal();
+      showToast(`장비 [${assetId}] 정보가 정상 갱신되었습니다.`);
+    }
+
+    function deleteEquipmentConfirm() {
+      const assetId = document.getElementById('editEquipId').value;
+      if (!confirm(`정말로 안전장비 [${assetId}]를 목록에서 삭제(또는 영구 폐기)하시겠습니까?`)) return;
+
+      if (window.BongplayID && typeof BongplayID.deleteEquipmentAsset === 'function') {
+        BongplayID.deleteEquipmentAsset(assetId);
+      }
+      closeEditEquipmentModal();
+      renderEquipmentModal();
+      showToast(`장비 [${assetId}]가 삭제되었습니다.`);
+    }
+
+    // ==========================================
+    // P0-8: 시설 가동 / 중단 구간 제어 모달
+    // ==========================================
+    let selectedIntervalFacility = 'outdoor_coaster';
+
+    function openFacilityIntervalModal() {
+      document.getElementById('facilityIntervalModal').classList.remove('hidden');
+      renderFacilityIntervalModal();
+      lucide.createIcons();
+    }
+
+    function closeFacilityIntervalModal() {
+      document.getElementById('facilityIntervalModal').classList.add('hidden');
+    }
+
+    function selectIntervalFacility(facId) {
+      selectedIntervalFacility = facId;
+      document.querySelectorAll('.fac-int-btn').forEach(btn => {
+        const isMatch = btn.getAttribute('data-fac') === facId;
+        btn.className = isMatch
+          ? 'fac-int-btn p-2 rounded-xl border border-amber-500/50 bg-amber-950/30 text-amber-300 text-xs font-bold text-center active'
+          : 'fac-int-btn p-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 text-xs font-bold text-center';
+      });
+      renderFacilityIntervalModal();
+    }
+
+    function renderFacilityIntervalModal() {
+      if (!window.BongplayID) return;
+      const cur = BongplayID.getCurrentFacilityOperatingStatus(selectedIntervalFacility);
+      const metrics = BongplayID.getFacilityOperatingMetrics(selectedIntervalFacility);
+
+      const statusMap = {
+        OPEN: { text: '정상 가동 중 (OPEN)', color: 'text-emerald-400', badge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
+        PAUSED_WEATHER: { text: '기상 악화 중단 (비/돌풍)', color: 'text-sky-400', badge: 'bg-sky-500/20 text-sky-300 border-sky-500/30' },
+        PAUSED_SAFETY: { text: '안전 점검 중단', color: 'text-amber-400', badge: 'bg-amber-500/20 text-amber-300 border-amber-500/30' },
+        PAUSED_MAINTENANCE: { text: '긴급 정비 중단', color: 'text-rose-400', badge: 'bg-rose-500/20 text-rose-300 border-rose-500/30' },
+        CLOSED_CAPACITY: { text: '정원 초과 일시대기', color: 'text-purple-400', badge: 'bg-purple-500/20 text-purple-300 border-purple-500/30' },
+        CLOSED_SCHEDULED: { text: '영업 마감 (CLOSED)', color: 'text-slate-400', badge: 'bg-slate-800 text-slate-300 border-slate-700' }
+      };
+
+      const info = statusMap[cur.status] || statusMap.OPEN;
+
+      const card = document.getElementById('facilityCurrentStatusCard');
+      if (card) {
+        card.innerHTML = `
+          <div>
+            <span class="text-[10px] text-slate-400 block">현재 시설 가동 상태</span>
+            <h4 class="text-sm font-black ${info.color} flex items-center gap-1.5 mt-0.5">
+              ${info.text}
+            </h4>
+            ${cur.reason ? `<p class="text-[11px] text-slate-400 mt-0.5">사유: ${cur.reason}</p>` : ''}
+          </div>
+          <div class="text-right">
+            <span class="px-2.5 py-1 rounded-full text-xs font-bold border ${info.badge} font-mono">${cur.status}</span>
+            <span class="text-[10px] text-slate-500 block mt-1 font-mono">${(cur.started_at || '').slice(11, 16)}부터 유지 중</span>
+          </div>
+        `;
+      }
+
+      const sumEl = document.getElementById('intervalMetricsSummary');
+      if (sumEl) {
+        sumEl.textContent = `가동률: ${metrics.uptime_pct}% | 중단: ${metrics.pause_minutes}분 (손실추정: ${metrics.estimated_loss_amount.toLocaleString()}원)`;
+      }
+
+      const histList = document.getElementById('intervalHistoryList');
+      if (histList) {
+        if (!metrics.intervals.length) {
+          histList.innerHTML = `<div class="p-3 text-center text-slate-600">오늘 기록된 구간 변경 이력이 없습니다.</div>`;
+        } else {
+          histList.innerHTML = metrics.intervals.slice().reverse().map(iv => {
+            const dur = iv.duration_minutes ? `${iv.duration_minutes}분간` : '진행 중';
+            const stInfo = statusMap[iv.status] || { text: iv.status, color: 'text-slate-300' };
+            return `
+              <div class="p-2 rounded-xl bg-slate-950 border border-slate-800/80 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="font-bold ${stInfo.color}">${stInfo.text}</span>
+                  ${iv.reason ? `<span class="text-slate-500 text-[11px]">(${iv.reason})</span>` : ''}
+                </div>
+                <div class="text-right font-mono text-[11px]">
+                  <span class="text-slate-300 font-bold">${dur}</span>
+                  <span class="text-slate-500 ml-2">${(iv.started_at || '').slice(11, 16)} ~ ${(iv.ended_at || '').slice(11, 16) || '현재'}</span>
+                </div>
+              </div>
+            `;
+          }).join('');
+        }
+      }
+      lucide.createIcons();
+    }
+
+    function handleFacilityStatusChange(status) {
+      const reasonInput = document.getElementById('intervalReasonInput');
+      const impactInput = document.getElementById('intervalImpactedInput');
+      const reason = reasonInput ? reasonInput.value.trim() : '';
+      const impacted = impactInput ? parseInt(impactInput.value, 10) || 0 : 0;
+
+      if (window.BongplayID) {
+        BongplayID.changeFacilityOperatingStatus({
+          facility_id: selectedIntervalFacility,
+          status: status,
+          reason: reason || (status === 'OPEN' ? '정상 가동' : '운영 제어'),
+          impacted_customers: impacted,
+          operator_staff_id: 'safety_staff'
+        });
+        if (reasonInput) reasonInput.value = '';
+        if (impactInput) impactInput.value = '';
+        renderFacilityIntervalModal();
+        showToast(`[${selectedIntervalFacility}] ${status} 상태로 전환되었습니다.`);
+      }
+    }
+
+    // ================= 클라우드 DB 연동 =================
+    function openDbModal() {
+      if (!window.BongplaySync) return;
+      const cfg = BongplaySync.getConfig();
+      if (cfg) {
+        document.getElementById('dbUrlInput').value = cfg.url || '';
+        document.getElementById('dbKeyInput').value = cfg.key || '';
+      }
+      document.getElementById('deviceLabelInput').value = BongplaySync.getDeviceLabel() || '현장';
+      document.getElementById('dbQueueCount').textContent = BongplaySync.getQueue().length;
+      document.getElementById('dbTestResult').classList.add('hidden');
+      document.getElementById('dbModal').classList.remove('hidden');
+      if (window.lucide) lucide.createIcons();
+    }
+    function closeDbModal() {
+      document.getElementById('dbModal').classList.add('hidden');
+    }
+    function saveDbConfig() {
+      if (!window.BongplaySync) return;
+      const url = document.getElementById('dbUrlInput').value.trim();
+      const key = document.getElementById('dbKeyInput').value.trim();
+      const label = document.getElementById('deviceLabelInput').value;
+      BongplaySync.setDeviceLabel(label);
+      if (!url || !key) {
+        BongplaySync.setConfig(null, null);
+        showToast('DB 연동이 해제되었습니다. (로컬 저장만 사용)');
+      } else {
+        BongplaySync.setConfig(url, key);
+        showToast('DB 설정이 저장되었습니다. 대기 중인 데이터를 동기화합니다.');
+        BongplaySync.flushQueue();
+      }
+      updateDbBadge();
+      closeDbModal();
+    }
+    async function testDbConnection() {
+      if (!window.BongplaySync) return;
+      const url = document.getElementById('dbUrlInput').value.trim();
+      const key = document.getElementById('dbKeyInput').value.trim();
+      if (!url || !key) { alert('URL과 key를 모두 입력하십시오.'); return; }
+      BongplaySync.setConfig(url, key);
+      const box = document.getElementById('dbTestResult');
+      box.className = 'rounded-xl p-3 text-[11px] font-bold bg-slate-800 text-slate-300';
+      box.textContent = '연결 확인 중...';
+      box.classList.remove('hidden');
+      const r = await BongplaySync.testConnection();
+      if (r.ok) {
+        box.className = 'rounded-xl p-3 text-[11px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30';
+        box.textContent = '✓ ' + r.msg;
+      } else {
+        box.className = 'rounded-xl p-3 text-[11px] font-bold bg-rose-500/15 text-rose-300 border border-rose-500/30';
+        box.textContent = '✗ ' + r.msg;
+      }
+    }
+    function updateDbBadge() {
+      const el = document.getElementById('dbSyncText');
+      const btn = document.getElementById('dbSyncBtn');
+      const dot = document.getElementById('dbSyncDot');
+      if (!btn || !window.BongplaySync) return;
+      const st = BongplaySync.getStatus();
+      let label = 'DB 미연동';
+      let dotCls = 'bg-slate-500';
+      let btnCls = 'bg-slate-800 hover:bg-slate-700 text-slate-400 border-slate-700';
+
+      if (!st.configured) {
+        label = 'DB 미연동';
+        dotCls = 'bg-slate-500';
+        btnCls = 'bg-slate-800 hover:bg-slate-700 text-slate-400 border-slate-700';
+      } else if (!st.online) {
+        label = '오프라인 (' + st.pending + ')';
+        dotCls = 'bg-amber-400 animate-ping';
+        btnCls = 'bg-amber-900/40 hover:bg-amber-900/60 text-amber-300 border-amber-600/50 animate-pulse';
+      } else if (st.pending > 0) {
+        label = '대기 ' + st.pending;
+        dotCls = 'bg-amber-400';
+        btnCls = 'bg-amber-900/40 hover:bg-amber-900/60 text-amber-300 border-amber-600/50';
+      } else {
+        label = '동기화 정상';
+        dotCls = 'bg-emerald-400';
+        btnCls = 'bg-emerald-900/40 hover:bg-emerald-900/60 text-emerald-300 border-emerald-600/50';
+      }
+
+      if (el) el.textContent = label;
+      if (dot) dot.className = 'w-1.5 h-1.5 rounded-full sm:hidden ' + dotCls;
+      btn.className = 'flex items-center space-x-1 px-2 sm:px-2.5 py-1.5 border rounded-lg text-xs font-bold transition shadow-sm ' + btnCls;
+    }
+    function toggleMobileSubmenu() {
+      const el = document.getElementById('mobileSubmenu');
+      if (el) el.classList.toggle('hidden');
+      if (window.lucide) lucide.createIcons();
+    }
+    if (window.BongplaySync) {
+      BongplaySync.onStatusChange(updateDbBadge);
+      updateDbBadge();
+      if (BongplaySync.onDataChange) {
+        BongplaySync.onDataChange((detail) => {
+          if (!detail || !detail.table || detail.table === 'safety_audits') {
+            loadLatestOrNew();
+            updateHistoryBadge();
+          }
+        });
+      }
+    }
+
+    function toggleFullScreen() {
+      if (!document.fullscreenElement && !document.webkitFullscreenElement && !document.msFullscreenElement) {
+        if (document.documentElement.requestFullscreen) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        } else if (document.documentElement.webkitRequestFullscreen) {
+          document.documentElement.webkitRequestFullscreen();
+        } else if (document.documentElement.msRequestFullscreen) {
+          document.documentElement.msRequestFullscreen();
+        }
+      } else {
+        if (document.exitFullscreen) {
+          document.exitFullscreen().catch(() => {});
+        } else if (document.webkitExitFullscreen) {
+          document.webkitExitFullscreen();
+        } else if (document.msExitFullscreen) {
+          document.msExitFullscreen();
+        }
+      }
+    }
+  </script>
+
+  <!-- ===== 클라우드 DB 연동 설정 모달 ===== -->
+  <div id="dbModal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-lg p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-9 h-9 rounded-xl bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center">
+            <i data-lucide="database" class="w-4 h-4 text-emerald-400"></i>
+          </div>
+          <h3 class="font-black text-base text-white">클라우드 DB 연동 (3개 기기 동기화)</h3>
+        </div>
+        <button onclick="closeDbModal()" class="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 hover:bg-slate-700">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs text-slate-300">
+        <div>
+          <label class="block text-slate-400 font-bold mb-1">이 기기의 위치 (라벨)</label>
+          <select id="deviceLabelInput" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-white text-xs outline-none focus:border-emerald-500">
+            <option value="현장">현장(야외)</option>
+            <option value="매표소">매표소</option>
+            <option value="사무실">사무실</option>
+            <option value="대표">대표 개인기기</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-slate-400 font-bold mb-1">Supabase Project URL</label>
+          <input type="text" id="dbUrlInput" placeholder="https://xxxxx.supabase.co" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white font-mono text-xs outline-none focus:border-emerald-500">
+        </div>
+
+        <div>
+          <label class="block text-slate-400 font-bold mb-1">anon public key</label>
+          <input type="password" id="dbKeyInput" placeholder="eyJhbGci..." class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white font-mono text-xs outline-none focus:border-emerald-500">
+        </div>
+
+        <div id="dbTestResult" class="hidden rounded-xl p-3 text-[11px] font-bold"></div>
+
+        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1.5 text-[11px] text-slate-400">
+          <p>• 오프라인(비행기 탑승 모드)이어도 점검표는 기기에 즉시 저장되며, 네트워크 복구 시 자동으로 클라우드에 업로드됩니다.</p>
+          <p>• 대기 중인 동기화 항목: <b id="dbQueueCount" class="text-white">0</b>건</p>
+        </div>
+      </div>
+
+      <div class="pt-3 border-t border-slate-800 flex items-center justify-end gap-2">
+        <button onclick="testDbConnection()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold">연결 테스트</button>
+        <button onclick="saveDbConfig()" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black shadow-lg">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <a href="../index.html" class="no-print hidden sm:flex" style="position:fixed;left:12px;bottom:12px;z-index:9999;align-items:center;gap:6px;padding:9px 14px;border-radius:14px;background:rgba(15,23,42,.94);border:1px solid #334155;color:#cbd5e1;font-size:11px;font-weight:700;text-decoration:none;box-shadow:0 4px 16px rgba(0,0,0,.4);backdrop-filter:blur(8px)">&#8592; 메인</a>
+</body>
+</html>

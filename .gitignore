@@ -1,0 +1,32 @@
+# 배포 아카이브 및 압축 패키지
+*.zip
+*_deploy.zip
+bongplay_deploy.zip
+replayce_deploy.zip
+worklog_deploy.zip
+
+# 대용량 미디어 및 보관소
+_보관/
+*.mp4
+*.mov
+*.avi
+
+# 보안 자격증명 파일
+01_봉플레이_운영시스템/assets/config.js
+01_봉플레이_운영시스템/pages/firebase-config.js
+*.key
+*.pem
+.env
+.env.*
+
+# 의존성 및 캐시
+node_modules/
+__pycache__/
+*.pyc
+.netlify/
+
+# 운영체제/도구 잔여물
+.DS_Store
+Thumbs.db
+*.log
+tmp/

@@ -1,0 +1,1077 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#020617">
+  <title>봉플레이 실내시설 비상 키오스크</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
+  
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800;900&display=swap');
+    html, body {
+      max-width: 100vw;
+      overflow-x: hidden !important;
+      width: 100%;
+    }
+    body {
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      box-sizing: border-box;
+    }
+
+    @keyframes redGlow {
+      0%, 100% { box-shadow: 0 0 15px rgba(225, 29, 72, 0.3); }
+      50% { box-shadow: 0 0 25px rgba(225, 29, 72, 0.65); }
+    }
+    .pulse-emergency {
+      animation: redGlow 2.5s infinite ease-in-out;
+    }
+
+    /* Print Styles */
+    @media screen {
+      .print-only {
+        display: none !important;
+      }
+    }
+
+    @media print {
+      @page {
+        size: A4 landscape;
+        margin: 8mm 10mm;
+      }
+      body {
+        background: white !important;
+        color: #000 !important;
+        font-size: 8pt !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+      .print-only {
+        display: block !important;
+      }
+      .print-border {
+        border: 1px solid #111 !important;
+      }
+      .print-table th, .print-table td {
+        border: 1px solid #222 !important;
+        padding: 4px 6px !important;
+      }
+      .print-table th {
+        background-color: #f1f5f9 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+    }
+  </style>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../assets/config.js"></script>
+  <script src="../assets/bongplay-sync.js"></script>
+  <script src="../assets/bongplay-id.js"></script>
+  <script src="../assets/bongplay-notify.js"></script>
+  <link rel="stylesheet" href="../assets/print.css">
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col selection:bg-rose-600 selection:text-white">
+
+  <!-- ======================================================== -->
+  <!-- 1. SCREEN UI: 태블릿 전용 비상 키오스크 -->
+  <!-- ======================================================== -->
+  <div class="no-print flex-1 flex flex-col">
+
+    <!-- Top Compact Header Bar -->
+    <header class="sticky top-0 z-40 bg-slate-950/95 backdrop-blur border-b border-rose-900/50 px-4 py-2.5 shadow-xl">
+      <div class="max-w-7xl mx-auto flex items-center justify-between">
+        
+        <!-- Logo & Mode -->
+        <div class="flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-xl bg-rose-600 flex items-center justify-center text-white font-black shadow-md shadow-rose-600/40 animate-pulse">
+            <i data-lucide="siren" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <span class="font-black text-sm text-white tracking-tight">리틀포레스트 봉플레이</span>
+            <span class="ml-1.5 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500/20 text-rose-300 border border-rose-500/40">
+              🚨 실내 비상 키오스크
+            </span>
+          </div>
+        </div>
+
+        <!-- Clock & Controls -->
+        <div class="flex items-center space-x-2">
+          <!-- Real-time Clock -->
+          <div class="hidden sm:flex items-center space-x-1.5 px-3 py-1 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 text-xs font-mono font-bold">
+            <i data-lucide="clock" class="w-3.5 h-3.5 text-amber-400"></i>
+            <span id="kiosk-live-clock">00:00:00</span>
+          </div>
+
+          <!-- Wake Lock Toggle -->
+          <button id="wake-lock-btn" onclick="toggleWakeLock()" class="flex items-center space-x-1.5 px-2.5 py-1 rounded-xl text-xs font-bold transition bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+            <span id="wake-lock-label">화면 켜짐 유지</span>
+          </button>
+
+          <!-- A4 Print -->
+          <button onclick="printEmergencyChart()" class="p-1.5 rounded-xl bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800 transition" title="체계도 A4 인쇄">
+            <i data-lucide="printer" class="w-4 h-4 text-slate-400"></i>
+          </button>
+
+          <!-- Fullscreen Toggle -->
+          <button onclick="toggleFullScreen()" class="p-1.5 rounded-xl bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800 transition" title="전체화면 전환">
+            <i data-lucide="maximize" class="w-4 h-4 text-slate-400"></i>
+          </button>
+        </div>
+
+      </div>
+    </header>
+
+    <!-- Main Tablet Workspace -->
+    <main class="max-w-7xl mx-auto w-full px-4 py-4 space-y-4 flex-1">
+
+      <!-- ======================================================== -->
+      <!-- A. 119 신고 주소 HUD (대문짝 주소 + 주소 복사 + 신고 요령) -->
+      <!-- ======================================================== -->
+      <section class="bg-gradient-to-r from-rose-950/80 via-slate-900 to-rose-950/80 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 border-2 border-rose-600/60 shadow-xl pulse-emergency">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3">
+          
+          <div class="space-y-1">
+            <div class="flex items-center space-x-2">
+              <span class="px-2 py-0.5 rounded bg-rose-600 text-white font-black text-[11px] sm:text-xs tracking-wider">
+                119 신고 시 말씀하실 주소
+              </span>
+              <span class="text-xs text-rose-300 hidden md:inline">당황하지 마시고 화면의 주소를 차분히 말씀해 주세요</span>
+            </div>
+            <div class="text-lg sm:text-2xl lg:text-3xl font-black text-white tracking-tight break-keep">
+              "경북 봉화군 봉화읍 유록길 22 (봉플레이)"
+            </div>
+          </div>
+
+          <!-- Buttons -->
+          <div class="flex items-center space-x-2 shrink-0">
+            <button onclick="copyAddress()" class="flex-1 sm:flex-initial flex items-center justify-center space-x-1.5 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs sm:text-sm shadow-md transition active:scale-95">
+              <i data-lucide="copy" class="w-3.5 h-3.5 sm:w-4 sm:h-4"></i>
+              <span>주소 복사</span>
+            </button>
+            <button onclick="showReportGuideModal()" class="flex-1 sm:flex-initial flex items-center justify-center space-x-1.5 px-3 sm:px-3.5 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs sm:text-sm border border-slate-700 transition active:scale-95">
+              <i data-lucide="help-circle" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400"></i>
+              <span>신고 요령</span>
+            </button>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ======================================================== -->
+      <!-- B. 4대 초특대 긴급 직통 다이얼 (액션 중심 2x2 대형 터치 패드) -->
+      <!-- ======================================================== -->
+      <section class="space-y-2">
+        <div class="flex items-center justify-between px-1">
+          <div class="flex items-center space-x-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping"></span>
+            <h2 class="text-xs sm:text-sm font-black text-slate-300 uppercase tracking-wider">긴급 직통 다이얼 (누르면 통화 앱 자동 연결)</h2>
+          </div>
+          <span class="text-[10px] sm:text-xs text-slate-500">원터치 통화 연결</span>
+        </div>
+
+        <!-- 4대 박스: 번호 대신 "위급 상황 액션 및 기관"을 초대형으로 노출 (번호는 하단 보조 표시) -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4 lg:gap-5">
+
+          <!-- 1. 119 소방구급 -->
+          <a href="tel:119" onclick="copyAddress()" class="flex flex-col justify-between p-3.5 sm:p-6 lg:p-7 rounded-2xl sm:rounded-3xl bg-gradient-to-br from-rose-600/30 via-rose-600/20 to-slate-900 border-2 border-rose-500 hover:border-rose-400 shadow-2xl transition-all duration-200 active:scale-95 group text-left min-h-[160px] sm:min-h-[240px] lg:min-h-[280px]">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] sm:text-xs font-black text-rose-300 bg-rose-500/20 px-2 sm:px-3 py-0.5 sm:py-1 rounded-lg sm:rounded-xl border border-rose-500/30">긴급 119</span>
+              <div class="w-9 h-9 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-rose-600 text-white flex items-center justify-center shadow-lg group-hover:scale-110 transition">
+                <i data-lucide="phone-call" class="w-4 h-4 sm:w-7 sm:h-7 animate-bounce"></i>
+              </div>
+            </div>
+            <div class="mt-3 sm:mt-6">
+              <div class="text-base sm:text-2xl lg:text-3xl font-black text-white tracking-tight group-hover:text-rose-200 transition leading-tight">
+                119 소방구급대
+              </div>
+              <div class="text-xs sm:text-base lg:text-lg font-extrabold text-rose-300 mt-1 sm:mt-2 truncate sm:whitespace-normal">
+                심정지 · 추락 · 인명구조
+              </div>
+              <div class="text-[11px] sm:text-xs text-slate-400 font-mono mt-1 sm:mt-2 truncate">
+                봉화119안전센터
+              </div>
+            </div>
+          </a>
+
+          <!-- 2. 봉화해성병원 응급실 (최종 확인: 054-679-1299) -->
+          <a href="tel:054-679-1299" class="flex flex-col justify-between p-3.5 sm:p-6 lg:p-7 rounded-2xl sm:rounded-3xl bg-gradient-to-br from-emerald-600/30 via-emerald-600/20 to-slate-900 border-2 border-emerald-500 hover:border-emerald-400 shadow-2xl transition-all duration-200 active:scale-95 group text-left min-h-[160px] sm:min-h-[240px] lg:min-h-[280px]">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] sm:text-xs font-black text-emerald-300 bg-emerald-500/20 px-2 sm:px-3 py-0.5 sm:py-1 rounded-lg sm:rounded-xl border border-emerald-500/30">차량 5분 거리</span>
+              <div class="w-9 h-9 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-lg group-hover:scale-110 transition">
+                <i data-lucide="cross" class="w-4 h-4 sm:w-7 sm:h-7"></i>
+              </div>
+            </div>
+            <div class="mt-3 sm:mt-6">
+              <div class="text-base sm:text-2xl lg:text-3xl font-black text-white tracking-tight group-hover:text-emerald-200 transition leading-tight">
+                해성병원 응급실
+              </div>
+              <div class="text-xs sm:text-base lg:text-lg font-extrabold text-emerald-300 mt-1 sm:mt-2 truncate sm:whitespace-normal">
+                외상 · 골절 · 환자이송
+              </div>
+              <div class="text-[11px] sm:text-xs text-slate-400 font-mono mt-1 sm:mt-2 truncate">
+                054-679-1299
+              </div>
+            </div>
+          </a>
+
+          <!-- 3. 112 경찰신고 -->
+          <a href="tel:112" onclick="copyAddress()" class="flex flex-col justify-between p-3.5 sm:p-6 lg:p-7 rounded-2xl sm:rounded-3xl bg-gradient-to-br from-blue-600/30 via-blue-600/20 to-slate-900 border-2 border-blue-500 hover:border-blue-400 shadow-2xl transition-all duration-200 active:scale-95 group text-left min-h-[160px] sm:min-h-[240px] lg:min-h-[280px]">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] sm:text-xs font-black text-blue-300 bg-blue-500/20 px-2 sm:px-3 py-0.5 sm:py-1 rounded-lg sm:rounded-xl border border-blue-500/30">긴급 112</span>
+              <div class="w-9 h-9 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-lg group-hover:scale-110 transition">
+                <i data-lucide="shield" class="w-4 h-4 sm:w-7 sm:h-7"></i>
+              </div>
+            </div>
+            <div class="mt-3 sm:mt-6">
+              <div class="text-base sm:text-2xl lg:text-3xl font-black text-white tracking-tight group-hover:text-blue-200 transition leading-tight">
+                112 봉화경찰
+              </div>
+              <div class="text-xs sm:text-base lg:text-lg font-extrabold text-blue-300 mt-1 sm:mt-2 truncate sm:whitespace-normal">
+                치안 · 질서 · 교통통제
+              </div>
+              <div class="text-[11px] sm:text-xs text-slate-400 font-mono mt-1 sm:mt-2 truncate">
+                봉화지구대 (긴급 112)
+              </div>
+            </div>
+          </a>
+
+          <!-- 4. 총괄 홍성현 대표 -->
+          <a href="tel:010-5931-4144" class="flex flex-col justify-between p-3.5 sm:p-6 lg:p-7 rounded-2xl sm:rounded-3xl bg-gradient-to-br from-amber-600/30 via-amber-600/20 to-slate-900 border-2 border-amber-500 hover:border-amber-400 shadow-2xl transition-all duration-200 active:scale-95 group text-left min-h-[160px] sm:min-h-[240px] lg:min-h-[280px]">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] sm:text-xs font-black text-amber-300 bg-amber-500/20 px-2 sm:px-3 py-0.5 sm:py-1 rounded-lg sm:rounded-xl border border-amber-500/30">총괄책임자</span>
+              <div class="w-9 h-9 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-amber-600 text-white flex items-center justify-center shadow-lg group-hover:scale-110 transition">
+                <i data-lucide="user-check" class="w-4 h-4 sm:w-7 sm:h-7"></i>
+              </div>
+            </div>
+            <div class="mt-3 sm:mt-6">
+              <div class="text-base sm:text-2xl lg:text-3xl font-black text-white tracking-tight group-hover:text-amber-200 transition leading-tight">
+                홍성현 대표 직통
+              </div>
+              <div class="text-xs sm:text-base lg:text-lg font-extrabold text-amber-300 mt-1 sm:mt-2 truncate sm:whitespace-normal">
+                안전총괄 현장 지휘
+              </div>
+              <div class="text-[11px] sm:text-xs text-slate-400 font-mono mt-1 sm:mt-2 truncate">
+                010-5931-4144
+              </div>
+            </div>
+          </a>
+
+        </div>
+      </section>
+
+      <!-- ======================================================== -->
+      <!-- C. 🚨 원터치 비상벨 배너 (전 직원 디스코드 호출 & 사이렌) -->
+      <!-- ======================================================== -->
+      <section class="bg-gradient-to-r from-rose-900 via-rose-700 to-rose-900 rounded-2xl sm:rounded-3xl p-3 sm:p-4 shadow-xl border-2 border-rose-400 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3">
+        <div class="flex items-center space-x-3">
+          <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-white text-rose-600 flex items-center justify-center shadow-md shrink-0">
+            <i data-lucide="bell-ring" class="w-5 h-5 sm:w-6 sm:h-6 animate-pulse"></i>
+          </div>
+          <div>
+            <div class="text-sm sm:text-lg font-black text-white">🚨 원터치 비상벨</div>
+            <p class="text-[10px] sm:text-xs text-rose-100">터치 즉시 사이렌이 울리고 전 직원 스마트폰으로 긴급 호출이 전파됩니다</p>
+          </div>
+        </div>
+
+        <button onclick="triggerEmergencyBell()" class="w-full sm:w-auto justify-center px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl bg-white hover:bg-slate-100 text-rose-700 font-black text-xs sm:text-base shadow-lg transition active:scale-95 shrink-0 flex items-center space-x-1.5">
+          <i data-lucide="volume-2" class="w-4 h-4 text-rose-600"></i>
+          <span>비상벨 누르기</span>
+        </button>
+      </section>
+
+      <!-- ======================================================== -->
+      <!-- D. 하단 세부 탭 메뉴 -->
+      <!-- ======================================================== -->
+      <section class="space-y-3 pt-1">
+        
+        <!-- Tab Nav -->
+        <div class="flex items-center space-x-1.5 border-b border-slate-800 pb-2 overflow-x-auto">
+          <button id="tab-btn-tree" onclick="switchKioskTab('tree')" class="tab-btn flex items-center space-x-1.5 px-3.5 py-2 rounded-xl font-extrabold text-xs transition bg-rose-600 text-white shadow">
+            <i data-lucide="git-merge" class="w-3.5 h-3.5"></i>
+            <span>1. 비상연락망 체계도 및 조직도 표</span>
+          </button>
+          <button id="tab-btn-protocol" onclick="switchKioskTab('protocol')" class="tab-btn flex items-center space-x-1.5 px-3.5 py-2 rounded-xl font-bold text-xs transition text-slate-400 hover:text-white hover:bg-slate-900">
+            <i data-lucide="activity" class="w-3.5 h-3.5"></i>
+            <span>2. 골든타임 5대 프로토콜</span>
+          </button>
+          <button id="tab-btn-report" onclick="switchKioskTab('report')" class="tab-btn flex items-center space-x-1.5 px-3.5 py-2 rounded-xl font-bold text-xs transition text-slate-400 hover:text-white hover:bg-slate-900">
+            <i data-lucide="file-text" class="w-3.5 h-3.5"></i>
+            <span>3. 사고보고서 작성</span>
+          </button>
+          <button id="tab-btn-broadcast" onclick="switchKioskTab('broadcast')" class="tab-btn flex items-center space-x-1.5 px-3.5 py-2 rounded-xl font-bold text-xs transition text-slate-400 hover:text-white hover:bg-slate-900">
+            <i data-lucide="volume-2" class="w-3.5 h-3.5"></i>
+            <span>4. 비상 안내방송</span>
+          </button>
+        </div>
+
+        <!-- ---------------------------------------------------- -->
+        <!-- TAB 1: 정통 비상대응 조직도 & 구체적인 연락망 표 (복원/강화) -->
+        <!-- ---------------------------------------------------- -->
+        <div id="tab-view-tree" class="tab-content space-y-4">
+          <div class="bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-2xl space-y-6">
+            
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-4 gap-2">
+              <div class="flex items-center space-x-3">
+                <div class="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-black">
+                  <i data-lucide="git-merge" class="w-5 h-5"></i>
+                </div>
+                <div>
+                  <h3 class="text-base font-extrabold text-white">봉플레이 비상대응 조직 및 비상연락망 체계도</h3>
+                  <p class="text-xs text-slate-400">사고 발생 시 지휘통제 및 3대 실무반 / 유관기관 협조 체계</p>
+                </div>
+              </div>
+              <button onclick="printEmergencyChart()" class="text-xs bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold px-3 py-1.5 rounded-xl border border-slate-700 flex items-center space-x-1 self-start sm:self-auto">
+                <i data-lucide="printer" class="w-3.5 h-3.5"></i>
+                <span>벽면 부착용 A4 인쇄</span>
+              </button>
+            </div>
+
+            <!-- [1] 조직도 트리 다이어그램 (Interactive Visual Tree) -->
+            <div class="space-y-4">
+              <!-- Root: 총괄책임자 -->
+              <div class="flex flex-col items-center">
+                <div class="bg-gradient-to-r from-rose-600 to-amber-600 p-0.5 rounded-2xl shadow-xl w-full max-w-md">
+                  <div class="bg-slate-900 p-4 rounded-2xl flex items-center justify-between">
+                    <div class="flex items-center space-x-3">
+                      <div class="w-11 h-11 rounded-xl bg-rose-600 flex items-center justify-center font-black text-lg text-white shadow">
+                        총괄
+                      </div>
+                      <div>
+                        <div class="flex items-center space-x-2">
+                          <span class="text-xs font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">총괄지휘반장</span>
+                          <span class="text-xs text-slate-400">대표 / 안전관리총괄</span>
+                        </div>
+                        <h4 class="text-base font-black text-white mt-0.5">홍성현 대표</h4>
+                      </div>
+                    </div>
+                    <div class="text-right">
+                      <a href="tel:010-5931-4144" class="inline-flex items-center space-x-1 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition shadow">
+                        <i data-lucide="phone" class="w-3 h-3"></i>
+                        <span>010-5931-4144</span>
+                      </a>
+                      <span class="block text-[10px] text-slate-400 mt-0.5">상황 지휘 및 대외 총괄</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="w-0.5 h-6 bg-slate-700"></div>
+                <!-- Connector Horizontal Line for Large Screens -->
+                <div class="w-full max-w-4xl h-0.5 bg-slate-700 relative hidden lg:block">
+                  <div class="absolute left-1/6 top-0 w-0.5 h-4 bg-slate-700 -translate-x-1/2"></div>
+                  <div class="absolute left-1/2 top-0 w-0.5 h-4 bg-slate-700 -translate-x-1/2"></div>
+                  <div class="absolute left-5/6 top-0 w-0.5 h-4 bg-slate-700 -translate-x-1/2"></div>
+                </div>
+              </div>
+
+              <!-- 3대 실무대응반 카드 -->
+              <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 pt-1">
+                
+                <!-- 01 상황통제 및 대외보고반 -->
+                <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2.5">
+                  <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">01 상황통제 및 대외보고반</span>
+                    <span class="text-[11px] text-slate-400">운영사무실 #101</span>
+                  </div>
+                  <div class="text-xs text-slate-300 bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+                    <b class="text-blue-400">주요 임무:</b> 장내 비상방송 송출, 119/경찰 출동 통보, 봉화군청 보고, 보험 접수
+                  </div>
+                  <div class="space-y-1.5 text-xs">
+                    <div class="flex items-center justify-between bg-slate-900/60 p-2 rounded-lg">
+                      <span class="text-slate-300">봉화군청 문화관광과 (조은정 주무관)</span>
+                      <a href="tel:054-679-6355" class="text-blue-400 font-mono font-bold hover:underline">054-679-6355</a>
+                    </div>
+                    <div class="flex items-center justify-between bg-slate-900/60 p-2 rounded-lg">
+                      <span class="text-slate-300">봉화경찰서 봉화지구대</span>
+                      <a href="tel:112" class="text-blue-400 font-mono font-bold hover:underline">112 (054-672-0112)</a>
+                    </div>
+                    <div class="flex items-center justify-between bg-slate-900/60 p-2 rounded-lg">
+                      <span class="text-slate-300">한국어린이안전공제회 (보험)</span>
+                      <a href="tel:1577-1999" class="text-blue-400 font-mono font-bold hover:underline">1577-1999</a>
+                    </div>
+                  </div>
+                  <div class="text-[11px] text-slate-400 pt-1 border-t border-slate-800/80">
+                    <span class="text-blue-400 font-bold">반장: 김지연 매니저</span> (운영총괄)
+                  </div>
+                </div>
+
+                <!-- 02 현장구조 및 응급구호반 -->
+                <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2.5">
+                  <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">02 현장구조 및 응급구호반</span>
+                    <span class="text-[11px] text-slate-400">짚코스터/넷트 현장</span>
+                  </div>
+                  <div class="text-xs text-slate-300 bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+                    <b class="text-rose-400">주요 임무:</b> 짚코스터 멈춤 구조, 1차 응급처치(CPR·지혈), 119 구급대 유도
+                  </div>
+                  <div class="space-y-1.5 text-xs">
+                    <div class="flex items-center justify-between bg-slate-900/60 p-2 rounded-lg">
+                      <span class="text-slate-300">봉화119안전센터 (출동 상황실)</span>
+                      <a href="tel:119" class="text-rose-400 font-mono font-bold hover:underline">119 (054-670-5119)</a>
+                    </div>
+                    <div class="flex items-center justify-between bg-slate-900/60 p-2 rounded-lg">
+                      <span class="text-slate-300">봉화해성병원 응급실 (차량 5분)</span>
+                      <a href="tel:054-679-1299" class="text-emerald-400 font-mono font-bold hover:underline">054-679-1299</a>
+                    </div>
+                    <div class="flex items-center justify-between bg-slate-900/60 p-2 rounded-lg">
+                      <span class="text-slate-300">김주성 안전팀장 직통</span>
+                      <a href="tel:010-9135-9544" class="text-rose-400 font-mono font-bold hover:underline">010-9135-9544</a>
+                    </div>
+                  </div>
+                  <div class="text-[11px] text-slate-400 pt-1 border-t border-slate-800/80">
+                    <span class="text-rose-400 font-bold">반장: 김주성 안전팀장</span> (010-9135-9544 / 시설안전책임자)
+                  </div>
+                </div>
+
+                <!-- 03 현장통제 및 고객안내반 -->
+                <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2.5">
+                  <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">03 현장통제 및 고객안내반</span>
+                    <span class="text-[11px] text-slate-400">매표소/카페 라운지</span>
+                  </div>
+                  <div class="text-xs text-slate-300 bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+                    <b class="text-amber-400">주요 임무:</b> 사고구역 폴리스라인 설치, 대기객 퇴장/환불 안내, 보호자 심리 안정
+                  </div>
+                  <div class="space-y-1.5 text-xs">
+                    <div class="flex items-center justify-between bg-slate-900/60 p-2 rounded-lg">
+                      <span class="text-slate-300">원내 안내방송실 (매표데스크)</span>
+                      <span class="text-amber-400 font-bold">구내 마이크</span>
+                    </div>
+                    <div class="flex items-center justify-between bg-slate-900/60 p-2 rounded-lg">
+                      <span class="text-slate-300">총괄 홍성현 대표 직통</span>
+                      <a href="tel:010-5931-4144" class="text-amber-400 font-mono font-bold hover:underline">010-5931-4144</a>
+                    </div>
+                    <div class="flex items-center justify-between bg-slate-900/60 p-2 rounded-lg">
+                      <span class="text-slate-300">봉플레이 고객지원 상황실</span>
+                      <span class="text-slate-400 font-mono">내선 #102</span>
+                    </div>
+                  </div>
+                  <div class="text-[11px] text-slate-400 pt-1 border-t border-slate-800/80">
+                    <span class="text-amber-400 font-bold">반장: 이수민 주임</span> (고객CS총괄)
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            <!-- [2] 구체적인 정규 비상연락망 종합 표 (Table) -->
+            <div class="space-y-2 pt-2">
+              <h4 class="text-xs font-extrabold text-slate-300 uppercase tracking-wider">비상연락망 종합 현황표 (원내 조직 및 유관기관 전체)</h4>
+              <div class="overflow-x-auto rounded-2xl border border-slate-800">
+                <table class="w-full text-xs text-left border-collapse">
+                  <thead>
+                    <tr class="bg-slate-950 text-slate-300 font-bold border-b border-slate-800">
+                      <th class="p-3 text-center w-20">구분</th>
+                      <th class="p-3">기관 / 부서</th>
+                      <th class="p-3">성명 / 직위</th>
+                      <th class="p-3 font-mono">비상연락처</th>
+                      <th class="p-3">담당 임무 및 역할</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-800/60 text-slate-300">
+                    <!-- 원내 -->
+                    <tr class="hover:bg-slate-800/30">
+                      <td class="p-3 text-center font-bold text-rose-400 bg-rose-500/5">총괄지휘</td>
+                      <td class="p-3 font-bold text-white">봉플레이 운영본부</td>
+                      <td class="p-3 font-bold">홍성현 대표</td>
+                      <td class="p-3 font-mono font-bold text-amber-300"><a href="tel:010-5931-4144" class="hover:underline">010-5931-4144</a></td>
+                      <td class="p-3">현장 총괄 지휘, 대외 보고 및 언론 대응 최종 승인</td>
+                    </tr>
+                    <tr class="hover:bg-slate-800/30">
+                      <td class="p-3 text-center font-bold text-blue-400 bg-blue-500/5">상황통제</td>
+                      <td class="p-3">운영관리팀</td>
+                      <td class="p-3 font-bold text-white">김지연 매니저</td>
+                      <td class="p-3 font-mono text-slate-300">내선 #101 (사무실)</td>
+                      <td class="p-3">비상방송 송출, 군청 보고 및 유관기관 전파, 보험사 접수</td>
+                    </tr>
+                    <tr class="hover:bg-slate-800/30">
+                      <td class="p-3 text-center font-bold text-rose-400 bg-rose-500/5">응급구호</td>
+                      <td class="p-3">시설안전팀</td>
+                      <td class="p-3 font-bold text-white">김주성 안전팀장</td>
+                      <td class="p-3 font-mono font-bold text-rose-300"><a href="tel:010-9135-9544" class="hover:underline">010-9135-9544</a></td>
+                      <td class="p-3">짚코스터 멈춤 구조, 1차 응급처치(CPR·지혈), 119 인계</td>
+                    </tr>
+                    <tr class="hover:bg-slate-800/30">
+                      <td class="p-3 text-center font-bold text-amber-400 bg-amber-500/5">고객안내</td>
+                      <td class="p-3">고객지원팀</td>
+                      <td class="p-3">이수민 주임</td>
+                      <td class="p-3 font-mono text-slate-300">안내데스크 #102</td>
+                      <td class="p-3">현장 출입 통제(폴리스라인), 대기객 퇴장 및 환불, 보호자 케어</td>
+                    </tr>
+                    <!-- 유관기관 -->
+                    <tr class="hover:bg-slate-800/30 bg-slate-950/40">
+                      <td class="p-3 text-center font-bold text-rose-400 bg-rose-500/10">소방구급</td>
+                      <td class="p-3 font-bold text-white">봉화119안전센터</td>
+                      <td class="p-3">상황실 (긴급출동)</td>
+                      <td class="p-3 font-mono font-black text-rose-400"><a href="tel:119" class="hover:underline">119 (054-670-5119)</a></td>
+                      <td class="p-3">긴급 인명 구조, 환자 구급차 이송 (골든타임 7분 이내 도착)</td>
+                    </tr>
+                    <tr class="hover:bg-slate-800/30 bg-slate-950/40">
+                      <td class="p-3 text-center font-bold text-emerald-400 bg-emerald-500/10">응급병원</td>
+                      <td class="p-3 font-bold text-white">봉화해성병원</td>
+                      <td class="p-3">응급실 (차량 5분)</td>
+                      <td class="p-3 font-mono font-black text-emerald-400"><a href="tel:054-679-1299" class="hover:underline">054-679-1299</a></td>
+                      <td class="p-3">외상, 골절, 열상 1차 응급수술 및 외상 진료 연계</td>
+                    </tr>
+                    <tr class="hover:bg-slate-800/30 bg-slate-950/40">
+                      <td class="p-3 text-center font-bold text-blue-400 bg-blue-500/10">경찰치안</td>
+                      <td class="p-3 font-bold text-white">봉화경찰서 봉화지구대</td>
+                      <td class="p-3">상황실</td>
+                      <td class="p-3 font-mono font-bold text-blue-400"><a href="tel:112" class="hover:underline">112 (054-672-0112)</a></td>
+                      <td class="p-3">현장 질서 유지, 진입로 교통 통제, 미아 발생 시 합동 수색</td>
+                    </tr>
+                    <tr class="hover:bg-slate-800/30 bg-slate-950/40">
+                      <td class="p-3 text-center font-bold text-indigo-400 bg-indigo-500/10">주무관청</td>
+                      <td class="p-3 font-bold text-white">봉화군청 문화관광과</td>
+                      <td class="p-3">조은정 주무관</td>
+                      <td class="p-3 font-mono font-bold text-indigo-300"><a href="tel:054-679-6355" class="hover:underline">054-679-6355</a></td>
+                      <td class="p-3">어린이놀이시설 안전사고 발생 보고 접수 및 행정 조치</td>
+                    </tr>
+                    <tr class="hover:bg-slate-800/30 bg-slate-950/40">
+                      <td class="p-3 text-center font-bold text-purple-400 bg-purple-500/10">배상보험</td>
+                      <td class="p-3 font-bold text-white">한국어린이안전공제회</td>
+                      <td class="p-3">사고접수 콜센터</td>
+                      <td class="p-3 font-mono font-bold text-purple-300"><a href="tel:1577-1999" class="hover:underline">1577-1999</a></td>
+                      <td class="p-3">영업배상책임보험 대인/대물 사고 접수 및 피해보상 연계</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- TAB 2: 골든타임 프로토콜 -->
+        <div id="tab-view-protocol" class="tab-content hidden space-y-3">
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div class="bg-slate-900/90 rounded-2xl p-4 border border-rose-500/30">
+              <div class="text-xs font-black text-rose-400 mb-1">1. 심정지 CPR (골든타임 4분)</div>
+              <p class="text-xs text-slate-300">의식 확인 → 119 다이얼 → 매표소 AED 반출 → 가슴 중앙 5cm 깊이 분당 100~120회 압박</p>
+            </div>
+            <div class="bg-slate-900/90 rounded-2xl p-4 border border-amber-500/30">
+              <div class="text-xs font-black text-amber-400 mb-1">2. 짚코스터 비상 정지</div>
+              <p class="text-xs text-slate-300">탑승객 심리 안정 방송 → 하부 구역 진입 차단 → 보조 윈치 로프로 안전 플랫폼 예인</p>
+            </div>
+            <div class="bg-slate-900/90 rounded-2xl p-4 border border-blue-500/30">
+              <div class="text-xs font-black text-blue-400 mb-1">3. 낙상·골절 및 출혈</div>
+              <p class="text-xs text-slate-300">부상자 척추 보호(무리한 이동 금지) → 멸균 거즈 직접 압박 지혈 → 해성병원(679-1299) 이송</p>
+            </div>
+            <div class="bg-slate-900/90 rounded-2xl p-4 border border-rose-500/30">
+              <div class="text-xs font-black text-rose-400 mb-1">4. 시설 화재 발생</div>
+              <p class="text-xs text-slate-300">"불이야" 전파 → 소화기 초기 진화(초기 3분) → 야외 중앙 잔디광장으로 고객 유도 대피</p>
+            </div>
+            <div class="bg-slate-900/90 rounded-2xl p-4 border border-indigo-500/30">
+              <div class="text-xs font-black text-indigo-400 mb-1">5. 돌풍(12m/s 이상)·낙뢰</div>
+              <p class="text-xs text-slate-300">짚코스터 즉각 운행 중단 → 야외 고객 카페 실내 대피 → 15분간 풍속 안정 시 재개</p>
+            </div>
+            <div class="bg-slate-900/90 rounded-2xl p-4 border border-purple-500/30">
+              <div class="text-xs font-black text-purple-400 mb-1">6. 어린이 미아 발생</div>
+              <p class="text-xs text-slate-300">주차장 진출입로 1차 통제 → 인상착의 파악 후 구내 안내방송 송출 → 전 직원 동선 수색</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 3: 사고보고서 작성 -->
+        <div id="tab-view-report" class="tab-content hidden space-y-3">
+          <div class="bg-slate-900 rounded-3xl p-5 border border-slate-800 space-y-3">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+              <h3 class="text-sm font-extrabold text-white">안전사고 발생 보고서 작성</h3>
+              <button onclick="autoFillConsent()" class="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-rose-300 border border-slate-700">
+                🔍 오늘 동의서 불러오기
+              </button>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div>
+                <label class="block text-slate-400 mb-1 font-bold">발생 일시</label>
+                <input id="rep-datetime" type="datetime-local" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 font-bold">발생 시설</label>
+                <select id="rep-facility-id" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white">
+                  <option value="zipcoaster">짚코스터</option>
+                  <option value="net_adventure">넷트어드벤처</option>
+                  <option value="adventure_course">어드벤처 코스</option>
+                  <option value="indoor_cafe">실내 카페/라운지</option>
+                  <option value="grass_field">잔디광장</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 font-bold">피해 고객 성명</label>
+                <input id="rep-victim-name" type="text" placeholder="홍길동" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white">
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <label class="block text-slate-400 mb-1 font-bold">사고 발생 경위</label>
+                <textarea id="rep-cause" rows="2" placeholder="사고 경위를 간략히 입력하세요..." class="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white"></textarea>
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 font-bold">현장 응급조치 내역</label>
+                <textarea id="rep-action" rows="2" placeholder="응급조치 및 병원 안내 내역..." class="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white"></textarea>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-end space-x-2 pt-1">
+              <button onclick="downloadReportTXT()" class="px-3.5 py-2 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs">
+                📄 텍스트 다운로드
+              </button>
+              <button onclick="printReportSheet()" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs shadow-md">
+                🚨 저장 및 디스코드 전파
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 4: 비상 안내방송 -->
+        <div id="tab-view-broadcast" class="tab-content hidden space-y-3">
+          <div class="bg-slate-900 rounded-3xl p-5 border border-slate-800 space-y-3">
+            <h3 class="text-sm font-extrabold text-white">비상 구내 안내방송 (TTS 음성 송출)</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <button onclick="playBroadcastText('fire')" class="p-3.5 rounded-2xl bg-slate-950 hover:bg-slate-800 border border-rose-600/50 text-left space-y-1 transition active:scale-95">
+                <div class="text-xs font-bold text-rose-400">🔥 화재 대피 방송</div>
+                <p class="text-[11px] text-slate-300">직원의 안내에 따라 야외 잔디광장으로 신속히 대피 바랍니다.</p>
+              </button>
+              <button onclick="playBroadcastText('weather')" class="p-3.5 rounded-2xl bg-slate-950 hover:bg-slate-800 border border-amber-600/50 text-left space-y-1 transition active:scale-95">
+                <div class="text-xs font-bold text-amber-400">🌪️ 돌풍 운행중단 방송</div>
+                <p class="text-[11px] text-slate-300">돌풍으로 인해 짚코스터 운행을 일시 중단합니다. 실내로 이동 바랍니다.</p>
+              </button>
+              <button onclick="playBroadcastText('lost_child')" class="p-3.5 rounded-2xl bg-slate-950 hover:bg-slate-800 border border-blue-600/50 text-left space-y-1 transition active:scale-95">
+                <div class="text-xs font-bold text-blue-400">📢 미아 발생 방송</div>
+                <p class="text-[11px] text-slate-300">미아 보호 중이신 분은 안내데스크로 인계해 주시기 바랍니다.</p>
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+    </main>
+
+    <!-- Bottom Tablet Footer -->
+    <footer class="bg-slate-950 border-t border-slate-900 px-4 py-2 text-center text-[10px] text-slate-500">
+      봉플레이 비상대응 본부 │ 대표: 홍성현 (010-5931-4144) │ 경북 봉화군 봉화읍 유록길 22
+    </footer>
+
+  </div>
+
+  <!-- ======================================================== -->
+  <!-- 2. PRINT UI: A4 가로 벽면 부착용 비상연락망 체계도 -->
+  <!-- ======================================================== -->
+  <div class="print-only p-4">
+    <div class="border-2 border-black p-4 text-center">
+      <h1 class="text-xl font-black mb-1">리틀포레스트 봉플레이 비상연락망 체계도</h1>
+      <p class="text-xs mb-3">소재지: 경북 봉화군 봉화읍 유록길 22 │ 안전관리책임자: 홍성현 (010-5931-4144)</p>
+
+      <table class="w-full print-table text-xs text-left border-collapse border border-black mb-4">
+        <thead>
+          <tr class="bg-gray-200 text-center font-bold">
+            <th class="border border-black p-1">구분</th>
+            <th class="border border-black p-1">기관/부서</th>
+            <th class="border border-black p-1">담당자/역할</th>
+            <th class="border border-black p-1">전화번호</th>
+            <th class="border border-black p-1">주요 업무</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="border border-black p-1 text-center font-bold">총괄지휘</td>
+            <td class="border border-black p-1">봉플레이 운영본부</td>
+            <td class="border border-black p-1 font-bold">홍성현 대표</td>
+            <td class="border border-black p-1 font-bold">010-5931-4144</td>
+            <td class="border border-black p-1">현장 안전관리 총괄 지휘, 대외 보고 승인</td>
+          </tr>
+          <tr>
+            <td class="border border-black p-1 text-center font-bold">안전총괄</td>
+            <td class="border border-black p-1">봉플레이 시설안전팀</td>
+            <td class="border border-black p-1 font-bold">김주성 안전팀장</td>
+            <td class="border border-black p-1 font-bold">010-9135-9544</td>
+            <td class="border border-black p-1">현장 안전점검, 긴급 인명구조 및 1차 응급처치 지휘</td>
+          </tr>
+          <tr>
+            <td class="border border-black p-1 text-center font-bold">운영관리</td>
+            <td class="border border-black p-1">봉플레이 운영관리팀</td>
+            <td class="border border-black p-1 font-bold">김지연 매니저</td>
+            <td class="border border-black p-1 font-bold">내선 #101</td>
+            <td class="border border-black p-1">비상방송 송출, 대외 보고 및 고객 퇴장 안내</td>
+          </tr>
+          <tr>
+            <td class="border border-black p-1 text-center font-bold">소방구급</td>
+            <td class="border border-black p-1">봉화119안전센터</td>
+            <td class="border border-black p-1">상황실 (긴급출동)</td>
+            <td class="border border-black p-1 font-bold">119 (054-670-5119)</td>
+            <td class="border border-black p-1">인명 구조, 환자 응급 이송 (골든타임 7분)</td>
+          </tr>
+          <tr>
+            <td class="border border-black p-1 text-center font-bold">응급병원</td>
+            <td class="border border-black p-1">봉화해성병원</td>
+            <td class="border border-black p-1">응급실 (차량 5분)</td>
+            <td class="border border-black p-1 font-bold">054-679-1299</td>
+            <td class="border border-black p-1">외상, 골절, 1차 응급 진료 연계</td>
+          </tr>
+          <tr>
+            <td class="border border-black p-1 text-center font-bold">경찰치안</td>
+            <td class="border border-black p-1">봉화경찰서 봉화지구대</td>
+            <td class="border border-black p-1">상황실</td>
+            <td class="border border-black p-1 font-bold">112 (054-672-0112)</td>
+            <td class="border border-black p-1">현장 출입 통제, 치안 질서 유지</td>
+          </tr>
+          <tr>
+            <td class="border border-black p-1 text-center font-bold">주무관청</td>
+            <td class="border border-black p-1">봉화군청 문화관광과</td>
+            <td class="border border-black p-1">조은정 주무관</td>
+            <td class="border border-black p-1 font-bold">054-679-6355</td>
+            <td class="border border-black p-1">사고 발생 사실 보고 및 행정 조치</td>
+          </tr>
+          <tr>
+            <td class="border border-black p-1 text-center font-bold">배상보험</td>
+            <td class="border border-black p-1">어린이놀이시설 안전공제</td>
+            <td class="border border-black p-1">사고접수 콜센터</td>
+            <td class="border border-black p-1 font-bold">1577-1999</td>
+            <td class="border border-black p-1">사고 접수 및 대인 배상 보상 접수</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Floating Main Link -->
+  <a href="../index.html" class="no-print fixed left-3 bottom-3 z-50 flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs font-bold shadow-xl backdrop-blur">
+    <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i>
+    <span>메인 메뉴</span>
+  </a>
+
+  <!-- ======================================================== -->
+  <!-- 3. KIOSK SCRIPTS ENGINE -->
+  <!-- ======================================================== -->
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+      initLiveClock();
+      initDefaultDateTime();
+      initWakeLock();
+    });
+
+    // 1. Screen Wake Lock API
+    let wakeLockSentinel = null;
+
+    async function initWakeLock() {
+      if ('wakeLock' in navigator) {
+        try {
+          wakeLockSentinel = await navigator.wakeLock.request('screen');
+          updateWakeLockUI(true);
+          wakeLockSentinel.addEventListener('release', () => updateWakeLockUI(false));
+        } catch (err) {
+          updateWakeLockUI(false);
+        }
+
+        document.addEventListener('visibilitychange', async () => {
+          if (wakeLockSentinel !== null && document.visibilityState === 'visible') {
+            try {
+              wakeLockSentinel = await navigator.wakeLock.request('screen');
+              updateWakeLockUI(true);
+            } catch (e) {}
+          }
+        });
+      } else {
+        const btn = document.getElementById('wake-lock-btn');
+        if (btn) btn.style.display = 'none';
+      }
+    }
+
+    async function toggleWakeLock() {
+      if (!('wakeLock' in navigator)) {
+        showToast('현재 기기는 화면 켜짐 유지 API를 지원하지 않습니다.');
+        return;
+      }
+      if (wakeLockSentinel) {
+        await wakeLockSentinel.release();
+        wakeLockSentinel = null;
+        updateWakeLockUI(false);
+        showToast('화면 꺼짐 방지가 해제되었습니다.');
+      } else {
+        try {
+          wakeLockSentinel = await navigator.wakeLock.request('screen');
+          updateWakeLockUI(true);
+          showToast('화면 상시 켜짐이 활성화되었습니다.');
+        } catch (e) {
+          showToast('화면 켜짐 유지 요청에 실패했습니다.');
+        }
+      }
+    }
+
+    function updateWakeLockUI(isActive) {
+      const btn = document.getElementById('wake-lock-btn');
+      if (!btn) return;
+      if (isActive) {
+        btn.className = 'flex items-center space-x-1.5 px-2.5 py-1 rounded-xl text-xs font-bold transition bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30';
+        btn.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span><span>화면 켜짐 유지</span>';
+      } else {
+        btn.className = 'flex items-center space-x-1.5 px-2.5 py-1 rounded-xl text-xs font-bold transition bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700';
+        btn.innerHTML = '<span class="w-2 h-2 rounded-full bg-slate-500"></span><span>화면 켜짐 터치</span>';
+      }
+    }
+
+    // 2. Live Clock
+    function initLiveClock() {
+      const clockEl = document.getElementById('kiosk-live-clock');
+      function update() {
+        const now = new Date();
+        const hh = String(now.getHours()).padStart(2, '0');
+        const mm = String(now.getMinutes()).padStart(2, '0');
+        const ss = String(now.getSeconds()).padStart(2, '0');
+        if (clockEl) clockEl.innerText = `${hh}:${mm}:${ss}`;
+      }
+      update();
+      setInterval(update, 1000);
+    }
+
+    function initDefaultDateTime() {
+      const dtInput = document.getElementById('rep-datetime');
+      if (dtInput) {
+        const now = new Date();
+        now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+        dtInput.value = now.toISOString().slice(0, 16);
+      }
+    }
+
+    // 3. 주소 복사
+    function copyAddress() {
+      const addr = '경북 봉화군 봉화읍 유록길 22 봉플레이';
+      navigator.clipboard.writeText(addr).then(() => {
+        showToast('📍 주소가 복사되었습니다: ' + addr);
+      }).catch(() => {
+        showToast('주소: 경북 봉화군 봉화읍 유록길 22');
+      });
+    }
+
+    function showReportGuideModal() {
+      alert(
+        "[119 신고 3단계 표준 요령]\n\n" +
+        "1. 정확한 위치 고지:\n\"경북 봉화군 봉화읍 유록길 22, 봉플레이입니다.\"\n\n" +
+        "2. 환자 상태 설명:\n- 의식 유무 (깨어 있는지)\n- 호흡 및 출혈 상태\n- 사고 장소 (짚코스터/넷트/어드벤처/카페)\n\n" +
+        "3. 조치 상태:\n\"현재 안전관리자가 응급조치 후 대기 중입니다. 구급차 출동을 요청합니다.\""
+      );
+    }
+
+    // 4. Web Audio 비상 사이렌
+    function playEmergencySound() {
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(1400, audioCtx.currentTime + 0.3);
+        osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.6);
+
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 1.2);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc.start();
+        osc.stop(audioCtx.currentTime + 1.2);
+      } catch (e) {}
+    }
+
+    // 5. 🚨 긴급 원터치 비상벨 (디스코드 전파 + 사이렌)
+    async function triggerEmergencyBell() {
+      playEmergencySound();
+
+      const confirmed = confirm(
+        "🚨 [비상벨 발령]\n\n" +
+        "비상벨을 누르면 전 직원 및 대표 디스코드 #비상 채널로 긴급 출동 경보가 즉시 전파됩니다.\n\n" +
+        "비상벨을 발령하시겠습니까?"
+      );
+
+      if (!confirmed) return;
+
+      playEmergencySound();
+      showToast('🚨 전 직원 비상벨 발령! 디스코드 긴급 출동 경보가 전송되었습니다.');
+
+      if (window.BongplayNotify && typeof BongplayNotify.sendInstantBellAlert === 'function') {
+        await BongplayNotify.sendInstantBellAlert({
+          location: '실내 안내데스크 비상 키오스크',
+          caller: '현장 방문객 또는 직원'
+        });
+      }
+    }
+
+    // 6. 탭 전환
+    function switchKioskTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.className = 'tab-btn flex items-center space-x-1.5 px-3.5 py-2 rounded-xl font-bold text-xs transition text-slate-400 hover:text-white hover:bg-slate-900';
+      });
+
+      const targetView = document.getElementById('tab-view-' + tabId);
+      const targetBtn = document.getElementById('tab-btn-' + tabId);
+
+      if (targetView) targetView.classList.remove('hidden');
+      if (targetBtn) {
+        targetBtn.className = 'tab-btn flex items-center space-x-1.5 px-3.5 py-2 rounded-xl font-extrabold text-xs transition bg-rose-600 text-white shadow';
+      }
+      lucide.createIcons();
+    }
+
+    // 7. 보고서 저장 & 디스코드 수석비서 전파
+    function printReportSheet() {
+      const dt = document.getElementById('rep-datetime').value.replace('T', ' ');
+      const facilitySelect = document.getElementById('rep-facility-id');
+      const facilityId = facilitySelect ? facilitySelect.value : 'general';
+      const facilityName = facilitySelect && facilitySelect.selectedOptions[0] ? facilitySelect.selectedOptions[0].text : '시설 미상';
+
+      const victim = document.getElementById('rep-victim-name').value || '미상';
+      const cause = document.getElementById('rep-cause').value || '원인 미상';
+      const action = document.getElementById('rep-action').value || '현장 응급조치 수행';
+      const hospital = '봉화해성병원 (054-679-1299)';
+
+      const incidentRecord = {
+        id: 'inc_' + Date.now(),
+        site_id: 'bongplay_main',
+        facility_id: facilityId,
+        occurred_at: dt,
+        victim_name: victim,
+        description: cause,
+        action_taken: action,
+        hospital_transport: hospital,
+        reported_by: '홍성현 대표 (010-5931-4144)',
+        created_at: new Date().toISOString()
+      };
+
+      try {
+        let localIncidents = JSON.parse(localStorage.getItem('bongplay_incident_logs') || '[]');
+        localIncidents.unshift(incidentRecord);
+        localStorage.setItem('bongplay_incident_logs', JSON.stringify(localIncidents));
+
+        if (window.BongplaySync && typeof BongplaySync.upsert === 'function') {
+          BongplaySync.upsert('incident_logs', incidentRecord);
+        }
+
+        if (window.BongplayNotify && typeof BongplayNotify.sendEmergencyAlert === 'function') {
+          BongplayNotify.sendEmergencyAlert({
+            id: incidentRecord.id,
+            facility_name: facilityName,
+            severity: 'serious',
+            called_119: action.includes('119'),
+            occurred_at: dt,
+            victim_name: victim,
+            description: cause,
+            action_taken: action,
+            hospital_transport: hospital
+          });
+        }
+
+        showToast('✅ 사고보고서 저장 및 디스코드 #비상 보고가 완료되었습니다.');
+      } catch (e) {
+        console.error('Failed to save incident:', e);
+      }
+    }
+
+    function autoFillConsent() {
+      try {
+        const raw = localStorage.getItem('bongplay_safety_consents') || localStorage.getItem('bongtteurak_consents_v1') || localStorage.getItem('bongplay_consents');
+        const consents = raw ? JSON.parse(raw) : [];
+        if (consents.length > 0) {
+          const latest = consents[0];
+          const vName = latest.victimName || latest.childName || latest.name || latest.guardianName || '';
+          if (vName) document.getElementById('rep-victim-name').value = vName;
+          showToast('동의서 정보를 불러왔습니다: ' + (vName || '확인 완료'));
+        } else {
+          showToast('동의서 기록이 없습니다.');
+        }
+      } catch (e) {
+        showToast('동의서 연동 중 오류 발생');
+      }
+    }
+
+    function downloadReportTXT() {
+      const dt = document.getElementById('rep-datetime').value;
+      const place = document.getElementById('rep-facility-id')?.value || '시설 미상';
+      const victim = document.getElementById('rep-victim-name').value;
+      const cause = document.getElementById('rep-cause').value;
+      const action = document.getElementById('rep-action').value;
+
+      const txt = `[봉플레이 안전사고 발생 보고서]\n일시: ${dt}\n장소: ${place}\n피해자: ${victim}\n경위: ${cause}\n조치: ${action}\n병원: 해성병원 (054-679-1299)\n주소: 경북 봉화군 봉화읍 유록길 22\n책임자: 홍성현 (010-5931-4144)`;
+
+      const dNow = new Date();
+      const localStamp = `${dNow.getFullYear()}-${String(dNow.getMonth()+1).padStart(2,'0')}-${String(dNow.getDate()).padStart(2,'0')}`;
+      const blob = new Blob([txt], { type: 'text/plain;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `사고보고서_${localStamp}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    function playBroadcastText(type) {
+      const messages = {
+        fire: "고객 여러분께 안내 말씀 드립니다. 시설 내에 비상 상황이 발생하였습니다. 직원의 유도에 따라 야외 잔디광장으로 대피 바랍니다.",
+        weather: "고객 여러분께 안내 말씀 드립니다. 돌풍으로 인해 짚코스터 운행을 일시 중단합니다. 실내로 이동하여 주시기 바랍니다.",
+        lost_child: "안내 말씀 드립니다. 미아를 보호하고 계신 분은 즉시 매표소 안내데스크로 인계해 주시기 바랍니다."
+      };
+
+      const msg = messages[type] || "비상 안내방송입니다.";
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(msg);
+        utter.lang = 'ko-KR';
+        utter.rate = 0.9;
+        window.speechSynthesis.speak(utter);
+        showToast('📢 안내방송이 송출 중입니다...');
+      } else {
+        alert(msg);
+      }
+    }
+
+    function toggleFullScreen() {
+      if (!document.fullscreenElement && !document.webkitFullscreenElement && !document.msFullscreenElement) {
+        if (document.documentElement.requestFullscreen) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        } else if (document.documentElement.webkitRequestFullscreen) {
+          document.documentElement.webkitRequestFullscreen();
+        } else if (document.documentElement.msRequestFullscreen) {
+          document.documentElement.msRequestFullscreen();
+        }
+      } else {
+        if (document.exitFullscreen) {
+          document.exitFullscreen().catch(() => {});
+        } else if (document.webkitExitFullscreen) {
+          document.webkitExitFullscreen();
+        } else if (document.msExitFullscreen) {
+          document.msExitFullscreen();
+        }
+      }
+    }
+
+    function showToast(msg) {
+      const toast = document.createElement('div');
+      toast.className = 'fixed bottom-6 right-6 z-50 bg-slate-950 text-white px-4 py-2.5 rounded-2xl shadow-2xl border border-rose-500/60 text-xs font-bold flex items-center space-x-2 transition-all duration-300';
+      toast.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-emerald-400"></i><span>${msg}</span>`;
+      document.body.appendChild(toast);
+      lucide.createIcons();
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-2');
+        setTimeout(() => toast.remove(), 300);
+      }, 2500);
+    }
+  </script>
+</body>
+</html>

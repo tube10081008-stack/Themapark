@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>급여명세서 — 리틀포레스트 봉플레이</title>
+<link rel="stylesheet" href="form-style.css">
+</head>
+<body>
+<div class="navlinks">
+  <a href="index.html">← 서식 목록</a>
+</div>
+
+<div class="guide">
+  <h2>쓰는 법</h2>
+  <ol>
+    <li><b>급여명세서 교부는 법적 의무</b>입니다(근로기준법 제48조 제2항). 임금 지급 시 반드시 함께 주십시오.</li>
+    <li>해당 없는 항목은 비워두시면 인쇄 시 점선만 남습니다.</li>
+    <li>4대보험 요율은 매년 바뀌니 <b>지급 시점 요율을 확인</b>하고 계산하십시오.</li>
+  </ol>
+  <div class="warn"><b>계산은 자동이 아닙니다.</b> 각 항목 금액을 직접 계산해 넣으셔야 합니다. 급여 계산이 복잡하면 4대보험료 모의계산기(국민연금공단 등)를 활용하십시오.</div>
+  <button class="btn" onclick="window.print()">인쇄 / PDF로 저장</button>
+</div>
+
+<div class="paper">
+
+  <h1 class="narrow">급여명세서</h1>
+  <div class="docno" style="margin-top:10px">
+    지급연월: <span class="f inline" data-ph="2026년 00월분"></span>
+  </div>
+
+  <table>
+    <tbody>
+      <tr>
+        <th>성명</th><td><span class="f" data-ph="예) 홍길동"></span></td>
+        <th>부서·직위</th><td><span class="f" data-ph="예) 안전요원"></span></td>
+      </tr>
+      <tr>
+        <th>지급일</th><td><span class="f" data-ph="예) 2026. 00. 25."></span></td>
+        <th>근무기간</th><td><span class="f" data-ph="예) 2026.00.01 ~ 00.31"></span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <table>
+    <caption>1. 지급 내역</caption>
+    <tbody>
+      <tr><th class="wide">기본급</th><td class="center"><span class="f" data-ph="0"></span></td>
+          <th class="wide">연장근로수당</th><td class="center"><span class="f" data-ph="0"></span></td></tr>
+      <tr><th class="wide">야간근로수당</th><td class="center"><span class="f" data-ph="0"></span></td>
+          <th class="wide">휴일근로수당</th><td class="center"><span class="f" data-ph="0"></span></td></tr>
+      <tr><th class="wide">주휴수당</th><td class="center"><span class="f" data-ph="0"></span></td>
+          <th class="wide">기타수당</th><td class="center"><span class="f" data-ph="0"></span></td></tr>
+      <tr><th class="wide" style="background:#eef2f7">지급액 계</th>
+          <td class="center" colspan="3"><span class="f" data-ph="0" style="font-size:15px"></span></td></tr>
+    </tbody>
+  </table>
+
+  <table>
+    <caption>2. 공제 내역</caption>
+    <tbody>
+      <tr><th class="wide">국민연금</th><td class="center"><span class="f" data-ph="0"></span></td>
+          <th class="wide">건강보험</th><td class="center"><span class="f" data-ph="0"></span></td></tr>
+      <tr><th class="wide">장기요양보험</th><td class="center"><span class="f" data-ph="0"></span></td>
+          <th class="wide">고용보험</th><td class="center"><span class="f" data-ph="0"></span></td></tr>
+      <tr><th class="wide">소득세</th><td class="center"><span class="f" data-ph="0"></span></td>
+          <th class="wide">지방소득세</th><td class="center"><span class="f" data-ph="0"></span></td></tr>
+      <tr><th class="wide">기타공제</th><td class="center"><span class="f" data-ph="0"></span></td>
+          <th class="wide" style="background:#eef2f7">공제액 계</th><td class="center"><span class="f" data-ph="0"></span></td></tr>
+    </tbody>
+  </table>
+
+  <table>
+    <tbody>
+      <tr>
+        <th class="wide" style="background:#e8eef7; font-size:15px">실지급액</th>
+        <td class="center" style="font-size:17px; font-weight:700; height:34px">
+          <span class="f" data-ph="0"></span>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <table>
+    <caption>3. 계산 기초 (시급제·연장근로가 있는 경우 기재)</caption>
+    <tbody>
+      <tr><th class="wide">시급</th><td><span class="f" data-ph="예) 10,030원"></span></td>
+          <th class="wide">총 근로시간</th><td><span class="f" data-ph="예) 209시간"></span></td></tr>
+      <tr><th class="wide">연장 시간</th><td><span class="f" data-ph="예) 10시간 (통상시급 ×1.5)"></span></td>
+          <th class="wide">야간 시간</th><td><span class="f" data-ph="예) 0시간 (×0.5 가산)"></span></td></tr>
+    </tbody>
+  </table>
+<div class="date"><span class="f inline" style="min-width:200px" data-ph="2026년 00월 00일"></span></div>    <div class="issuer">
+    <table class="issuerbox">
+      <tr><td class="k">상호</td><td class="v">리틀포레스트 봉플레이</td></tr>
+      <tr><td class="k">사업자등록번호</td><td class="v"><span class="f inline" data-ph="000-00-00000"></span></td></tr>
+      <tr><td class="k">소재지</td><td class="v">경상북도 봉화군 봉화읍 유록길 22</td></tr>
+      <tr><td class="k">연락처</td><td class="v"><span class="f inline" style="min-width:160px" data-ph="054-000-0000"></span></td></tr>
+    </table>
+
+    <div class="rep">
+      대표 &nbsp; 홍 성 현
+      <span class="seal">(인)</span>
+    </div>
+  </div>
+
+  <div class="foot">
+    ※ 본 명세서는 근로기준법 제48조 제2항에 따라 교부하는 임금명세서입니다.<br>
+    ※ 기재 내용에 이의가 있으면 지급일로부터 상당 기간 내에 사업주에게 문의하십시오.
+  </div>
+</div>
+<script src="form-script.js"></script>
+<a href="../index.html" class="no-print" style="position:fixed;left:12px;bottom:12px;z-index:9999;display:inline-flex;align-items:center;gap:6px;padding:9px 14px;border-radius:14px;background:#111;border:1px solid #333;color:#fff;font-size:11px;font-weight:700;text-decoration:none;box-shadow:0 4px 16px rgba(0,0,0,.25)">&#8592; 메인</a>
+</body>
+</html>

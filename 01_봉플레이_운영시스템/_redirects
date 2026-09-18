@@ -1,0 +1,13 @@
+/master      /pages/master.html        200
+/operations  /pages/operations.html    200
+/management  /pages/management.html    200
+/safety      /pages/safety-check.html  200
+/emergency   /pages/emergency.html     200
+/closing     /pages/closing.html       200
+/consent     /pages/consent.html       200
+/booking     /pages/booking.html       200
+/simulator   /pages/simulator.html     200
+/forms       /forms/index.html         200
+/incident    /forms/incident-report.html 200
+/contract    /forms/employment-contract.html 200
+/metaverse   /pages/metaverse.html     200

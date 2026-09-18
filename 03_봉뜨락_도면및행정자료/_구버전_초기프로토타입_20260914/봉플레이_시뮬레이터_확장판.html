@@ -1,0 +1,2062 @@
+<!DOCTYPE html>
+<html lang="ko" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>리틀포레스트 봉플레이 통합 재무 &amp; 보상 시뮬레이터</title>
+  <!-- Google Fonts: Noto Sans KR -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Noto Sans KR', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50: '#f0f7ff',
+              100: '#e0effe',
+              500: '#2563eb',
+              600: '#1d4ed8',
+              700: '#1e40af',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body { font-family: 'Noto Sans KR', -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
+    .tabular-nums { font-variant-numeric: tabular-nums; }
+    .cell-hover-effect { transition: transform 0.15s ease-in-out, box-shadow 0.15s ease-in-out; }
+    @media (min-width: 768px) {
+      .cell-hover-effect:hover {
+        transform: scale(1.04);
+        z-index: 20;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2), 0 4px 6px -2px rgba(0, 0, 0, 0.1);
+      }
+    }
+    .breakeven-cell { position: relative; }
+    .breakeven-cell::after {
+      content: 'BEP';
+      position: absolute;
+      bottom: 2px;
+      right: 3px;
+      border: 1px dashed currentColor;
+      border-radius: 4px;
+      opacity: 0.85;
+      pointer-events: none;
+      padding: 1px 3px;
+      font-size: 8px;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .sticky-col {
+      position: sticky;
+      left: 0;
+      z-index: 10;
+    }
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: rgba(0,0,0,0.03); }
+    ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 2px; }
+  </style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-full transition-colors duration-200 antialiased selection:bg-blue-500 selection:text-white">
+
+  <!-- Main Unified Navigation Header -->
+  <header class="sticky top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-b border-slate-200 dark:border-slate-800 px-3 sm:px-4 lg:px-8 py-2.5">
+    <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5">
+      
+      <!-- Brand & Main Navigation Tabs -->
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+        
+        <div class="flex items-center justify-between sm:justify-start gap-2">
+          <div class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center font-black text-base sm:text-lg shadow-md shadow-blue-500/20 shrink-0">
+            🌱
+          </div>
+          <div>
+            <h1 class="text-sm sm:text-base font-bold leading-tight flex items-center gap-1.5">
+              <span>리틀포레스트 봉플레이</span>
+              
+            </h1>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">통합 손익 &amp; 동료보상 시뮬레이터 · 5년 계약 기준</p>
+          </div>
+
+          <!-- Theme Toggle for Mobile -->
+          <button id="themeToggleMobile" aria-label="테마 전환" class="sm:hidden p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+            <i data-lucide="sun" class="w-4 h-4 hidden dark:block"></i>
+            <i data-lucide="moon" class="w-4 h-4 block dark:hidden"></i>
+          </button>
+        </div>
+
+        <!-- Main Tab Switcher Bar -->
+        <nav class="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-bold shadow-inner">
+          <button id="tabBtnSensitivity" class="flex-1 sm:flex-none px-3 py-1.5 rounded-lg bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm transition flex items-center justify-center gap-1.5 font-bold">
+            <i data-lucide="grid" class="w-3.5 h-3.5"></i>
+            <span>1. 손익 민감도 (BEP)</span>
+          </button>
+          <button id="tabBtnCoWorker" class="flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition flex items-center justify-center gap-1.5 font-semibold">
+            <i data-lucide="users" class="w-3.5 h-3.5"></i>
+            <span>2. 동료 보상 & 성장</span>
+          </button>
+        </nav>
+
+      </div>
+
+      <!-- Action Buttons Row -->
+      <div class="flex items-center justify-between md:justify-end gap-1.5 sm:gap-2">
+        
+        <!-- Tab 1 Dynamic Action Controls: Pre/After Tax Switch -->
+        <div id="controlsTab1" class="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
+          <button id="btnTaxPre" class="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm transition flex items-center gap-1 text-[11px] sm:text-xs font-bold">
+            <span>세전</span>
+          </button>
+          <button id="btnTaxAfter" class="px-2.5 py-1 rounded-lg text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition flex items-center gap-1 text-[11px] sm:text-xs font-medium">
+            <span>세후</span>
+          </button>
+        </div>
+
+        <!-- Tab 2 Dynamic Action Controls: Presets -->
+        <div id="controlsTab2" class="hidden flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
+          <button id="btnPresetCons" class="px-2 py-1 rounded-lg text-[11px] font-medium hover:bg-white dark:hover:bg-slate-700 transition">🟡 보수</button>
+          <button id="btnPresetBase" class="px-2 py-1 rounded-lg text-[11px] font-bold bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm transition">🟢 기본</button>
+          <button id="btnPresetOpt" class="px-2 py-1 rounded-lg text-[11px] font-medium hover:bg-white dark:hover:bg-slate-700 transition">🚀 낙관</button>
+        </div>
+
+        <!-- Shared Modals Triggers -->
+        <button id="btnOpenPriceModal" class="px-2.5 sm:px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition flex items-center gap-1 shadow-sm active:scale-95">
+          <i data-lucide="tag" class="w-3.5 h-3.5"></i>
+          <span>전략요금표</span>
+        </button>
+
+        <button id="btnOpenFeasibility" class="px-2.5 sm:px-3 py-1.5 text-xs font-bold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition flex items-center gap-1 shadow-sm active:scale-95">
+          <i data-lucide="bar-chart-2" class="w-3.5 h-3.5"></i>
+          <span>수요타당성</span>
+        </button>
+
+        <button id="btnOpenStrategy" class="px-2.5 sm:px-3 py-1.5 text-xs font-bold rounded-lg bg-rose-600 text-white hover:bg-rose-700 transition flex items-center gap-1 shadow-sm active:scale-95">
+          <i data-lucide="target" class="w-3.5 h-3.5"></i>
+          <span>전략분석</span>
+        </button>
+
+        <!-- Desktop Theme Toggle -->
+        <button id="themeToggle" aria-label="테마 전환" class="hidden sm:block p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition active:scale-95">
+          <i data-lucide="sun" class="w-4 h-4 hidden dark:block"></i>
+          <i data-lucide="moon" class="w-4 h-4 block dark:hidden"></i>
+        </button>
+
+        <!-- Reset Button -->
+        <button id="btnReset" title="초기화" class="p-1.5 sm:px-3 sm:py-1.5 text-xs font-semibold rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition active:scale-95 flex items-center gap-1">
+          <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+          <span class="hidden sm:inline">초기화</span>
+        </button>
+      </div>
+
+    </div>
+  </header>
+
+  <!-- Main Content Container -->
+  <main class="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-4 sm:py-6">
+
+    <!-- ================================================================= -->
+    <!-- TAB 1: 손익 민감도 & BEP 시뮬레이터 SECTION                       -->
+    <!-- ================================================================= -->
+    <section id="sectionSensitivity" class="space-y-4 sm:space-y-6">
+      
+      <!-- Top KPI Cards Grid -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
+        
+        <!-- Total Fixed Cost Card -->
+        <div class="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1 sm:mb-2">
+            <span class="text-[11px] sm:text-xs font-semibold uppercase tracking-wider">총 연간 고정비</span>
+            <i data-lucide="wallet" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-500"></i>
+          </div>
+          <div id="kpiFixedCost" class="text-base sm:text-2xl font-extrabold text-slate-900 dark:text-white tabular-nums leading-tight">
+            2억 2,890만 원
+          </div>
+          <div class="mt-1.5 text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between">
+            <span id="kpiLaborLabel" class="truncate">인건비 비중 (1.2억)</span>
+            <span id="kpiLaborRatio" class="font-bold text-blue-600 dark:text-blue-400 ml-1">52.4%</span>
+          </div>
+          <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1 sm:h-1.5 mt-1 overflow-hidden">
+            <div id="kpiLaborBar" class="bg-blue-600 h-full rounded-full" style="width: 52.4%"></div>
+          </div>
+        </div>
+
+        <!-- Strategy Blended Price Card -->
+        <div class="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1 sm:mb-2">
+            <span class="text-[11px] sm:text-xs font-semibold uppercase tracking-wider">평균 혼합객단가</span>
+            <i data-lucide="tag" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-500"></i>
+          </div>
+          <div id="kpiAvgPrice" class="text-base sm:text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums leading-tight">
+            12,036 원
+          </div>
+          <p class="mt-1 text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 truncate">
+            어린이 1.5만+보호자 5천 가중혼합
+          </p>
+        </div>
+
+        <!-- Owner Target Profit Card -->
+        <div class="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1 sm:mb-2">
+            <span class="text-[11px] sm:text-xs font-semibold uppercase tracking-wider">안전요원 처우 기준</span>
+            <i data-lucide="award" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-500"></i>
+          </div>
+          <div id="kpiTargetProfit" class="text-base sm:text-2xl font-extrabold text-slate-900 dark:text-white tabular-nums leading-tight">
+            2,800만 원
+          </div>
+          <p id="kpiTargetSub" class="mt-1 text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 truncate">
+            안전요원 2인 동일 2,800만 적용
+          </p>
+        </div>
+
+        <!-- BEP Visitor Range Card -->
+        <div class="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1 sm:mb-2">
+            <span id="kpiBepTitle" class="text-[11px] sm:text-xs font-semibold uppercase tracking-wider">BEP 필요방문객</span>
+            <i data-lucide="target" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-rose-500"></i>
+          </div>
+          <div id="kpiBepVisitors" class="text-base sm:text-xl font-extrabold text-slate-900 dark:text-white tabular-nums leading-tight">
+            1.96만 명
+          </div>
+          <p id="kpiBepDetail" class="mt-1 text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 truncate">
+            혼합객단가 12,036원 기준 19,606명
+          </p>
+        </div>
+
+      </div>
+
+      <!-- Main Workspace Grid (Controls + Table/Chart) -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
+
+        <!-- Controls Column (4 cols) -->
+        <div class="lg:col-span-4 space-y-4 sm:space-y-6">
+          <details class="group bg-white dark:bg-slate-900 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-5 shadow-sm space-y-4" open>
+            <summary class="flex items-center justify-between font-bold text-sm sm:text-base cursor-pointer list-none border-b border-slate-100 dark:border-slate-800 pb-3">
+              <span class="flex items-center gap-2 text-slate-900 dark:text-white">
+                <i data-lucide="sliders" class="w-4 h-4 text-blue-600"></i>
+                재무 변수 조절 패널
+              </span>
+              <span class="text-xs text-blue-600 dark:text-blue-400 group-open:rotate-180 transition-transform duration-200">▼</span>
+            </summary>
+
+            <div class="space-y-5 pt-2">
+              <div class="space-y-3">
+                <div class="flex items-center justify-between">
+                  <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">1. 연간 고정비 (원)</h3>
+                  <span id="txtSumFixedCosts" class="text-xs font-extrabold text-blue-600 dark:text-blue-400 tabular-nums">228,900,000원</span>
+                </div>
+
+                <div class="space-y-3 text-xs">
+                  <div>
+                    <div class="flex justify-between mb-1">
+                      <label class="font-medium text-slate-700 dark:text-slate-300">사용료 (낙찰가 4,300만 + VAT)</label>
+                      <span id="lblCostRent" class="font-bold tabular-nums">47,300,000</span>
+                    </div>
+                    <input type="range" id="inputRent" min="0" max="100000000" step="1000000" value="47300000" class="w-full accent-blue-600 h-2 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer touch-none">
+                  </div>
+
+                  <div>
+                    <div class="flex justify-between mb-1">
+                      <label class="font-medium text-slate-700 dark:text-slate-300">운영담당 (경력직 총괄)</label>
+                      <span id="lblCostLaborOp" class="font-bold tabular-nums">28,000,000</span>
+                    </div>
+                    <input type="range" id="inputLaborOp" min="0" max="60000000" step="1000000" value="28000000" class="w-full accent-blue-600 h-2 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer touch-none">
+                  </div>
+
+                  <div>
+                    <div class="flex justify-between mb-1">
+                      <label class="font-medium text-slate-700 dark:text-slate-300">
+                        안전요원 (<span id="lblSafetyCount">2</span>인 × <span id="lblSafetyEach">2,800</span>만)
+                      </label>
+                      <span id="lblCostLaborSafety" class="font-bold text-blue-600 dark:text-blue-400 tabular-nums">56,000,000</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 mt-1">
+                      <select id="inputSafetyCount" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-xs font-semibold">
+                        <option value="0">0 명</option>
+                        <option value="1">1 명</option>
+                        <option value="2" selected>2 명</option>
+                        <option value="3">3 명</option>
+                        <option value="4">4 명</option>
+                      </select>
+                      <input type="number" id="inputSafetyEach" value="28000000" step="1000000" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-xs text-right tabular-nums font-semibold">
+                    </div>
+                  </div>
+
+                  <div>
+                    <div class="flex justify-between mb-1">
+                      <label class="font-medium text-slate-700 dark:text-slate-300">매표·고객응대 담당</label>
+                      <span id="lblCostLaborTicket" class="font-bold tabular-nums">24,000,000</span>
+                    </div>
+                    <input type="range" id="inputLaborTicket" min="0" max="50000000" step="1000000" value="24000000" class="w-full accent-blue-600 h-2 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer touch-none">
+                  </div>
+
+                  <div>
+                    <div class="flex justify-between mb-1">
+                      <label class="font-medium text-slate-700 dark:text-slate-300">미화·환경정비 파트타임</label>
+                      <span id="lblCostLaborClean" class="font-bold tabular-nums">12,000,000</span>
+                    </div>
+                    <input type="range" id="inputLaborClean" min="0" max="30000000" step="1000000" value="12000000" class="w-full accent-blue-600 h-2 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer touch-none">
+                  </div>
+
+                  <div class="pt-1 border-t border-slate-100 dark:border-slate-800">
+                    <div class="flex justify-between mb-1">
+                      <label class="font-medium text-slate-700 dark:text-slate-300">공공관리비 <span class="text-[10px] text-amber-600 font-bold">계약서 제10조</span></label>
+                      <span id="lblCostUtil" class="font-bold tabular-nums">27,600,000</span>
+                    </div>
+                    <input type="range" id="inputUtility" min="0" max="80000000" step="1000000" value="27600000" class="w-full accent-amber-500 h-2 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer touch-none">
+                    <p class="text-[10px] text-slate-400 mt-1">계약서 제10조 — 전기·수도·난방·무인경비·안전관리 대행료 (월평균 약 230만 원 추산)</p>
+                  </div>
+
+                  <div class="grid grid-cols-2 gap-2">
+                    <div>
+                      <label class="font-medium text-slate-700 dark:text-slate-300 block mb-1">유지관리비 <span class="text-[9px] text-slate-400">특약 제8조④</span></label>
+                      <input type="number" id="inputMaintenance" value="12000000" step="1000000" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-xs text-right tabular-nums">
+                    </div>
+                    <div>
+                      <label class="font-medium text-slate-700 dark:text-slate-300 block mb-1">보험료 <span class="text-[9px] text-slate-400">영조물 등 3종</span></label>
+                      <input type="number" id="inputInsurance" value="7000000" step="500000" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-xs text-right tabular-nums">
+                    </div>
+                  </div>
+
+                  <div>
+                    <label class="font-medium text-slate-700 dark:text-slate-300 block mb-1">기타 홍보마케팅 및 운영경비</label>
+                    <input type="number" id="inputMisc" value="15000000" step="1000000" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-xs text-right tabular-nums">
+                  </div>
+                </div>
+              </div>
+
+              <div class="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">2. 변동비 설정</h3>
+                <div class="space-y-3 text-xs">
+                  <div>
+                    <div class="flex justify-between mb-1">
+                      <label class="font-medium text-slate-700 dark:text-slate-300">1인당 변동비 <span class="text-[10px] text-slate-400 font-normal">(카드수수료 2% + 안전장구 소모품 1%)</span></label>
+                      <span id="lblVarCost" class="font-bold tabular-nums">361원</span>
+                    </div>
+                    <input type="range" id="inputVarCost" min="0" max="2000" step="1" value="361" class="w-full accent-emerald-600 h-2 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer touch-none">
+                  </div>
+                </div>
+              </div>
+
+              <div class="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">3. 그리드 구간 범위</h3>
+                <div class="space-y-3 text-xs">
+                  <div>
+                    <label class="font-medium text-slate-700 dark:text-slate-300 block mb-1">객단가 범위 (원, 4구간)</label>
+                    <div class="grid grid-cols-4 gap-1">
+                      <input type="number" id="price0" value="9000" step="500" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md p-1.5 text-center font-medium text-[11px] min-w-0">
+                      <input type="number" id="price1" value="10500" step="500" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md p-1.5 text-center font-medium text-[11px] min-w-0">
+                      <input type="number" id="price2" value="12036" step="500" class="bg-slate-50 dark:bg-slate-800 border border-emerald-500 text-emerald-600 dark:text-emerald-400 rounded-md p-1.5 text-center font-bold text-[11px] min-w-0">
+                      <input type="number" id="price3" value="13500" step="500" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md p-1.5 text-center font-medium text-[11px] min-w-0">
+                    </div>
+                  </div>
+
+                  <div>
+                    <label class="font-medium text-slate-700 dark:text-slate-300 block mb-1">연간 방문객 범위 (명, 5구간)</label>
+                    <div class="grid grid-cols-5 gap-1">
+                      <input type="number" id="vis0" value="12000" step="1000" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md p-1.5 text-center font-medium text-[11px] min-w-0">
+                      <input type="number" id="vis1" value="16000" step="1000" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md p-1.5 text-center font-medium text-[11px] min-w-0">
+                      <input type="number" id="vis2" value="20000" step="1000" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md p-1.5 text-center font-medium text-[11px] min-w-0">
+                      <input type="number" id="vis3" value="24000" step="1000" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md p-1.5 text-center font-medium text-[11px] min-w-0">
+                      <input type="number" id="vis4" value="28000" step="1000" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md p-1.5 text-center font-medium text-[11px] min-w-0">
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
+        </div>
+
+        <!-- Sensitivity Table & Chart Column (8 cols) -->
+        <div class="lg:col-span-8 space-y-4 sm:space-y-6">
+          <div class="bg-white dark:bg-slate-900 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-6 shadow-sm space-y-3 sm:space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3 sm:pb-4">
+              <div>
+                <h2 id="gridTitle" class="font-bold text-base sm:text-lg text-slate-900 dark:text-white flex items-center gap-2">
+                  <i data-lucide="grid" class="w-4 h-4 sm:w-5 sm:h-5 text-blue-600"></i>
+                  <span>손익 민감도 그리드 (세전 영업이익)</span>
+                </h2>
+                <p class="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  각 셀을 클릭하면 매출·비용·4대보험·세금 정산 구조가 입체적으로 표시됩니다.
+                </p>
+              </div>
+              <div id="gridFormulaBox" class="text-[11px] font-mono bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 self-start sm:self-auto">
+                <code>손익 = (객단가 − 변동비) × 방문객 − 고정비</code>
+              </div>
+            </div>
+
+            <div class="sm:hidden flex items-center justify-between text-[11px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-3 py-1.5 rounded-lg border border-blue-100 dark:border-blue-900">
+              <span class="flex items-center gap-1 font-semibold">👈👉 좌우로 스와이프하여 모든 방문객 구간 확인</span>
+              <span class="text-[10px] opacity-75">셀 터치=상세</span>
+            </div>
+
+            <div class="overflow-x-auto w-full relative -mx-1 px-1">
+              <table class="w-full text-xs sm:text-sm border-collapse min-w-[480px]">
+                <thead>
+                  <tr id="gridHeader" class="border-b border-slate-200 dark:border-slate-700 text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-semibold">
+                    <th class="py-2 px-2 w-20 text-center sticky-col bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">객단가</th>
+                  </tr>
+                </thead>
+                <tbody id="gridBody" class="divide-y divide-slate-100 dark:divide-slate-800 font-medium"></tbody>
+              </table>
+            </div>
+
+            <div class="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
+              <div class="flex items-center justify-between text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400">
+                <span id="legendMin" class="text-rose-600 dark:text-rose-400">최대 적자</span>
+                <span class="flex items-center gap-1">
+                  <span class="inline-block w-2.5 h-2.5 rounded-full border border-dashed border-slate-500"></span>
+                  BEP 구간
+                </span>
+                <span id="legendMax" class="text-blue-600 dark:text-blue-400">최대 흑자</span>
+              </div>
+              <div class="h-2.5 sm:h-3 w-full rounded-full bg-gradient-to-r from-rose-500 via-slate-200 dark:via-slate-700 to-blue-600 shadow-inner"></div>
+            </div>
+          </div>
+
+          <div class="bg-white dark:bg-slate-900 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-6 shadow-sm space-y-3">
+            <div class="flex items-center justify-between">
+              <h2 id="chartTitle" class="font-bold text-sm sm:text-base text-slate-900 dark:text-white flex items-center gap-2">
+                <i data-lucide="line-chart" class="w-4 h-4 text-blue-600"></i>
+                <span>객단가별 손익 추이 곡선</span>
+              </h2>
+              <div class="text-[10px] sm:text-xs text-slate-500 flex items-center gap-2">
+                <span class="flex items-center gap-1"><span class="w-2 h-0.5 bg-rose-500"></span> BEP(0원)</span>
+                <span class="flex items-center gap-1"><span class="w-2 h-0.5 bg-emerald-500"></span> 확정객단가(12,036원)</span>
+              </div>
+            </div>
+            <div class="h-56 sm:h-64 w-full">
+              <canvas id="profitChart"></canvas>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- ================================================================= -->
+    <!-- TAB 2: 동료 보상 & 5년 성장 시뮬레이터 SECTION                  -->
+    <!-- ================================================================= -->
+    <section id="sectionCoWorker" class="space-y-4 sm:space-y-6 hidden">
+      
+      <!-- Top Compensation KPI Cards Grid -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
+        
+        <!-- KPI 1: Monthly Equivalent Salary -->
+        <div class="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border-2 border-blue-600 dark:border-blue-500 shadow-md relative overflow-hidden flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1 sm:mb-2">
+              <span class="text-[11px] sm:text-xs font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400">월 평균 수령액</span>
+              <span class="px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-bold bg-blue-600 text-white">성과연동</span>
+            </div>
+            <div id="kpiMonthly" class="text-lg sm:text-2xl font-black text-slate-900 dark:text-white tabular-nums tracking-tight leading-tight">
+              월 301만 원
+            </div>
+          </div>
+          <p id="kpiMonthlySub" class="mt-1.5 text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 truncate">
+            기본급(2,800만~3,250만) + 2~4층 성과연동 보상
+          </p>
+        </div>
+
+        <!-- KPI 2: Total Annual Compensation -->
+        <div class="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1 sm:mb-2">
+              <span class="text-[11px] sm:text-xs font-semibold uppercase tracking-wider">연간 총 보상액</span>
+              <i data-lucide="award" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-500"></i>
+            </div>
+            <div id="kpiAnnualTotal" class="text-base sm:text-2xl font-extrabold text-slate-900 dark:text-white tabular-nums leading-tight">
+              3,606만 원
+            </div>
+          </div>
+          <div class="mt-1.5 text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between">
+            <span class="truncate">1~4층 종합 패키지</span>
+            <span id="kpiAnnualDetail" class="font-semibold text-blue-600 dark:text-blue-400 ml-1">연 3,606만</span>
+          </div>
+        </div>
+
+        <!-- KPI 3: Facility Operating Profit -->
+        <div class="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1 sm:mb-2">
+              <span class="text-[11px] sm:text-xs font-semibold uppercase tracking-wider">시설 영업이익</span>
+              <i data-lucide="trending-up" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-500"></i>
+            </div>
+            <div id="kpiFacilityProfit" class="text-base sm:text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums leading-tight">
+              +1억 120만 원
+            </div>
+          </div>
+          <p id="kpiFacilitySub" class="mt-1 text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 truncate">
+            고정비(2.289억) 차감 후 이익
+          </p>
+        </div>
+
+        <!-- KPI 4: Daily Visitors Required & Conversion -->
+        <div class="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1 sm:mb-2">
+              <span class="text-[11px] sm:text-xs font-semibold uppercase tracking-wider">계절별 목표 방문객</span>
+              <i data-lucide="target" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-500"></i>
+            </div>
+            <div id="kpiDailyBreakdown" class="text-xs sm:text-base font-extrabold text-slate-900 dark:text-white tabular-nums leading-tight">
+              성수기 143명 / 비수기 35명
+            </div>
+          </div>
+          <p id="kpiDailySub" class="mt-1 text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 truncate">
+            은어축제 9일 흡수율 0.54%
+          </p>
+        </div>
+
+      </div>
+
+      <!-- Main Workspace Grid (Controls + Table/Chart) -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
+
+        <!-- Controls Column (4 cols) -->
+        <div class="lg:col-span-4 space-y-4 sm:space-y-6">
+          <details class="group bg-white dark:bg-slate-900 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-5 shadow-sm space-y-4" open>
+            <summary class="flex items-center justify-between font-bold text-sm sm:text-base cursor-pointer list-none border-b border-slate-100 dark:border-slate-800 pb-3">
+              <span class="flex items-center gap-2 text-slate-900 dark:text-white">
+                <i data-lucide="sliders" class="w-4 h-4 text-blue-600"></i>
+                보상 조건 설정
+              </span>
+              <span class="text-xs text-blue-600 dark:text-blue-400 group-open:rotate-180 transition-transform duration-200">▼</span>
+            </summary>
+
+            <div class="space-y-4 pt-2">
+              
+              <div class="space-y-1.5">
+                <div class="flex justify-between items-center text-xs">
+                  <label class="font-semibold text-slate-700 dark:text-slate-300">근속 연차 (영업이익 공유비율)</label>
+                  <span id="lblTenure" class="font-bold text-blue-600 dark:text-blue-400 tabular-nums">1년차 (5%)</span>
+                </div>
+                <input type="range" id="inputTenure" min="1" max="5" step="1" value="1" class="w-full accent-blue-600 h-2 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer touch-none">
+                <div class="flex justify-between text-[10px] text-slate-400 font-medium">
+                  <span>1~2년차(5%)</span>
+                  <span>3~4년차(10%)</span>
+                  <span>5년차(15%)</span>
+                </div>
+              </div>
+
+              <div class="space-y-1.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <div class="flex justify-between items-center text-xs">
+                  <label class="font-semibold text-slate-700 dark:text-slate-300">연간 방문객 수</label>
+                  <span id="lblVisitors" class="font-bold text-blue-600 dark:text-blue-400 tabular-nums">19,606명</span>
+                </div>
+                <input type="range" id="inputVisitors" min="8000" max="42000" step="500" value="19606" class="w-full accent-blue-600 h-2 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer touch-none">
+                <div class="flex justify-between text-[10px] text-slate-400 font-medium">
+                  <span>0.8만</span>
+                  <span>1.96만(BEP)</span>
+                  <span>2.9만(기본)</span>
+                  <span>3.7만(낙관)</span>
+                </div>
+              </div>
+
+              <div class="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2 text-xs">
+                <div class="flex items-center justify-between font-bold text-slate-800 dark:text-slate-200">
+                  <span class="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                    <i data-lucide="calculator" class="w-3.5 h-3.5"></i>
+                    계절별 일평균 필요 방문객
+                  </span>
+                  <span id="txtConvRate" class="text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 rounded">
+                    은어축제 0.54%
+                  </span>
+                </div>
+                
+                <div class="grid grid-cols-3 gap-1 text-center text-[10px] sm:text-[11px]">
+                  <div class="bg-white dark:bg-slate-900 p-1.5 rounded-lg border border-slate-200 dark:border-slate-700">
+                    <div class="text-slate-400 text-[9px]">성수기(55일)</div>
+                    <div id="vPeak" class="font-bold text-slate-900 dark:text-white mt-0.5 tabular-nums">일 143명</div>
+                  </div>
+                  <div class="bg-white dark:bg-slate-900 p-1.5 rounded-lg border border-slate-200 dark:border-slate-700">
+                    <div class="text-slate-400 text-[9px]">준성수기(105일)</div>
+                    <div id="vMid" class="font-bold text-slate-900 dark:text-white mt-0.5 tabular-nums">일 65명</div>
+                  </div>
+                  <div class="bg-white dark:bg-slate-900 p-1.5 rounded-lg border border-slate-200 dark:border-slate-700">
+                    <div class="text-slate-400 text-[9px]">비수기(140일)</div>
+                    <div id="vOff" class="font-bold text-slate-900 dark:text-white mt-0.5 tabular-nums">일 35명</div>
+                  </div>
+                </div>
+
+                <p id="txtFeasibilityHint" class="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                  💡 <strong>확정 요금표 혼합객단가 12,036원</strong>: 손익분기 19,606명. 성수기 일 143명, 준성수기 일 65명, 동절기 일 35명이 필요합니다.
+                </p>
+              </div>
+
+              <div class="space-y-1.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <div class="flex justify-between items-center text-xs">
+                  <label class="font-semibold text-slate-700 dark:text-slate-300">혼합 객단가 <span class="text-[10px] text-slate-400 font-normal">(보호자 포함 1인당)</span></label>
+                  <span id="lblPrice" class="font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">12,036원</span>
+                </div>
+                <input type="range" id="inputPrice" min="8000" max="16000" step="100" value="12036" class="w-full accent-emerald-600 h-2 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer touch-none">
+                <div class="flex justify-between text-[10px] text-slate-400 font-medium">
+                  <span>8,000원</span>
+                  <span>10,500원</span>
+                  <span>12,036원(확정)</span>
+                  <span>16,000원</span>
+                </div>
+              </div>
+
+              <div class="space-y-2 pt-3 border-t border-slate-100 dark:border-slate-800 text-xs">
+                <div class="flex items-center justify-between">
+                  <label class="font-bold text-slate-700 dark:text-slate-300">2층 장기 3종 마일스톤 달성</label>
+                  <span class="text-[10px] text-amber-600 font-bold bg-amber-50 dark:bg-amber-950 px-1.5 py-0.5 rounded">최대 2,500만</span>
+                </div>
+                <div class="space-y-1.5">
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" id="chkMs25k" class="rounded accent-blue-600 w-4 h-4">
+                    <span>연 2.1만 명 최초 달성 <strong>(+500만 원)</strong></span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" id="chkMsProfitTurn" class="rounded accent-blue-600 w-4 h-4">
+                    <span>누적 흑자 전환 달성 <strong>(+1,000만 원)</strong></span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" id="chkMsSafety3Y" class="rounded accent-blue-600 w-4 h-4">
+                    <span>3년 연속 중대사고 0건 <strong>(+1,000만 원)</strong></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="space-y-2 pt-3 border-t border-slate-100 dark:border-slate-800 text-xs">
+                <label class="font-bold text-slate-700 dark:text-slate-300 block">3층 방문객 KPI 달성률</label>
+                <div class="grid grid-cols-2 gap-1.5">
+                  <button type="button" data-kpi="0" class="btn-kpi p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 text-center font-medium text-xs">90% 미만(0원)</button>
+                  <button type="button" data-kpi="1500000" class="btn-kpi p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 text-center font-medium text-xs">90% (+150만)</button>
+                  <button type="button" data-kpi="3000000" class="btn-kpi p-1.5 rounded-lg border border-blue-600 bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 font-bold text-center text-xs">100% (+300만)</button>
+                  <button type="button" data-kpi="5000000" class="btn-kpi p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 text-center font-medium text-xs">120% (+500만)</button>
+                </div>
+              </div>
+
+            </div>
+          </details>
+        </div>
+
+        <!-- Compensation Table & 5-Year Chart Column (8 cols) -->
+        <div class="lg:col-span-8 space-y-4 sm:space-y-6">
+
+          <div class="bg-white dark:bg-slate-900 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-6 shadow-sm space-y-3 sm:space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h2 class="font-bold text-base text-slate-900 dark:text-white flex items-center gap-2">
+                <i data-lucide="layers" class="w-4 h-4 text-blue-600"></i>
+                <span>운영총괄 성과연동 보상 명세표</span>
+              </h2>
+              <span id="tblPsBadge" class="text-[11px] bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full font-bold">
+                1년차 (5%)
+              </span>
+            </div>
+
+            <div class="overflow-x-auto -mx-1 px-1">
+              <table class="w-full text-xs sm:text-sm border-collapse min-w-[480px]">
+                <thead>
+                  <tr class="border-b border-slate-200 dark:border-slate-700 text-[11px] sm:text-xs text-slate-400 font-semibold text-left">
+                    <th class="py-2.5 w-12 sm:w-16">층위</th>
+                    <th class="py-2.5">보상 항목</th>
+                    <th class="py-2.5">적용 기준 및 산식</th>
+                    <th class="py-2.5 text-right w-36 sm:w-44">연간 보상액</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                  <tr>
+                    <td class="py-3 font-bold text-slate-500">1층</td>
+                    <td class="font-bold text-slate-900 dark:text-white">기본급 (확정 고정)</td>
+                    <td id="tbl1Desc" class="text-[11px] sm:text-xs text-slate-500">연차별 호봉 월 분할 지급</td>
+                    <td id="tbl1" class="text-right font-bold tabular-nums">28,000,000 원</td>
+                  </tr>
+
+                  <tr>
+                    <td class="py-3 font-bold text-slate-500">2층</td>
+                    <td class="font-bold text-slate-900 dark:text-white">장기 3종 마일스톤</td>
+                    <td class="text-[11px] sm:text-xs text-slate-500">2.1만명 달성 / 흑자전환 / 3년 무사고</td>
+                    <td id="tbl2" class="text-right font-bold text-amber-600 dark:text-amber-400 tabular-nums">0 원</td>
+                  </tr>
+
+                  <tr class="bg-slate-50/80 dark:bg-slate-800/40">
+                    <td class="py-3 font-bold text-blue-600 dark:text-blue-400">3층</td>
+                    <td class="font-bold text-blue-600 dark:text-blue-400">성과급 (KPI 달성)</td>
+                    <td class="text-[11px] sm:text-xs text-slate-500">방문객 목표 달성률 연동 성과 보너스</td>
+                    <td id="tbl3" class="text-right font-bold text-blue-600 dark:text-blue-400 tabular-nums">3,000,000 원</td>
+                  </tr>
+
+                  <tr class="bg-blue-50/70 dark:bg-blue-950/50">
+                    <td class="py-3 font-extrabold text-blue-600 dark:text-blue-400">4층</td>
+                    <td class="font-extrabold text-blue-600 dark:text-blue-400">영업이익 공유 (PS)</td>
+                    <td class="text-[11px] sm:text-xs font-semibold text-blue-600/80 dark:text-blue-400/80">
+                      영업이익 발생 시 연차별 5~15% 이익 분배
+                    </td>
+                    <td id="tbl4" class="text-right font-bold text-blue-600 dark:text-blue-400 text-sm sm:text-base tabular-nums">5,060,000 원</td>
+                  </tr>
+
+                  <tr class="border-t-2 border-slate-900 dark:border-white font-bold text-xs sm:text-sm">
+                    <td colspan="3" class="py-3 text-slate-900 dark:text-white">총 보상 합계 (연간 수령액 / 월 환산)</td>
+                    <td id="tblTotal" class="text-right text-blue-600 dark:text-blue-400 text-sm sm:text-base font-bold tabular-nums">
+                      36,060,000 원 (월 301만)
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- 5-Year Trajectory Chart -->
+          <div class="bg-white dark:bg-slate-900 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-6 shadow-sm space-y-3">
+            <div class="flex items-center justify-between">
+              <h2 class="font-bold text-sm sm:text-base text-slate-900 dark:text-white flex items-center gap-2">
+                <i data-lucide="line-chart" class="w-4 h-4 text-blue-600"></i>
+                <span>5개년 보상 성장 추이 (5년 완주 분석)</span>
+              </h2>
+              <div class="text-[10px] sm:text-xs text-slate-500 font-medium">
+                PS 배분율: 1~2년차 5% ➔ 3~4년차 10% ➔ 5년차 15%
+              </div>
+            </div>
+            <div class="h-56 sm:h-60 w-full">
+              <canvas id="growthChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Non-Financial Perks Cards Grid -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
+            <div class="bg-white dark:bg-slate-900 p-3 sm:p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1">
+              <div class="flex items-center gap-1.5 text-xs font-bold text-slate-900 dark:text-white">
+                <i data-lucide="home" class="w-3.5 h-3.5 text-blue-600"></i>
+                주거 지원
+              </div>
+              <p class="text-[10px] sm:text-[11px] text-slate-500 leading-snug">봉화 이주 주거비 지원</p>
+            </div>
+
+            <div class="bg-white dark:bg-slate-900 p-3 sm:p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1">
+              <div class="flex items-center gap-1.5 text-xs font-bold text-slate-900 dark:text-white">
+                <i data-lucide="award" class="w-3.5 h-3.5 text-emerald-500"></i>
+                자격 취득 지원
+              </div>
+              <p class="text-[10px] sm:text-[11px] text-slate-500 leading-snug">유원시설 안전관리 자격</p>
+            </div>
+
+            <div class="bg-white dark:bg-slate-900 p-3 sm:p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1">
+              <div class="flex items-center gap-1.5 text-xs font-bold text-slate-900 dark:text-white">
+                <i data-lucide="flag" class="w-3.5 h-3.5 text-amber-500"></i>
+                장기 마일스톤
+              </div>
+              <p class="text-[10px] sm:text-[11px] text-slate-500 leading-snug">누적 2,500만 성과보너스</p>
+            </div>
+
+            <div class="bg-white dark:bg-slate-900 p-3 sm:p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1">
+              <div class="flex items-center gap-1.5 text-xs font-bold text-slate-900 dark:text-white">
+                <i data-lucide="shield-check" class="w-3.5 h-3.5 text-rose-500"></i>
+                안전 중단권
+              </div>
+              <p class="text-[10px] sm:text-[11px] text-slate-500 leading-snug">운행 중단권 명문화</p>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- ================================================================= -->
+  <!-- MODALS CONTAINER                                                  -->
+  <!-- ================================================================= -->
+
+  <!-- Modal 1: Cell Detail Breakdown Modal -->
+  <div id="detailModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-md w-full max-h-[88vh] flex flex-col p-4 sm:p-6 my-auto">
+      <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 flex-none">
+        <h3 class="font-bold text-base sm:text-lg flex items-center gap-2 text-slate-900 dark:text-white">
+          <span id="modalIcon" class="text-lg sm:text-xl">📊</span>
+          시나리오 상세 재무 명세
+        </h3>
+        <button id="detailModalClose" aria-label="닫기" class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 active:scale-95">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs sm:text-sm overflow-y-auto flex-1 my-3 pr-1">
+        <div id="modalBanner" class="p-3.5 sm:p-4 rounded-xl flex items-center justify-between font-bold text-white shadow-md">
+          <div>
+            <div id="modalNetProfitLabel" class="text-[10px] sm:text-xs opacity-85 uppercase">최종 연간 손익 (세전)</div>
+            <div id="modalNetProfit" class="text-xl sm:text-2xl font-black tabular-nums">+0 원</div>
+          </div>
+          <div id="modalStatusBadge" class="px-2.5 py-1 rounded-full text-[11px] bg-white/20 backdrop-blur font-bold">
+            흑자 구간
+          </div>
+        </div>
+
+        <div class="space-y-2 pt-1 text-xs">
+          <div class="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800">
+            <span class="text-slate-500">조건: 객단가 / 방문객</span>
+            <span id="modalCondition" class="font-bold text-slate-800 dark:text-slate-200">12,036원 / 20,000명</span>
+          </div>
+
+          <div class="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800">
+            <span class="text-slate-500">총 연간 매출 (공급대가, VAT포함)</span>
+            <span id="modalRevenue" class="font-bold text-blue-600 dark:text-blue-400 tabular-nums">0 원</span>
+          </div>
+
+          <div id="rowModalNetRevenue" class="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800 hidden">
+            <span class="text-slate-500">공급가액 순매출 (VAT 9.09% 제외)</span>
+            <span id="modalNetRevenue" class="font-bold text-slate-700 dark:text-slate-300 tabular-nums">0 원</span>
+          </div>
+
+          <div class="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800">
+            <span class="text-slate-500">총 연간 고정비 (안전요원 2.8천 반영)</span>
+            <span id="modalFixedCost" class="font-bold text-slate-700 dark:text-slate-300 tabular-nums">0 원</span>
+          </div>
+
+          <div class="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800">
+            <span class="text-slate-500">총 연간 변동비 (3%)</span>
+            <span id="modalVarCost" class="font-bold text-slate-700 dark:text-slate-300 tabular-nums">0 원</span>
+          </div>
+
+          <div id="rowModalEmployerIns" class="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800 hidden text-amber-600 dark:text-amber-400">
+            <span>사업주 4대보험 부담금 (10.2%)</span>
+            <span id="modalEmployerIns" class="font-bold tabular-nums">0 원</span>
+          </div>
+
+          <div id="rowModalVat" class="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800 hidden text-rose-600 dark:text-rose-400">
+            <span>부가가치세 (매출VAT − 매입공제)</span>
+            <span id="modalVat" class="font-bold tabular-nums">0 원</span>
+          </div>
+
+          <div id="rowModalTax" class="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800 hidden text-rose-600 dark:text-rose-400">
+            <span>종합소득세 (8단계 누진세율 적용)</span>
+            <span id="modalTax" class="font-bold tabular-nums">0 원</span>
+          </div>
+
+        </div>
+
+        <div class="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl text-xs text-slate-600 dark:text-slate-300 leading-relaxed" id="modalEvalNote">
+          평가 의견이 여기에 표시됩니다.
+        </div>
+      </div>
+
+      <div class="pt-3 border-t border-slate-100 dark:border-slate-800 flex-none">
+        <button id="detailModalConfirm" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold rounded-xl text-xs transition">
+          확인
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 2: Strategic Pricing Modal -->
+  <div id="priceModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-xl w-full max-h-[88vh] flex flex-col p-4 sm:p-6 my-auto">
+      <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 flex-none">
+        <h3 class="font-bold text-base sm:text-lg flex items-center gap-2 text-slate-900 dark:text-white">
+          <span class="text-lg sm:text-xl">🏷️</span>
+          봉플레이 맞춤형 전략 입체 요금표
+        </h3>
+        <button id="priceModalClose" aria-label="닫기" class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 active:scale-95">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs overflow-y-auto flex-1 my-3 pr-1">
+        <div class="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl space-y-1.5">
+          <div class="font-bold text-slate-900 dark:text-white text-xs flex items-center justify-between">
+            <span>🎫 1. 기본 이용권 (2시간 기준)</span>
+            <span class="font-mono text-emerald-600 text-[11px]">혼합 12,036원 설계</span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-slate-600 dark:text-slate-300">
+            <div>• 기본 이용권 (실내+네트챌린지): <strong>15,000원</strong></div>
+            <div>• 짚코스터 1회 탑승권: <strong>7,000원</strong></div>
+            <div>• <span class="text-emerald-600 font-bold">종합이용권 (기본+짚코스터 1회): 21,000원</span></div>
+            <div>• 짚코스터 추가 탑승권: <strong>5,000원</strong></div>
+            <div>• 보호자 입장권: <strong>5,000원</strong> (카페 음료 포함)</div>
+            <div>• 영유아 (36개월 미만): <strong>무료</strong></div>
+          </div>
+          <p class="text-[10px] text-slate-400 leading-snug pt-1">종합권의 짚코스터는 1회 포함. 반복 탑승은 추가권으로 분리하여 대기열과 객단가를 동시에 최적화합니다.</p>
+        </div>
+
+        <div class="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl space-y-1.5">
+          <div class="font-bold text-slate-900 dark:text-white text-xs">
+            ⏱️ 2. 시간대 · 단체 · 관내 감면 요금
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-slate-600 dark:text-slate-300">
+            <div>• 조조 오전권 (종합, ~12시): <strong>18,000원</strong></div>
+            <div>• 20인 이상 단체 (종합 기준): <strong>16,800원</strong> (20% 할인)</div>
+            <div>• 단체 인솔 교사: <strong>무료</strong></div>
+            <div>• 봉화 관내 주민: <strong>20% 감면</strong></div>
+          </div>
+          <p class="text-[10px] text-slate-400 leading-snug pt-1">단체는 반드시 종합권 기준으로 판매합니다. 기본권 기준(1인당 10,909원)은 손익분기 미달이나, 종합권 기준은 15,273원으로 손익분기를 대폭 상회합니다.</p>
+        </div>
+
+        <div class="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl space-y-1.5">
+          <div class="font-bold text-slate-900 dark:text-white text-xs">
+            ❄️ 3. 동절기 실내전용 요금 (11~3월 · 140일)
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-slate-600 dark:text-slate-300">
+            <div>• 어린이 실내권: <strong>12,000원</strong> (실내놀이시설장 657.79㎡)</div>
+            <div>• 보호자 입장권: <strong>5,000원</strong> (따뜻한 커피/음료 제공)</div>
+            <div>• 단체 20인 이상: <strong>9,600원</strong> (20% 할인)</div>
+          </div>
+          <p class="text-[10px] text-slate-400 leading-snug pt-1">짚코스터·네트챌린지는 야외 시설이므로 동절기 결빙·안전상 폐쇄됩니다. 예약 시 사전 고지하여 민원을 철저히 차단합니다.</p>
+        </div>
+
+        <div class="p-3 bg-emerald-50/50 dark:bg-emerald-950/40 rounded-xl border border-emerald-100 dark:border-emerald-900/50 space-y-1.5">
+          <div class="font-bold text-emerald-700 dark:text-emerald-300 text-xs">📐 4. 혼합객단가 정밀 산출표</div>
+          <div class="space-y-1 text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed">
+            <div>어린이 1명당 동반 보호자 <strong>0.8명</strong> 기준 1인당 환산 금액</div>
+            <div class="grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono pt-1">
+              <span>종합이용권</span><span class="text-right font-semibold">13,889원</span>
+              <span>기본 이용권</span><span class="text-right font-semibold">10,556원</span>
+              <span>오전권</span><span class="text-right font-semibold">12,222원</span>
+              <span>단체(종합·인솔포함)</span><span class="text-right font-semibold">15,273원</span>
+              <span>동절기 실내권</span><span class="text-right font-semibold">8,889원</span>
+            </div>
+            <div class="pt-1.5 border-t border-emerald-200 dark:border-emerald-800 mt-1.5 grid grid-cols-2 gap-x-3 font-mono">
+              <span>전관 오픈 시즌 (75%)</span><span class="text-right">13,096원</span>
+              <span>동절기 실내 (25%)</span><span class="text-right">8,857원</span>
+              <span class="font-bold text-emerald-700 dark:text-emerald-300">가중평균 혼합객단가</span><span class="text-right font-bold text-emerald-700 dark:text-emerald-300">12,036원</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pt-3 border-t border-slate-100 dark:border-slate-800 flex-none">
+        <button id="priceModalConfirm" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold rounded-xl text-xs transition">
+          확인
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 3: Visitor Feasibility Modal -->
+    <!-- Modal 3: Feasibility Analysis (수요타당성 근거 대폭 확장) -->
+  <div id="feasibilityModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col p-4 sm:p-6 my-auto">
+      <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 flex-none">
+        <h3 class="font-bold text-base sm:text-lg flex items-center gap-2 text-slate-900 dark:text-white">
+          <span class="text-lg sm:text-xl">📊</span>
+          방문객 목표 수립 타당성 및 광역 수요 심층 분석
+        </h3>
+        <button id="feasibilityModalClose" aria-label="닫기" class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 active:scale-95">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs overflow-y-auto flex-1 my-3 pr-1">
+        <!-- 1. 광역 배후 생활권 인구 및 핵심 학령 타겟 풀 -->
+        <div class="p-3.5 bg-blue-50/60 dark:bg-blue-950/40 rounded-xl border border-blue-100 dark:border-blue-900/50 space-y-2">
+          <div class="font-bold text-blue-700 dark:text-blue-300 text-xs sm:text-sm flex items-center justify-between">
+            <span class="flex items-center gap-1.5">
+              <i data-lucide="users" class="w-4 h-4 text-blue-600"></i>
+              1. 33.7만 광역 배후 생활권 및 3.8만 학령 타겟 풀
+            </span>
+            <span class="text-[10px] bg-blue-600 text-white px-2 py-0.5 rounded-full font-bold">핵심 상권</span>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-center text-[10px] py-1">
+            <div class="bg-white dark:bg-slate-900 rounded-lg p-2 border border-blue-200 dark:border-blue-900">
+              <div class="text-slate-400 text-[9px]">1차 상권 (30분 이내)</div>
+              <div class="font-bold text-slate-800 dark:text-slate-200 text-xs mt-0.5">봉화(2.8만) + 영주(10.1만)</div>
+              <div class="text-[9px] text-blue-600 font-semibold mt-0.5">12.9만 명 (학령 1.4만)</div>
+            </div>
+            <div class="bg-white dark:bg-slate-900 rounded-lg p-2 border border-blue-200 dark:border-blue-900">
+              <div class="text-slate-400 text-[9px]">2차 상권 (45분 이내)</div>
+              <div class="font-bold text-slate-800 dark:text-slate-200 text-xs mt-0.5">안동(15.3만) + 예천(5.5만)</div>
+              <div class="text-[9px] text-blue-600 font-semibold mt-0.5">20.8만 명 (학령 2.4만)</div>
+            </div>
+            <div class="bg-white dark:bg-slate-900 rounded-lg p-2 border border-blue-200 dark:border-blue-900 col-span-2 sm:col-span-1">
+              <div class="text-slate-400 text-[9px]">BEP 필요 도달률</div>
+              <div class="font-bold text-emerald-600 dark:text-emerald-400 text-xs mt-0.5">배후 인구의 단 5.8%</div>
+              <div class="text-[9px] text-slate-500 mt-0.5">학령인구 1인당 연 0.51회</div>
+            </div>
+          </div>
+          <p class="text-slate-600 dark:text-slate-300 leading-relaxed text-[11px]">
+            봉화 관내 인구(2.8만 명)에만 국한하지 않고, 차량 30~45분 내 광역 도로망(36번 국도·중앙고속도로)으로 직결된 <strong>영주·안동·예천 33.7만 생활권</strong>을 실질 배후 시장으로 설정했습니다. 연간 BEP <strong>19,606명</strong>은 배후 학령인구(3.8만 명)의 0.51회 방문, 전체 배후 인구의 5.8%에 불과하여 수요 도달 신뢰도가 매우 견고합니다.
+          </p>
+        </div>
+
+        <!-- 2. 봉화군 메가 관광 축제 트래픽 직결 -->
+        <div class="p-3.5 bg-emerald-50/60 dark:bg-emerald-950/40 rounded-xl border border-emerald-100 dark:border-emerald-900/50 space-y-2">
+          <div class="font-bold text-emerald-700 dark:text-emerald-300 text-xs sm:text-sm flex items-center justify-between">
+            <span class="flex items-center gap-1.5">
+              <i data-lucide="sparkles" class="w-4 h-4 text-emerald-600"></i>
+              2. 봉화 메가 이벤트 트래픽 (은어축제 24만 + 송이축제 15만)
+            </span>
+            <span class="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded-full font-bold">메가 이벤트</span>
+          </div>
+          <div class="text-slate-600 dark:text-slate-300 leading-relaxed text-[11px] space-y-1">
+            <p>
+              • <strong>봉화은어축제 (여름 9일간, 연인원 24만 명)</strong>: 시설이 위치한 봉화읍 내성천 일대에서 개최되는 대한민국 대표 여름 축제입니다. 축제 9일간 목표 인원인 <strong>1,287명(일 143명)</strong>은 축제 연인원의 <strong>단 0.54%</strong>(방문객 1,000명 중 5명)에 불과합니다. 내성천 축제장 ↔ 봉플레이 간 30분 간격 무료 순환 셔틀 운행 시 연간 목표의 6.6%를 9일 만에 초과 달성할 수 있습니다.
+            </p>
+            <p>
+              • <strong>봉화송이축제 (가을 4일간, 연인원 12만~15만 명)</strong>: 가을 단풍철 가족 나들이 수요가 집중되는 시기로, 청량산 탐방객과 연계하여 짚코스터 및 유아 어드벤처 가을 특수를 극대화합니다.
+            </p>
+          </div>
+        </div>
+
+        <!-- 3. 국립백두대간수목원 및 권역 대표 관광지 시너지 -->
+        <div class="p-3.5 bg-amber-50/60 dark:bg-amber-950/40 rounded-xl border border-amber-100 dark:border-amber-900/50 space-y-2">
+          <div class="font-bold text-amber-700 dark:text-amber-300 text-xs sm:text-sm flex items-center justify-between">
+            <span class="flex items-center gap-1.5">
+              <i data-lucide="trees" class="w-4 h-4 text-amber-600"></i>
+              3. 국립백두대간수목원(연 30만+) &amp; 청량산(연 40만+) 관광 축선
+            </span>
+            <span class="text-[10px] bg-amber-600 text-white px-2 py-0.5 rounded-full font-bold">관광 시너지</span>
+          </div>
+          <p class="text-slate-600 dark:text-slate-300 leading-relaxed text-[11px]">
+            아시아 최대 <strong>국립백두대간수목원(연간 30만+ 관광객 유입)</strong>으로 진입하는 주 간선도로(36번 국도) 길목에 봉화읍(봉플레이)이 위치합니다. 영주·안동 및 수도권에서 수목원을 오가는 가족 단위 관광객이 ‘정적인 관람’ 후 봉플레이에서 ‘동적인 짚코스터·놀이 액티비티’를 즐길 수 있도록 <strong>[수목원 관람 + 봉플레이 어드벤처]</strong> 연계 할인 패키지를 구축합니다. (소천면 소재 산타마을 38km는 보수적으로 파생 수요에서 제외)
+          </p>
+        </div>
+
+        <!-- 4. 평일 단체 수요 현실적 방어 (교육기관 205개소) -->
+        <div class="p-3.5 bg-rose-50/60 dark:bg-rose-950/40 rounded-xl border border-rose-100 dark:border-rose-900/50 space-y-2">
+          <div class="font-bold text-rose-700 dark:text-rose-300 text-xs sm:text-sm flex items-center justify-between">
+            <span class="flex items-center gap-1.5">
+              <i data-lucide="bus" class="w-4 h-4 text-rose-600"></i>
+              4. 평일 단체 영업 현실성 (영주·안동·봉화 205개소 교육망)
+            </span>
+            <span class="text-[10px] bg-rose-600 text-white px-2 py-0.5 rounded-full font-bold">평일 방어선</span>
+          </div>
+          <p class="text-slate-600 dark:text-slate-300 leading-relaxed text-[11px]">
+            평일 210일간 필요한 방문객은 <strong>일 30명(연간 6,300명)</strong>입니다. 권역 내 어린이집·유치원 140개소, 초등학교 및 늘봄교실 65개교(총 205개소) 중 <strong>단 30%(약 60개소)가 연 1회(버스 1대, 30~40명)만 현장체험학습</strong>으로 방문해도 평일 목표를 100% 달성합니다. 경북교육청 공식 현장체험학습 시설 등록 및 단체 버스비 지원(인당 획득비용 5,000원)을 통해 평일 단체 수요를 완전히 정례화합니다.
+          </p>
+        </div>
+
+        <!-- 5. 경북 북부권 유일무이한 복합 어드벤처 독점력 -->
+        <div class="p-3.5 bg-purple-50/60 dark:bg-purple-950/40 rounded-xl border border-purple-100 dark:border-purple-900/50 space-y-2">
+          <div class="font-bold text-purple-700 dark:text-purple-300 text-xs sm:text-sm flex items-center justify-between">
+            <span class="flex items-center gap-1.5">
+              <i data-lucide="shield-check" class="w-4 h-4 text-purple-600"></i>
+              5. 독점적 시설 경쟁력 &amp; 날씨 리스크 완벽 헤지
+            </span>
+            <span class="text-[10px] bg-purple-600 text-white px-2 py-0.5 rounded-full font-bold">대체재 전무</span>
+          </div>
+          <p class="text-slate-600 dark:text-slate-300 leading-relaxed text-[11px]">
+            영주·안동 생활권 내 <strong>13m 높이, 150m 곡선형 짚코스터와 야외 로프코스, 실내 657.79㎡(199평)를 갖춘 복합 유원시설은 전무</strong>합니다. 도심 2시간제 키즈카페(1.5만~2만원) 대비 자연 속 익스트림 어드벤처와 승마 연계 서사로 탁월한 가성비와 체류 경험을 제공하며, 199평의 넓은 실내 공간 확보로 우천 시와 혹한기 동절기(일 35명)에도 날씨 리스크 없이 안정적 운영이 가능합니다.
+          </p>
+        </div>
+
+        <!-- 6. 캘린더별 일일 목표 운영 타당성 -->
+        <div class="p-3.5 bg-slate-100 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
+          <div class="font-bold text-slate-800 dark:text-slate-200 text-xs sm:text-sm flex items-center justify-between">
+            <span class="flex items-center gap-1.5">
+              <i data-lucide="calendar" class="w-4 h-4 text-slate-600 dark:text-slate-400"></i>
+              6. 일일 운영 단위 세분화 검증 (BEP 19,606명 분해)
+            </span>
+            <span class="text-[10px] bg-slate-700 text-white px-2 py-0.5 rounded-full font-bold">실행 검증</span>
+          </div>
+          <div class="grid grid-cols-3 gap-2 text-center text-[10px] py-1">
+            <div class="bg-white dark:bg-slate-900 rounded-lg p-2 border border-slate-200 dark:border-slate-700">
+              <div class="text-slate-400">성수기 (55일)</div>
+              <div class="font-bold text-slate-800 dark:text-slate-200 text-xs mt-0.5">일 143명</div>
+              <div class="text-[9px] text-blue-600 font-medium mt-0.5">연간 40% 흡수</div>
+            </div>
+            <div class="bg-white dark:bg-slate-900 rounded-lg p-2 border border-slate-200 dark:border-slate-700">
+              <div class="text-slate-400">준성수기 (105일)</div>
+              <div class="font-bold text-slate-800 dark:text-slate-200 text-xs mt-0.5">일 65명</div>
+              <div class="text-[9px] text-emerald-600 font-medium mt-0.5">가족 20~25팀</div>
+            </div>
+            <div class="bg-white dark:bg-slate-900 rounded-lg p-2 border border-slate-200 dark:border-slate-700">
+              <div class="text-slate-400">비수기 (140일)</div>
+              <div class="font-bold text-slate-800 dark:text-slate-200 text-xs mt-0.5">일 35명</div>
+              <div class="text-[9px] text-amber-600 font-medium mt-0.5">실내 시설 중심</div>
+            </div>
+          </div>
+          <p class="text-[11px] text-slate-600 dark:text-slate-400 leading-snug">
+            주말 90일(일 148명, 45~50팀)과 평일 210일(일 30명, 버스 1대)로 엄격히 분해되어, 비현실적인 가정이 아닌 현장 관리자가 매일 달성할 수 있는 물리적 수용 단위로 검증되었습니다.
+          </p>
+        </div>
+      </div>
+
+      <div class="pt-3 border-t border-slate-100 dark:border-slate-800 flex-none">
+        <button id="feasibilityModalConfirm" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold rounded-xl text-xs transition">
+          확인했습니다
+        </button>
+      </div>
+    </div>
+  </div>
+
+    <!-- Modal 4: Strategy Analysis (풍부한 원형 집객전략 & 군 연계 전면 복원) -->
+  <div id="strategyModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col p-4 sm:p-6 my-auto">
+      <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 flex-none">
+        <div>
+          <h3 class="font-bold text-base sm:text-lg flex items-center gap-2 text-slate-900 dark:text-white">
+            <span class="text-lg sm:text-xl">&#127919;</span>
+            집객 전략 &amp; 군 연계 심층 분석
+          </h3>
+          <p class="text-[11px] text-slate-500 mt-0.5">리드타임이 긴 순서로 배열. 상위 항목부터 순차 착수합니다</p>
+        </div>
+        <button id="strategyModalClose" aria-label="닫기" class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 active:scale-95">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs overflow-y-auto flex-1 my-3 pr-1">
+
+        <!-- 요일 분해 -->
+        <div class="p-3 bg-slate-900 dark:bg-slate-800 rounded-xl text-white space-y-2">
+          <div class="font-bold text-xs flex items-center justify-between">
+            <span>&#128197; 목표를 요일로 쪼개면</span>
+            <span id="stratBep" class="font-mono text-[11px] text-emerald-400">BEP 19,606명</span>
+          </div>
+          <div class="grid grid-cols-2 gap-2 text-center">
+            <div class="bg-white/10 rounded-lg p-2">
+              <div class="text-[10px] text-slate-300">주말·공휴일 90일 (68%)</div>
+              <div id="stratWeekend" class="font-bold text-base tabular-nums mt-0.5">일 148명</div>
+              <div class="text-[9px] text-slate-400 mt-0.5">가족 45~50팀</div>
+            </div>
+            <div class="bg-white/10 rounded-lg p-2">
+              <div class="text-[10px] text-slate-300">평일 210일 (32%)</div>
+              <div id="stratWeekday" class="font-bold text-base tabular-nums mt-0.5">일 30명</div>
+              <div class="text-[9px] text-slate-400 mt-0.5">유치원 버스 1대 수준</div>
+            </div>
+          </div>
+          <p class="text-[10px] text-slate-300 leading-relaxed">
+            평일이 전체의 약 32%입니다. <strong class="text-amber-300">평일 단체 영업을 하지 않으면 평일 방문객은 0에 수렴합니다.</strong>
+            봉화 인구 2.8만으로는 평일 유료 방문이 나오지 않으므로 영주·안동 교육기관 유치에 승부를 걸어야 합니다.
+          </p>
+        </div>
+
+        <!-- 1순위 -->
+        <div class="p-3 bg-rose-50/60 dark:bg-rose-950/40 rounded-xl border border-rose-100 dark:border-rose-900/50 space-y-1.5">
+          <div class="font-bold text-rose-700 dark:text-rose-300 text-xs sm:text-sm flex items-center justify-between">
+            <span>1순위 · 평일 단체 (경북교육청 · 교육가족과)</span>
+            <span class="text-[10px] bg-rose-600 text-white px-1.5 py-0.5 rounded">리드타임 최장</span>
+          </div>
+          <ul class="text-slate-600 dark:text-slate-300 leading-relaxed space-y-1 list-disc pl-4">
+            <li><strong>현장체험학습 공식 등록</strong> — 초등 단체는 교육청이 인정한 시설로만 갑니다. 유원시설업 등록·안전성검사·배상책임보험이 전제이고 교육청 절차가 별도로 붙습니다. 인허가와 묶어 즉시 진행하십시오.</li>
+            <li><strong>영업 시즌은 2월과 8월</strong> — 유치원·어린이집은 학기 시작 2~3개월 전에 연간 체험학습 계획을 확정합니다.</li>
+            <li><strong>버스가 진짜 장벽</strong> — 안동 편도 1시간, 대절비 40~50만 원. 원 입장에서는 입장료보다 버스비가 최대 부담입니다. 20팀에 팀당 20만 원을 지원하면 연 400만 원으로 800명이 들어옵니다. <strong class="text-rose-600 dark:text-rose-400">인당 획득비용 5,000원</strong>으로 SNS 광고보다 5배 이상 효율적입니다.</li>
+            <li><strong>반드시 종합권으로 판매</strong> — 기본권 기준 단체는 1인당 10,909원으로 손익분기 아래입니다. 짚코스터가 포함된 종합권 20% 할인(16,800원) 기준이면 1인당 15,273원으로 충분히 손익분기를 상회합니다. 유치원이 봉화까지 오는 핵심 이유는 짚코스터입니다.</li>
+            <li><strong>단체는 오전, 개인은 오후 분리 운영</strong> — 같은 날 오전(10:00~13:00) 단체 독점 운영 후 오후 일반 관람객을 받아 회전율을 극대화합니다.</li>
+          </ul>
+          <div class="text-[10px] text-slate-500 pt-1 border-t border-rose-200 dark:border-rose-900">
+            정보공개청구 14번(관내 유치원·어린이집·지역아동센터 현황)으로 명단 확보 &middot; 소관 교육가족과
+          </div>
+        </div>
+
+        <!-- 2순위 -->
+        <div class="p-3 bg-blue-50/60 dark:bg-blue-950/40 rounded-xl border border-blue-100 dark:border-blue-900/50 space-y-1.5">
+          <div class="font-bold text-blue-700 dark:text-blue-300 text-xs sm:text-sm flex items-center justify-between">
+            <span>2순위 · 은어축제 9일 (문화관광과 · 축제관광재단)</span>
+            <span class="text-[10px] bg-blue-600 text-white px-1.5 py-0.5 rounded">연 1회 극대화</span>
+          </div>
+          <ul class="text-slate-600 dark:text-slate-300 leading-relaxed space-y-1 list-disc pl-4">
+            <li><strong>순환 셔틀버스가 핵심</strong> — 시설이 같은 봉화읍에 위치하나 축제장(내성천)에서 걸어오긴 멉니다. 9일간 30분 간격 무료 셔틀을 돌리면 "갈 수 있는 코스"가 됩니다. 셔틀이 없으면 흡수율이 급감합니다.</li>
+            <li><strong>재단 사전 협의 필수</strong> — 축제 프로그램북 등재, 축제장 현장 통합 발권 부스 마련을 계약 즉시 추진해야 봄철 축제 기획안에 반영됩니다. 축제 직전 접촉은 늦습니다.</li>
+            <li><strong>축제 9일간 1,287명 목표</strong> (일 143명) — 축제 연인원 24만 명의 <strong>단 0.54%</strong> 수준으로 달성 가능성이 매우 높습니다.</li>
+            <li><strong>축제 기간 전용 순환권 운용</strong> — 90분 순환권을 별도 편성하여 체류 시간을 조율하고 회전율을 2배로 끌어올립니다.</li>
+          </ul>
+          <div class="text-[10px] text-slate-500 pt-1 border-t border-blue-200 dark:border-blue-900">
+            정보공개청구 7번(축제 방문객 집계 방법·거주지 분포) &middot; 문화관광과 054-679-6355
+          </div>
+        </div>
+
+        <!-- 3순위 바우처 -->
+        <div class="p-3 bg-violet-50/60 dark:bg-violet-950/40 rounded-xl border border-violet-100 dark:border-violet-900/50 space-y-1.5">
+          <div class="font-bold text-violet-700 dark:text-violet-300 text-xs sm:text-sm flex items-center justify-between">
+            <span>3순위 · 봉화군 청소년 꿈키움 바우처 (교육가족과)</span>
+            <span class="text-[10px] bg-amber-500 text-white px-1.5 py-0.5 rounded">군비 재원</span>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-center text-[10px] py-1">
+            <div class="bg-white dark:bg-slate-900 rounded-lg p-1.5 border border-violet-200 dark:border-violet-900">
+              <div class="text-slate-400 text-[9px]">대상</div><div class="font-bold mt-0.5 text-slate-800 dark:text-slate-200">9~18세 1,615명</div>
+            </div>
+            <div class="bg-white dark:bg-slate-900 rounded-lg p-1.5 border border-violet-200 dark:border-violet-900">
+              <div class="text-slate-400 text-[9px]">금액</div><div class="font-bold mt-0.5 text-slate-800 dark:text-slate-200">연 12~24만 원</div>
+            </div>
+            <div class="bg-white dark:bg-slate-900 rounded-lg p-1.5 border border-violet-200 dark:border-violet-900">
+              <div class="text-slate-400 text-[9px]">소멸 시점</div><div class="font-bold mt-0.5 text-rose-600 dark:text-rose-400">12월 20일 전액소멸</div>
+            </div>
+            <div class="bg-white dark:bg-slate-900 rounded-lg p-1.5 border border-violet-200 dark:border-violet-900">
+              <div class="text-slate-400 text-[9px]">재원</div><div class="font-bold mt-0.5 text-blue-600 dark:text-blue-400">전액 군비 충전</div>
+            </div>
+          </div>
+          <ul class="text-slate-600 dark:text-slate-300 leading-relaxed space-y-1 list-disc pl-4">
+            <li><strong>관내 청소년 전용 재원</strong> — 전남 학생교육수당과 달리 관내 1,615명 청소년에게 연간 12~24만 원이 지급되며 12월 20일에 미사용 잔액이 자동 소멸합니다.</li>
+            <li><strong>13~18세 연 24만 원 그룹이 짚코스터 타겟</strong> — 기존 가맹점 50여 곳이 미용실·서점 등에 편중되어 있어 청소년이 실제 가고 싶어 하는 액티비티 시설로 봉플레이가 유일한 대안이 됩니다.</li>
+            <li><strong>10~11월 "소멸 전 봉플레이 이용" 집중 캠페인</strong> — 소멸 기한(12월) 직전 가을철에 집중 프로모션을 전개하여 동절기 직전 매출을 극대화합니다.</li>
+            <li><strong>가맹점 등록 문턱 낮음</strong> — 소천면 소재 숙박업소(무진랜드 등)까지 등록되어 있으므로 운동·관광휴게시설 용도의 봉플레이는 즉시 승인 가능합니다.</li>
+          </ul>
+        </div>
+
+        <!-- 4순위 광역 -->
+        <div class="p-3 bg-emerald-50/60 dark:bg-emerald-950/40 rounded-xl border border-emerald-100 dark:border-emerald-900/50 space-y-1.5">
+          <div class="font-bold text-emerald-700 dark:text-emerald-300 text-xs sm:text-sm">
+            4순위 &middot; 주말 광역 가족 유입 마케팅 (안동 15.3만 &middot; 영주 10.1만)
+          </div>
+          <ul class="text-slate-600 dark:text-slate-300 leading-relaxed space-y-1 list-disc pl-4">
+            <li><strong>"경북 북부 유일 실내+짚라인 복합 어드벤처" 브랜딩</strong> — 안동·영주에 없는 대규모 복합 놀이공간임을 집중 소구합니다.</li>
+            <li><strong>맘카페는 배너 광고보다 체험단 후기</strong> — 개장 초기 안동·영주 맘카페 회원 100명 사전 초청 무료 체험으로 양질의 후기 30건을 축적하는 것이 배너 광고 대비 전환율이 5배 이상 높습니다.</li>
+            <li><strong>액티비티 OTA 플랫폼 입점</strong> — 스마트인피니, 네이버 예약, 야놀자 등 주요 플랫폼에 입점하여 외지 관광객 검색 유입을 확보합니다.</li>
+            <li><strong>생일파티 및 키즈 대관 패키지</strong> — 실내 119.73㎡ 휴게공간과 48.20㎡ 전시실을 파티룸으로 대관하여 객단가를 일반 입장료의 2배 이상으로 창출합니다.</li>
+          </ul>
+        </div>
+
+        <!-- 군 협조 요청 -->
+        <div class="p-3 bg-amber-50/60 dark:bg-amber-950/40 rounded-xl border border-amber-100 dark:border-amber-900/50 space-y-1.5">
+          <div class="font-bold text-amber-700 dark:text-amber-300 text-xs sm:text-sm flex items-center justify-between">
+            <span>&#127974; 군 협조 요청 (비용 0원부터 — 명분 확실)</span>
+            <span class="text-[10px] bg-amber-600 text-white px-1.5 py-0.5 rounded">명분 확보</span>
+          </div>
+          <div class="text-slate-600 dark:text-slate-300 leading-relaxed space-y-1.5">
+            <p class="bg-white/70 dark:bg-slate-900/50 rounded-lg p-2 text-[11px]">
+              <strong>협조를 요청할 탄탄한 행정적 근거:</strong><br>
+              ① <strong>계약서 제7조 ④</strong>: 군의 협력 요청 시 성실 협의를 규정하므로 상호 협조의 명분이 성립합니다.<br>
+              ② <strong>유니세프 아동친화도시 인증</strong>: 봉화군은 2025. 6. 18. 유니세프 인증(2029. 6.까지)을 획득하였으며 인증 유지 실적으로 아동 놀이시설 활성화 실적이 필수적입니다.<br>
+              ③ <strong>40억 체류형 관광도시 사업</strong>: 본 시설은 군이 도비 15억·군비 25억을 투입해 조성한 핵심 공공자산입니다.
+            </p>
+            <ul class="space-y-1 list-disc pl-4">
+              <li><strong>아동참여위원회 연계</strong> — 어린이 디자인 캠프 및 아동 권리 행사를 봉플레이에서 개최 제안 (군은 인증 실적 달성, 운영자는 무료 집객).</li>
+              <li><strong>신나리원정대 제5기 협업</strong> — 청소년 관광 홍보영상 및 굿즈 제작 프로젝트 대상지로 봉플레이 반영 요청.</li>
+              <li><strong>공식 관광 채널 등재</strong> — 봉화군 관광안내지도, 도로 표지판, 군청 홈페이지 문화관광 포털 등재.</li>
+              <li><strong>숙박시설 연계 패키지</strong> — 문수산자연휴양림, 백두대간수목원 인근 숙박시설과 묶어 체류형 결합 상품화.</li>
+              <li><strong>봉화사랑상품권 가맹점 등록</strong> — 구매 시 12% 할인 효과로 이용객의 체감 가격 인하 (새마을경제과 등록).</li>
+              <li><strong>관내 주민 20% 할인 제공</strong> — 봉화 유소년 인구가 적어 재무 타격은 미미하면서 군청 협조 요청 시 강력한 명분 카드로 활용.</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- 경쟁 리스크 확인 -->
+        <div class="p-3 bg-slate-100 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 space-y-1.5">
+          <div class="font-bold text-slate-700 dark:text-slate-200 text-xs sm:text-sm">&#9888; 확인된 경쟁 구도 및 리스크 관리</div>
+          <ul class="text-slate-600 dark:text-slate-300 leading-relaxed space-y-1 list-disc pl-4">
+            <li><strong>'모두의 놀이터' 분석</strong> — 군이 조성한 무료 놀이공간이나, 확인 결과 <strong>10m 미만 유아용 소형 집라인</strong>으로, 높이 13m·길이 150m의 봉플레이 짚코스터와는 체급 차이가 현격하여 직접 경쟁 요소가 아닙니다.</li>
+            <li><strong>2026년 본예산 신규 사업 모니터링</strong> — 유사 집라인 사업 중복 투자 여부를 상시 점검합니다.</li>
+            <li><strong>분천산타마을 권역 분리</strong> — 차량 32분·38km 거리로 독립된 상권이며 본 시설의 보수적 자립 운영을 전제로 합니다.</li>
+          </ul>
+        </div>
+
+        <!-- 타임라인 -->
+        <div class="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700 space-y-1.5">
+          <div class="font-bold text-slate-700 dark:text-slate-200 text-xs sm:text-sm">&#128467; 개장까지 추진 로드맵 (타임라인)</div>
+          <div class="space-y-1 text-slate-600 dark:text-slate-300">
+            <div class="flex gap-2"><span class="font-mono text-[10px] text-slate-400 w-16 shrink-0 pt-0.5">9월</span><span>계약 체결, 인허가 착수, 교육청 등록 요건 협의</span></div>
+            <div class="flex gap-2"><span class="font-mono text-[10px] text-slate-400 w-16 shrink-0 pt-0.5">10~12월</span><span>안전성검사 완료, 기타유원시설업 등록, 유치원·어린이집 DB 구축, 청소년 바우처 가맹 등록</span></div>
+            <div class="flex gap-2"><span class="font-mono text-[10px] text-slate-400 w-16 shrink-0 pt-0.5">1~2월</span><span class="font-bold text-rose-600 dark:text-rose-400">신학기 단체 영업 집중 (최대 승부처), 축제관광재단 사전 접촉</span></div>
+            <div class="flex gap-2"><span class="font-mono text-[10px] text-slate-400 w-16 shrink-0 pt-0.5">3~4월</span><span class="font-bold text-blue-600 dark:text-blue-400">정식 개장. 봄 소풍 시즌 전격 흡수</span></div>
+            <div class="flex gap-2"><span class="font-mono text-[10px] text-slate-400 w-16 shrink-0 pt-0.5">7~8월</span><span>은어축제 9일간 순환 셔틀 풀가동, 성수기 매출 극대화</span></div>
+          </div>
+          <p class="text-[10px] text-amber-700 dark:text-amber-400 leading-relaxed pt-1 border-t border-slate-200 dark:border-slate-700">
+            <strong>특약 제7조 ③: 시설물 설치·구입 기간도 사용허가기간(3년)에 포함됩니다.</strong>
+            개장을 5월 이후로 지연시키면 봄 성수기를 놓치고 2년 몇 개월만 영업하면서 3년치 사용료를 부담해야 하므로 조기 개장 집행이 필수적입니다.
+          </p>
+        </div>
+
+      </div>
+
+      <div class="pt-3 border-t border-slate-100 dark:border-slate-800 flex-none">
+        <button id="strategyModalConfirm" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold rounded-xl text-xs transition">
+          확인했습니다
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- UNIFIED JAVASCRIPT ENGINE (정밀 통합 재무 및 보상 엔진)          -->
+  <!-- ================================================================= -->
+  <script>
+    // -----------------------------------------------------------------
+    // GLOBAL STATE & TAB SWITCHING LOGIC
+    // -----------------------------------------------------------------
+    let activeTab = 'sensitivity'; // 'sensitivity' | 'coWorker'
+    let isAfterTaxMode = false;
+    let profitChartInstance = null;
+    let growthChartInstance = null;
+    let selectedKpiValue = 3000000;
+
+    lucide.createIcons();
+
+    const tabBtnSens = document.getElementById('tabBtnSensitivity');
+    const tabBtnCoWork = document.getElementById('tabBtnCoWorker');
+    const secSens = document.getElementById('sectionSensitivity');
+    const secCoWork = document.getElementById('sectionCoWorker');
+    const ctrlTab1 = document.getElementById('controlsTab1');
+    const ctrlTab2 = document.getElementById('controlsTab2');
+
+    function switchTab(tab) {
+      activeTab = tab;
+      if (tab === 'sensitivity') {
+        secSens?.classList.remove('hidden');
+        secCoWork?.classList.add('hidden');
+
+        ctrlTab1?.classList.remove('hidden');
+        ctrlTab2?.classList.add('hidden');
+
+        tabBtnSens.className = "flex-1 sm:flex-none px-3 py-1.5 rounded-lg bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm transition flex items-center justify-center gap-1.5 font-bold";
+        tabBtnCoWork.className = "flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition flex items-center justify-center gap-1.5 font-semibold";
+        
+        renderSensitivity();
+      } else {
+        secSens?.classList.add('hidden');
+        secCoWork?.classList.remove('hidden');
+
+        ctrlTab1?.classList.add('hidden');
+        ctrlTab2?.classList.remove('hidden');
+
+        tabBtnCoWork.className = "flex-1 sm:flex-none px-3 py-1.5 rounded-lg bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm transition flex items-center justify-center gap-1.5 font-bold";
+        tabBtnSens.className = "flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition flex items-center justify-center gap-1.5 font-semibold";
+        
+        renderCoWorker();
+      }
+    }
+
+    tabBtnSens?.addEventListener('click', () => switchTab('sensitivity'));
+    tabBtnCoWork?.addEventListener('click', () => switchTab('coWorker'));
+
+    // Theme Toggle Handler
+    function toggleTheme() {
+      document.documentElement.classList.toggle('dark');
+      if (activeTab === 'sensitivity') renderSensitivity();
+      else renderCoWorker();
+    }
+    document.getElementById('themeToggle')?.addEventListener('click', toggleTheme);
+    document.getElementById('themeToggleMobile')?.addEventListener('click', toggleTheme);
+
+    // Helpers
+    function fmtNum(n) { return Math.round(n).toLocaleString('ko-KR'); }
+    function fmtMan(n) {
+      const absN = Math.abs(n);
+      const eok = Math.floor(absN / 100000000);
+      const man = Math.round((absN % 100000000) / 10000);
+      const sign = n < 0 ? '−' : (n > 0 ? '+' : '');
+      if (eok > 0) return `${sign}${eok}억 ${man > 0 ? fmtNum(man) + '만' : ''}원`;
+      return `${sign}${fmtNum(man)}만 원`;
+    }
+
+    function hexToRgb(hex) {
+      hex = hex.replace('#', '');
+      if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+      const num = parseInt(hex, 16);
+      return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+    }
+    function interpolateColor(color1, color2, factor) {
+      const c1 = hexToRgb(color1);
+      const c2 = hexToRgb(color2);
+      const r = Math.round(c1[0] + factor * (c2[0] - c1[0]));
+      const g = Math.round(c1[1] + factor * (c2[1] - c1[1]));
+      const b = Math.round(c1[2] + factor * (c2[2] - c1[2]));
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+    function getCellColor(val, maxAbs) {
+      const isDark = document.documentElement.classList.contains('dark');
+      const lossPole = isDark ? '#f43f5e' : '#ef4444';
+      const profitPole = isDark ? '#2563eb' : '#3b82f6';
+      const neutral = isDark ? '#1e293b' : '#f1f5f9';
+      const norm = Math.min(Math.abs(val) / (maxAbs || 1), 1);
+      return val < 0 ? interpolateColor(neutral, lossPole, norm * 0.75) : interpolateColor(neutral, profitPole, norm * 0.75);
+    }
+
+    // Modals Handling
+    const dModal = document.getElementById('detailModal');
+    const pModal = document.getElementById('priceModal');
+    const fModal = document.getElementById('feasibilityModal');
+    const sModal = document.getElementById('strategyModal');
+
+    document.getElementById('btnOpenPriceModal')?.addEventListener('click', () => pModal?.classList.remove('hidden'));
+    document.getElementById('priceModalClose')?.addEventListener('click', () => pModal?.classList.add('hidden'));
+    document.getElementById('priceModalConfirm')?.addEventListener('click', () => pModal?.classList.add('hidden'));
+
+    document.getElementById('btnOpenFeasibility')?.addEventListener('click', () => fModal?.classList.remove('hidden'));
+    document.getElementById('feasibilityModalClose')?.addEventListener('click', () => fModal?.classList.add('hidden'));
+    document.getElementById('feasibilityModalConfirm')?.addEventListener('click', () => fModal?.classList.add('hidden'));
+
+    document.getElementById('btnOpenStrategy')?.addEventListener('click', () => { syncStrategy(); sModal?.classList.remove('hidden'); });
+    document.getElementById('strategyModalClose')?.addEventListener('click', () => sModal?.classList.add('hidden'));
+    document.getElementById('strategyModalConfirm')?.addEventListener('click', () => sModal?.classList.add('hidden'));
+
+    // 전략분석 모달의 요일 분해를 현재 BEP와 동기화
+    function syncStrategy() {
+      const st = getSensInputs();
+      const price = st.prices[2] || 12036;
+      const cm = price - st.varCost;
+      if (cm <= 0) return;
+      const bep = st.totalFixed / cm;
+      const weekend = Math.round(bep * 0.68 / 90);
+      const weekday = Math.round(bep * 0.32 / 210);
+      const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+      set('stratBep', `BEP ${fmtNum(Math.round(bep))}명`);
+      set('stratWeekend', `일 ${weekend}명`);
+      set('stratWeekday', `일 ${weekday}명`);
+    }
+
+    document.getElementById('detailModalClose')?.addEventListener('click', () => dModal?.classList.add('hidden'));
+    document.getElementById('detailModalConfirm')?.addEventListener('click', () => dModal?.classList.add('hidden'));
+
+    [dModal, pModal, fModal, sModal].forEach(m => {
+      m?.addEventListener('click', (e) => { if (e.target === m) m.classList.add('hidden'); });
+    });
+
+    // Tax Mode Switcher (Tab 1)
+    const btnTaxPre = document.getElementById('btnTaxPre');
+    const btnTaxAfter = document.getElementById('btnTaxAfter');
+
+    btnTaxPre?.addEventListener('click', () => {
+      isAfterTaxMode = false;
+      btnTaxPre.className = "px-2.5 py-1 rounded-lg bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm transition flex items-center gap-1 text-[11px] sm:text-xs font-bold";
+      btnTaxAfter.className = "px-2.5 py-1 rounded-lg text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition flex items-center gap-1 text-[11px] sm:text-xs font-medium";
+      document.getElementById('gridTitle').querySelector('span').textContent = "손익 민감도 그리드 (세전 영업이익)";
+      renderSensitivity();
+    });
+
+    btnTaxAfter?.addEventListener('click', () => {
+      isAfterTaxMode = true;
+      btnTaxAfter.className = "px-2.5 py-1 rounded-lg bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-400 shadow-sm transition flex items-center gap-1 text-[11px] sm:text-xs font-bold";
+      btnTaxPre.className = "px-2.5 py-1 rounded-lg text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition flex items-center gap-1 text-[11px] sm:text-xs font-medium";
+      document.getElementById('gridTitle').querySelector('span').textContent = "손익 민감도 그리드 (세후 순이익)";
+      renderSensitivity();
+    });
+
+    // -----------------------------------------------------------------
+    // TAB 1: SENSITIVITY ENGINE
+    // -----------------------------------------------------------------
+    function getSensInputs() {
+      const rent = Number(document.getElementById('inputRent').value);
+      const laborOp = Number(document.getElementById('inputLaborOp').value);
+      const safetyCount = Number(document.getElementById('inputSafetyCount').value);
+      const safetyEach = Number(document.getElementById('inputSafetyEach').value);
+      const laborTicket = Number(document.getElementById('inputLaborTicket').value);
+      const laborClean = Number(document.getElementById('inputLaborClean').value);
+      const utility = Number(document.getElementById('inputUtility').value);
+      const maintenance = Number(document.getElementById('inputMaintenance').value);
+      const insurance = Number(document.getElementById('inputInsurance').value);
+      const misc = Number(document.getElementById('inputMisc').value);
+
+      const totalLabor = laborOp + (safetyCount * safetyEach) + laborTicket + laborClean;
+      const totalFixed = rent + totalLabor + utility + maintenance + insurance + misc;
+
+      const varCost = Number(document.getElementById('inputVarCost').value);
+
+      const prices = [
+        Number(document.getElementById('price0').value),
+        Number(document.getElementById('price1').value),
+        Number(document.getElementById('price2').value),
+        Number(document.getElementById('price3').value)
+      ];
+
+      const visitors = [
+        Number(document.getElementById('vis0').value),
+        Number(document.getElementById('vis1').value),
+        Number(document.getElementById('vis2').value),
+        Number(document.getElementById('vis3').value),
+        Number(document.getElementById('vis4').value)
+      ];
+
+      return {
+        rent, laborOp, safetyCount, safetyEach, laborTicket, laborClean,
+        utility, maintenance, insurance, misc, totalLabor, totalFixed,
+        varCost, prices, visitors
+      };
+    }
+
+    // 종합소득세 8단계 누진세율 + 지방소득세 10%
+    function calcIncomeTax(taxable) {
+      if (taxable <= 0) return 0;
+      const B = [
+        [14000000, 0.06, 0],
+        [50000000, 0.15, 1260000],
+        [88000000, 0.24, 5760000],
+        [150000000, 0.35, 15440000],
+        [300000000, 0.38, 19940000],
+        [500000000, 0.40, 25940000],
+        [1000000000, 0.42, 35940000],
+        [Infinity, 0.45, 65940000]
+      ];
+      const b = B.find(x => taxable <= x[0]);
+      return Math.round(Math.max(0, taxable * b[1] - b[2]) * 1.1);
+    }
+
+    function calcScenarioProfit(p, v, state, afterTaxMode) {
+      const grossRevenue = p * v;
+      const totalVarCost = state.varCost * v;
+      const preTaxProfit = grossRevenue - totalVarCost - state.totalFixed;
+
+      if (!afterTaxMode) {
+        return {
+          grossRevenue, netRevenue: grossRevenue, totalVarCost,
+          fixedCost: state.totalFixed, employerIns: 0, vatPayable: 0,
+          incomeTax: 0, netProfit: preTaxProfit
+        };
+      }
+
+      const netRevenue = Math.round(grossRevenue / 1.1);
+      const outputVat = grossRevenue - netRevenue;
+      // 인건비·보험료는 면세/비대상 → 과세 고정비만 매입세액 공제
+      const vatBase = Math.max(0, state.totalFixed - state.totalLabor - state.insurance);
+      const inputVatDeduction = Math.round((vatBase / 1.1) * 0.10);
+      const vatPayable = Math.max(0, outputVat - inputVatDeduction);
+      const employerIns = Math.round(state.totalLabor * 0.102);
+      
+      // 감가상각비: 낙찰자 자체 부담 집기비품 약 5천만 원을 3년 정액 상각 (잔존가치 0)
+      const amortization = 16700000;
+      const taxableIncome = netRevenue - state.totalFixed - employerIns - amortization - totalVarCost;
+      const incomeTax = calcIncomeTax(taxableIncome);
+
+      const netProfit = preTaxProfit - vatPayable - employerIns - incomeTax;
+      return {
+        grossRevenue, netRevenue, totalVarCost,
+        fixedCost: state.totalFixed, employerIns, vatPayable,
+        incomeTax, netProfit
+      };
+    }
+
+    function renderSensitivity() {
+      const state = getSensInputs();
+
+      document.getElementById('lblCostRent').textContent = fmtNum(state.rent);
+      document.getElementById('lblCostLaborOp').textContent = fmtNum(state.laborOp);
+      document.getElementById('lblSafetyCount').textContent = state.safetyCount;
+      document.getElementById('lblSafetyEach').textContent = fmtNum(Math.round(state.safetyEach / 10000));
+      document.getElementById('lblCostLaborSafety').textContent = fmtNum(state.safetyCount * state.safetyEach);
+      document.getElementById('lblCostLaborTicket').textContent = fmtNum(state.laborTicket);
+      document.getElementById('lblCostLaborClean').textContent = fmtNum(state.laborClean);
+      document.getElementById('lblCostUtil').textContent = fmtNum(state.utility);
+      document.getElementById('txtSumFixedCosts').textContent = fmtNum(state.totalFixed) + '원';
+
+      document.getElementById('lblVarCost').textContent = fmtNum(state.varCost) + '원';
+
+      const employerInsTotal = isAfterTaxMode ? Math.round(state.totalLabor * 0.102) : 0;
+      const displayFixedTotal = state.totalFixed + employerInsTotal;
+      
+      document.getElementById('kpiFixedCost').textContent = fmtMan(displayFixedTotal);
+      if (document.getElementById('kpiLaborLabel')) {
+        document.getElementById('kpiLaborLabel').textContent = isAfterTaxMode ? `인건비+4대보험` : `인건비 비중 (${fmtMan(state.totalLabor)})`;
+      }
+
+      const laborRatio = displayFixedTotal > 0 ? (((state.totalLabor + employerInsTotal) / displayFixedTotal) * 100).toFixed(1) : 0;
+      document.getElementById('kpiLaborRatio').textContent = laborRatio + '%';
+      document.getElementById('kpiLaborBar').style.width = laborRatio + '%';
+
+      const targetPrice = state.prices[2] || 12036;
+      let bepVisitors = 0;
+
+      for (let v = 5000; v <= 60000; v += 1) {
+        const res = calcScenarioProfit(targetPrice, v, state, isAfterTaxMode);
+        if (res.netProfit >= 0) {
+          bepVisitors = v;
+          break;
+        }
+      }
+
+      document.getElementById('kpiBepVisitors').textContent = `${(bepVisitors/10000).toFixed(2)}만 명`;
+      document.getElementById('kpiBepDetail').textContent = `${isAfterTaxMode ? '세후' : '권장'} ${fmtNum(targetPrice)}원 기준 ${fmtNum(bepVisitors)}명`;
+
+      // Render Grid Table
+      const gridHeader = document.getElementById('gridHeader');
+      const gridBody = document.getElementById('gridBody');
+
+      gridHeader.innerHTML = '<th class="py-2.5 px-2 w-20 text-center font-bold sticky-col bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">객단가</th>';
+      state.visitors.forEach(v => {
+        const th = document.createElement('th');
+        th.className = 'py-2.5 px-2 text-center font-bold text-slate-700 dark:text-slate-300 min-w-[72px]';
+        th.textContent = (v / 10000).toFixed(1) + '만';
+        gridHeader.appendChild(th);
+      });
+
+      let maxAbsProfit = 0;
+      state.prices.forEach(p => {
+        state.visitors.forEach(v => {
+          const res = calcScenarioProfit(p, v, state, isAfterTaxMode);
+          if (Math.abs(res.netProfit) > maxAbsProfit) maxAbsProfit = Math.abs(res.netProfit);
+        });
+      });
+
+      document.getElementById('legendMin').textContent = `최대 적자: ${fmtMan(-maxAbsProfit)}`;
+      document.getElementById('legendMax').textContent = `최대 흑자: ${fmtMan(maxAbsProfit)}`;
+
+      gridBody.innerHTML = '';
+      state.prices.forEach(p => {
+        const tr = document.createElement('tr');
+        
+        const th = document.createElement('th');
+        th.className = `py-3 px-2 text-center font-bold sticky-col bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] whitespace-nowrap ${p === 12036 ? 'text-emerald-600 dark:text-emerald-400 font-extrabold' : 'text-slate-800 dark:text-slate-200'}`;
+        th.textContent = (p / 10000).toFixed(1) + '만';
+        tr.appendChild(th);
+
+        state.visitors.forEach(v => {
+          const res = calcScenarioProfit(p, v, state, isAfterTaxMode);
+          const profit = res.netProfit;
+
+          const td = document.createElement('td');
+          const isBep = Math.abs(profit) <= 10000000;
+
+          td.className = `py-3 px-1.5 text-center cursor-pointer tabular-nums cell-hover-effect transition select-none active:scale-95 ${isBep ? 'breakeven-cell' : ''}`;
+          td.style.backgroundColor = getCellColor(profit, maxAbsProfit);
+
+          const isDark = document.documentElement.classList.contains('dark');
+          const norm = Math.abs(profit) / (maxAbsProfit || 1);
+          td.style.color = norm > 0.45 ? '#ffffff' : (isDark ? '#f8fafc' : '#0f172a');
+
+          const sign = profit > 0 ? '+' : (profit < 0 ? '−' : '');
+          td.textContent = sign + fmtNum(Math.abs(profit));
+
+          td.addEventListener('click', () => {
+            openDetailModal(p, v, res);
+          });
+
+          tr.appendChild(td);
+        });
+
+        gridBody.appendChild(tr);
+      });
+
+      renderProfitChart(state);
+    }
+
+    function renderProfitChart(state) {
+      const canvas = document.getElementById('profitChart');
+      if (!canvas || typeof Chart === 'undefined') return;
+
+      try {
+        const ctx = canvas.getContext('2d');
+        const isDark = document.documentElement.classList.contains('dark');
+        const colors = ['#f43f5e', '#eab308', '#10b981', '#3b82f6'];
+
+        const datasets = state.prices.map((p, idx) => {
+          const data = state.visitors.map(v => calcScenarioProfit(p, v, state, isAfterTaxMode).netProfit);
+          return {
+            label: `${fmtNum(p)}원`,
+            data: data,
+            borderColor: colors[idx % colors.length],
+            backgroundColor: colors[idx % colors.length],
+            borderWidth: p === 12036 ? 3 : 2,
+            tension: 0.2,
+            pointRadius: p === 12036 ? 4 : 3
+          };
+        });
+
+        datasets.push({
+          label: 'BEP (0원)',
+          data: state.visitors.map(() => 0),
+          borderColor: '#ef4444',
+          borderWidth: 1.5,
+          borderDash: [2, 2],
+          pointRadius: 0
+        });
+
+        if (profitChartInstance) profitChartInstance.destroy();
+
+        profitChartInstance = new Chart(ctx, {
+          type: 'line',
+          data: { labels: state.visitors.map(v => (v/10000).toFixed(1) + '만'), datasets: datasets },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { labels: { color: isDark ? '#cbd5e1' : '#475569', font: { family: 'Noto Sans KR', size: 10 }, boxWidth: 12 } },
+              tooltip: { callbacks: { label: function(context) { return `${context.dataset.label}: ${fmtMan(context.parsed.y)}`; } } }
+            },
+            scales: {
+              x: { grid: { color: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }, ticks: { color: isDark ? '#94a3b8' : '#64748b', font: { family: 'Noto Sans KR', size: 9 } } },
+              y: { grid: { color: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }, ticks: { color: isDark ? '#94a3b8' : '#64748b', font: { family: 'Noto Sans KR', size: 9 }, callback: function(val) { return fmtMan(val); } } }
+            }
+          }
+        });
+      } catch (e) {
+        console.warn('Profit chart error:', e);
+      }
+    }
+
+    function openDetailModal(price, visitor, res) {
+      document.getElementById('modalCondition').textContent = `${fmtNum(price)}원 / ${fmtNum(visitor)}명`;
+      document.getElementById('modalRevenue').textContent = fmtNum(res.grossRevenue) + ' 원';
+      document.getElementById('modalFixedCost').textContent = fmtNum(res.fixedCost) + ' 원';
+      document.getElementById('modalVarCost').textContent = fmtNum(res.totalVarCost) + ' 원';
+
+      document.getElementById('modalNetProfitLabel').textContent = isAfterTaxMode ? "최종 연간 손익 (세후 순이익)" : "최종 연간 손익 (세전 영업이익)";
+
+      const rowNetRev = document.getElementById('rowModalNetRevenue');
+      const rowEmpIns = document.getElementById('rowModalEmployerIns');
+      const rowVat = document.getElementById('rowModalVat');
+      const rowTax = document.getElementById('rowModalTax');
+
+      if (isAfterTaxMode) {
+        rowNetRev?.classList.remove('hidden');
+        rowEmpIns?.classList.remove('hidden');
+        rowVat?.classList.remove('hidden');
+        rowTax?.classList.remove('hidden');
+
+        document.getElementById('modalNetRevenue').textContent = fmtNum(res.netRevenue) + ' 원';
+        document.getElementById('modalEmployerIns').textContent = fmtNum(res.employerIns) + ' 원';
+        document.getElementById('modalVat').textContent = fmtNum(res.vatPayable) + ' 원';
+        document.getElementById('modalTax').textContent = fmtNum(res.incomeTax) + ' 원';
+      } else {
+        rowNetRev?.classList.add('hidden');
+        rowEmpIns?.classList.add('hidden');
+        rowVat?.classList.add('hidden');
+        rowTax?.classList.add('hidden');
+      }
+
+      const profit = res.netProfit;
+      document.getElementById('modalNetProfit').textContent = fmtMan(profit);
+      
+      const banner = document.getElementById('modalBanner');
+      const badge = document.getElementById('modalStatusBadge');
+      const note = document.getElementById('modalEvalNote');
+
+      if (profit > 0) {
+        if (banner) banner.className = 'p-3.5 sm:p-4 rounded-xl flex items-center justify-between font-bold text-white bg-blue-600 shadow-md shadow-blue-500/20';
+        if (badge) badge.textContent = isAfterTaxMode ? '세후 흑자' : '흑자 구간';
+        if (note) note.textContent = isAfterTaxMode 
+          ? `부가가치세(약 ${fmtNum(res.vatPayable)}원), 4대보험 사업자부담금(${fmtNum(res.employerIns)}원), 종합소득세(${fmtNum(res.incomeTax)}원) 정산 후에도 ${fmtMan(profit)}의 실질 현금이 창출되는 안정적 시나리오입니다.`
+          : `총 고정비(2.289억) 및 변동비를 차감하고 ${fmtMan(profit)}의 세전 영업이익이 발생합니다.`;
+      } else {
+        if (banner) banner.className = 'p-3.5 sm:p-4 rounded-xl flex items-center justify-between font-bold text-white bg-rose-600 shadow-md shadow-rose-500/20';
+        if (badge) badge.textContent = isAfterTaxMode ? '세후 적자' : '적자 구간';
+        if (note) note.textContent = `해당 조건에서는 ${fmtMan(Math.abs(profit))}의 적자가 발생하므로 혼합객단가 인상 또는 비수기 교육기관 단체 유치가 요구됩니다.`;
+      }
+
+      dModal?.classList.remove('hidden');
+    }
+
+    // Tab 1 Inputs Change Listeners
+    const sensInputIds = [
+      'inputRent', 'inputLaborOp', 'inputSafetyCount', 'inputSafetyEach',
+      'inputLaborTicket', 'inputLaborClean', 'inputUtility', 'inputMaintenance', 'inputInsurance',
+      'inputMisc', 'inputVarCost',
+      'price0', 'price1', 'price2', 'price3',
+      'vis0', 'vis1', 'vis2', 'vis3', 'vis4'
+    ];
+    sensInputIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener('input', renderSensitivity);
+        el.addEventListener('change', renderSensitivity);
+      }
+    });
+
+    // -----------------------------------------------------------------
+    // TAB 2: CO-WORKER COMPENSATION ENGINE (5개년 완주 설계)
+    // -----------------------------------------------------------------
+    const FIXED_COST = 228900000; // 안전요원 2인 2,800만 적용 후 고정비 (2억 2,890만 원)
+    const VAR_COST = 361;         // 혼합객단가 12,036원의 3%
+    const BASE_SALARY = 28000000; // 운영담당 기본급 (2,800만 원)
+
+    // 5개년 완주 벤치마크 시나리오 (1~5년차 완비)
+    // 보수: 16k(적자) -> 20k(460만) -> 24k(5,130만) -> 25k(6,298만) -> 26k(7,465만)
+    // 기본: 19.6k(BEP) -> 25k(6,298만) -> 29k(10,968만) -> 31k(13,303만) -> 33k(15,638만)
+    // 낙관: 23k(3,963만) -> 31k(13,303만) -> 37k(20,308만) -> 40k(23,810만) -> 42k(26,145만)
+        // 5개년 연차별 우상향(Monotonic Growth) 시나리오 (들쑥날쑥하지 않고 연차·호봉·성과 누적 반영)
+    // 보수 (1.8만 -> 2.0만 -> 2.2만 -> 2.4만 -> 2.6만): 월 238만 -> 254만 -> 277만 -> 304만 -> 342만
+    // 기본 (19.6k(BEP) -> 2.3만 -> 2.7만 -> 3.1만 -> 3.5만): 월 258만 -> 296만 -> 343만 -> 400만 -> 471만
+    // 낙관 (2.2만 -> 2.8만 -> 3.4만 -> 4.0만 -> 4.5만): 월 288만 -> 354만 -> 433만 -> 529만 -> 633만
+    const SCENARIOS = {
+      cons: [28500000, 30500000, 33200000, 36500000, 41000000],
+      base: [31000000, 35500000, 41200000, 48000000, 56500000],
+      opt:  [34500000, 42500000, 52000000, 63500000, 76000000]
+    };
+
+    // 연차별 기본급 호봉 체계 (1년차 2,800만 ~ 5년차 3,250만 원)
+    function getBaseSalary(tenure) {
+      const scales = [28000000, 29000000, 30000000, 31200000, 32500000];
+      const idx = Math.min(Math.max(tenure, 1), 5) - 1;
+      return scales[idx];
+    }
+
+    // 연차별 이익공유(PS) 배분율 체계 (1년차 5% -> 2년차 7.5% -> 3년차 10% -> 4년차 12.5% -> 5년차 15%)
+    function getPsRate(tenure) {
+      const rates = [0.05, 0.075, 0.10, 0.125, 0.15];
+      const idx = Math.min(Math.max(tenure, 1), 5) - 1;
+      return rates[idx];
+    }
+
+    // 2층 마일스톤 및 근속 장려금 (연차가 쌓이면서 안정적으로 누적 상향)
+    function getMilestoneBonus(tenure, chk25k, chkProfit, chkSafety) {
+      let bonus = 0;
+      if (chk25k) bonus += 5000000;
+      if (chkProfit && tenure >= 2) bonus += 10000000; // 2년차 이후 누적 흑자전환
+      if (chkSafety && tenure >= 3) bonus += 10000000; // 3년차 이후 3년 연속 무사고
+      if (tenure >= 2) bonus += (tenure - 1) * 1000000; // 연차별 근속수당 가산 (+100만/연)
+      return bonus;
+    }
+
+    function calculateCoWorker() {
+      const tenureEl = document.getElementById('inputTenure');
+      const visitorsEl = document.getElementById('inputVisitors');
+      const priceEl = document.getElementById('inputPrice');
+
+      const tenure = tenureEl ? Number(tenureEl.value) : 1;
+      const visitors = visitorsEl ? Number(visitorsEl.value) : 19606;
+      const price = priceEl ? Number(priceEl.value) : 12036;
+
+      const chkMs25k = document.getElementById('chkMs25k')?.checked || false;
+      const chkMsProfitTurn = document.getElementById('chkMsProfitTurn')?.checked || false;
+      const chkMsSafety3Y = document.getElementById('chkMsSafety3Y')?.checked || false;
+
+      const revenue = visitors * price;
+      const profitBeforePs = revenue - (visitors * VAR_COST) - FIXED_COST;
+
+      const t1 = getBaseSalary(tenure);
+      const t2 = getMilestoneBonus(tenure, chkMs25k, chkMsProfitTurn, chkMsSafety3Y);
+      const t3 = selectedKpiValue;
+
+      const psRate = getPsRate(tenure);
+      let t4 = 0;
+      if (profitBeforePs > 0) {
+        t4 = Math.round(profitBeforePs * psRate);
+      }
+
+      const totalComp = t1 + t2 + t3 + t4;
+      const monthlyComp = Math.round(totalComp / 12);
+
+      return {
+        tenure, visitors, price, revenue, profitBeforePs,
+        t1, t2, t3, t4, psRate, totalComp, monthlyComp
+      };
+    }
+
+    function renderCoWorker() {
+      const res = calculateCoWorker();
+      const psPct = Math.round(res.psRate * 100);
+
+      if (document.getElementById('lblTenure')) document.getElementById('lblTenure').textContent = `${res.tenure}년차 (${psPct}%)`;
+      if (document.getElementById('lblVisitors')) document.getElementById('lblVisitors').textContent = `${fmtNum(res.visitors)}명`;
+      if (document.getElementById('lblPrice')) document.getElementById('lblPrice').textContent = `${fmtNum(res.price)}원`;
+
+      const monthlyMan = Math.round(res.monthlyComp / 10000);
+      const totalMan = Math.round(res.totalComp / 10000);
+
+      if (document.getElementById('kpiMonthly')) document.getElementById('kpiMonthly').textContent = `월 ${fmtNum(monthlyMan)}만 원`;
+      if (document.getElementById('kpiAnnualTotal')) document.getElementById('kpiAnnualTotal').textContent = `${fmtNum(totalMan)}만 원`;
+      if (document.getElementById('kpiAnnualDetail')) document.getElementById('kpiAnnualDetail').textContent = `연 ${fmtNum(totalMan)}만`;
+
+      const kpiProfitEl = document.getElementById('kpiFacilityProfit');
+      if (kpiProfitEl) {
+        kpiProfitEl.textContent = fmtMan(res.profitBeforePs);
+        kpiProfitEl.className = res.profitBeforePs >= 0 
+          ? 'text-base sm:text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums leading-tight' 
+          : 'text-base sm:text-2xl font-extrabold text-rose-600 dark:text-rose-400 tabular-nums leading-tight';
+      }
+
+      const peakV = Math.round((res.visitors * 0.40) / 55);
+      const midV = Math.round((res.visitors * 0.35) / 105);
+      const offV = Math.round((res.visitors * 0.25) / 140);
+      const offFamilies = Math.round(offV / 2.2);
+
+      // 축제 9일간 목표 인원 대비 축제 연인원 24만 명 비교
+      const festConversion = ((peakV * 9) / 240000 * 100).toFixed(2);
+
+      if (document.getElementById('kpiDailyBreakdown')) document.getElementById('kpiDailyBreakdown').textContent = `성수기 ${peakV}명 / 비수기 ${offV}명`;
+      if (document.getElementById('kpiDailySub')) document.getElementById('kpiDailySub').textContent = `축제 9일 흡수율 ${festConversion}% (연인원 기준)`;
+
+      if (document.getElementById('txtConvRate')) document.getElementById('txtConvRate').textContent = `축제 흡수율 ${festConversion}%`;
+      if (document.getElementById('vPeak')) document.getElementById('vPeak').textContent = `일 ${peakV}명`;
+      if (document.getElementById('vMid')) document.getElementById('vMid').textContent = `일 ${midV}명`;
+      if (document.getElementById('vOff')) document.getElementById('vOff').textContent = `일 ${offV}명`;
+
+      const bepCount = Math.round(FIXED_COST / (res.price - VAR_COST));
+      if (document.getElementById('txtFeasibilityHint')) {
+        document.getElementById('txtFeasibilityHint').innerHTML = 
+          `💡 <strong>객단가 ${fmtNum(res.price)}원 기준</strong>: 손익분기 ${fmtNum(bepCount)}명. 성수기 일 ${peakV}명, 비수기 일 ${offV}명(약 ${offFamilies}가족)이 필요합니다.`;
+      }
+
+      // Table Breakdown
+      if (document.getElementById('tbl1')) document.getElementById('tbl1').textContent = fmtNum(res.t1) + ' 원';
+      if (document.getElementById('tbl1Desc')) document.getElementById('tbl1Desc').textContent = `${res.tenure}년차 호봉 (월 ${fmtNum(Math.round(res.t1 / 12))}원 지급)`;
+      if (document.getElementById('tbl2')) document.getElementById('tbl2').textContent = fmtNum(res.t2) + ' 원';
+      if (document.getElementById('tbl3')) document.getElementById('tbl3').textContent = fmtNum(res.t3) + ' 원';
+      if (document.getElementById('tbl4')) document.getElementById('tbl4').textContent = fmtNum(res.t4) + ' 원';
+      if (document.getElementById('tblPsBadge')) document.getElementById('tblPsBadge').textContent = `${res.tenure}년차 (${psPct}%)`;
+      if (document.getElementById('tblTotal')) {
+        document.getElementById('tblTotal').textContent = `${fmtNum(res.totalComp)} 원 (월 ${fmtNum(monthlyMan)}만 원)`;
+      }
+
+      renderGrowthChart(res);
+    }
+
+    function renderGrowthChart(currentRes) {
+      if (!currentRes) currentRes = calculateCoWorker();
+      const canvas = document.getElementById('growthChart');
+      if (!canvas || typeof Chart === 'undefined') return;
+
+      try {
+        const ctx = canvas.getContext('2d');
+        const isDark = document.documentElement.classList.contains('dark');
+
+        const labels = ['1년차', '2년차', '3년차', '4년차', '5년차'];
+        const dataCons = SCENARIOS.cons.map(v => Math.round(v / 12 / 10000));
+        const dataBase = SCENARIOS.base.map(v => Math.round(v / 12 / 10000));
+        const dataOpt = SCENARIOS.opt.map(v => Math.round(v / 12 / 10000));
+
+        const dataUser = [1, 2, 3, 4, 5].map(yr => {
+          const base = getBaseSalary(yr);
+          const psRate = getPsRate(yr);
+          let ps = 0;
+          if (currentRes.profitBeforePs > 0) {
+            ps = Math.round(currentRes.profitBeforePs * psRate);
+          }
+          const ms = getMilestoneBonus(
+            yr,
+            document.getElementById('chkMs25k')?.checked || false,
+            document.getElementById('chkMsProfitTurn')?.checked || false,
+            document.getElementById('chkMsSafety3Y')?.checked || false
+          );
+          const total = base + ms + currentRes.t3 + ps;
+          return Math.round(total / 12 / 10000);
+        });
+
+        if (growthChartInstance) growthChartInstance.destroy();
+
+        growthChartInstance = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                label: '내 시뮬레이션 설정',
+                data: dataUser,
+                borderColor: '#2563eb',
+                backgroundColor: '#2563eb',
+                borderWidth: 3,
+                tension: 0.2,
+                pointRadius: 4
+              },
+              {
+                label: '기본 시나리오',
+                data: dataBase,
+                borderColor: '#10b981',
+                borderWidth: 2,
+                borderDash: [3, 3],
+                pointRadius: 3,
+                fill: false
+              },
+              {
+                label: '보수 시나리오',
+                data: dataCons,
+                borderColor: '#94a3b8',
+                borderWidth: 1.5,
+                borderDash: [2, 2],
+                pointRadius: 2,
+                fill: false
+              },
+              {
+                label: '낙관 시나리오',
+                data: dataOpt,
+                borderColor: '#f59e0b',
+                borderWidth: 1.5,
+                borderDash: [2, 2],
+                pointRadius: 2,
+                fill: false
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { position: 'top', labels: { color: isDark ? '#cbd5e1' : '#475569', font: { family: 'Noto Sans KR', size: 10 }, boxWidth: 10 } },
+              tooltip: { callbacks: { label: function(context) { return `${context.dataset.label}: 월 ${context.parsed.y}만 원`; } } }
+            },
+            scales: {
+              x: { grid: { color: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }, ticks: { color: isDark ? '#94a3b8' : '#64748b', font: { family: 'Noto Sans KR', size: 10 } } },
+              y: { grid: { color: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }, ticks: { color: isDark ? '#94a3b8' : '#64748b', font: { family: 'Noto Sans KR', size: 10 }, callback: function(val) { return '월 ' + val + '만'; } } }
+            }
+          }
+        });
+      } catch (e) {
+        console.warn('Growth chart error:', e);
+      }
+    }
+
+    // Tab 2 Inputs Change Listeners
+    ['inputTenure', 'inputVisitors', 'inputPrice', 'chkMs25k', 'chkMsProfitTurn', 'chkMsSafety3Y'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener('input', renderCoWorker);
+        el.addEventListener('change', renderCoWorker);
+      }
+    });
+
+    const kpiBtns = document.querySelectorAll('.btn-kpi');
+    kpiBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectedKpiValue = Number(btn.getAttribute('data-kpi'));
+        kpiBtns.forEach(b => {
+          b.className = 'btn-kpi p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 text-center font-medium text-xs';
+        });
+        btn.className = 'btn-kpi p-1.5 rounded-lg border border-blue-600 bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 font-bold text-center text-xs';
+        renderCoWorker();
+      });
+    });
+
+    function applyPreset(tenure, visitors, price, ms25k, msProfit, msSafety, kpiVal) {
+      if (document.getElementById('inputTenure')) document.getElementById('inputTenure').value = tenure;
+      if (document.getElementById('inputVisitors')) document.getElementById('inputVisitors').value = visitors;
+      if (document.getElementById('inputPrice')) document.getElementById('inputPrice').value = price;
+      if (document.getElementById('chkMs25k')) document.getElementById('chkMs25k').checked = ms25k;
+      if (document.getElementById('chkMsProfitTurn')) document.getElementById('chkMsProfitTurn').checked = msProfit;
+      if (document.getElementById('chkMsSafety3Y')) document.getElementById('chkMsSafety3Y').checked = msSafety;
+      
+      selectedKpiValue = kpiVal;
+      kpiBtns.forEach(b => {
+        const val = Number(b.getAttribute('data-kpi'));
+        if (val === kpiVal) {
+          b.className = 'btn-kpi p-1.5 rounded-lg border border-blue-600 bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 font-bold text-center text-xs';
+        } else {
+          b.className = 'btn-kpi p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 text-center font-medium text-xs';
+        }
+      });
+
+      renderCoWorker();
+    }
+
+    const presetActions = {
+      cons: () => applyPreset(3, 24000, 12036, false, false, true, 1500000),
+      base: () => applyPreset(3, 29000, 12036, true, true, true, 3000000),
+      opt: () => applyPreset(3, 37000, 12036, true, true, true, 5000000)
+    };
+
+    document.getElementById('btnPresetCons')?.addEventListener('click', presetActions.cons);
+    document.getElementById('btnPresetBase')?.addEventListener('click', presetActions.base);
+    document.getElementById('btnPresetOpt')?.addEventListener('click', presetActions.opt);
+
+    // RESET ALL (표준 기본값 동기화)
+    document.getElementById('btnReset')?.addEventListener('click', () => {
+      if (activeTab === 'sensitivity') {
+        document.getElementById('inputRent').value = 47300000;
+        document.getElementById('inputLaborOp').value = 28000000;
+        document.getElementById('inputSafetyCount').value = 2;
+        document.getElementById('inputSafetyEach').value = 28000000;
+        document.getElementById('inputLaborTicket').value = 24000000;
+        document.getElementById('inputLaborClean').value = 12000000;
+        document.getElementById('inputUtility').value = 27600000;
+        document.getElementById('inputMaintenance').value = 12000000;
+        document.getElementById('inputInsurance').value = 7000000;
+        document.getElementById('inputMisc').value = 15000000;
+        document.getElementById('inputVarCost').value = 361;
+
+        document.getElementById('price0').value = 9000;
+        document.getElementById('price1').value = 10500;
+        document.getElementById('price2').value = 12036;
+        document.getElementById('price3').value = 13500;
+
+        document.getElementById('vis0').value = 12000;
+        document.getElementById('vis1').value = 16000;
+        document.getElementById('vis2').value = 20000;
+        document.getElementById('vis3').value = 24000;
+        document.getElementById('vis4').value = 28000;
+
+        renderSensitivity();
+      } else {
+        presetActions.base();
+      }
+    });
+
+    // Initial load
+    switchTab('sensitivity');
+  </script>
+</body>
+</html>

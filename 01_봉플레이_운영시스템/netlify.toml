@@ -1,0 +1,54 @@
+[build]
+  publish = "."
+
+[functions]
+  directory = "netlify/functions"
+
+# 디스코드 웹훅 서버리스 프록시 라우트
+[[redirects]]
+  from = "/api/notify"
+  to = "/.netlify/functions/notify"
+  status = 200
+
+# 보안 심층 방어: 만에 하나 내부 디렉터리가 업로드되더라도 웹 접근 원천 차단
+[[redirects]]
+  from = "/database/*"
+  to = "/index.html"
+  status = 404
+  force = true
+
+[[redirects]]
+  from = "/backend_ai/*"
+  to = "/index.html"
+  status = 404
+  force = true
+
+[[redirects]]
+  from = "/docs/*"
+  to = "/index.html"
+  status = 404
+  force = true
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# HTML은 항상 최신본을 받도록 캐시 비활성화
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# 설정 파일도 캐시하지 않음 (값 변경 시 즉시 반영)
+[[headers]]
+  for = "/assets/config.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/pages/firebase-config.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"

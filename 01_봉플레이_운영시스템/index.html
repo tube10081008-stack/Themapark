@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>리틀포레스트 봉플레이 — 운영시스템</title>
+  <meta name="description" content="리틀포레스트 봉플레이 통합 운영시스템">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800;900&display=swap');
+    html, body {
+      max-width: 100vw;
+      overflow-x: hidden !important;
+      width: 100%;
+    }
+    body { font-family:'Pretendard',-apple-system,BlinkMacSystemFont,system-ui,sans-serif; -webkit-tap-highlight-color:transparent; }
+    * { box-sizing: border-box; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="assets/config.js"></script>
+  <script src="assets/bongplay-sync.js"></script>
+  <link rel="stylesheet" href="assets/print.css">
+</head>
+<body class="bg-slate-950 text-slate-200 min-h-screen w-full max-w-full overflow-x-hidden">
+
+<div class="max-w-5xl mx-auto px-4 py-8 sm:py-12">
+
+  <!-- 헤더 -->
+  <div class="flex items-start justify-between gap-3 mb-8">
+    <div class="flex items-center gap-3">
+      <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center shrink-0">
+        <i data-lucide="tent-tree" class="w-6 h-6 text-white"></i>
+      </div>
+      <div>
+        <h1 class="text-lg sm:text-xl font-black text-white leading-tight">리틀포레스트 봉플레이</h1>
+        <p class="text-xs text-slate-500 mt-0.5">통합 운영시스템</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-2 shrink-0">
+      <span id="dbBadge" class="px-3 py-1.5 rounded-xl text-[11px] font-bold bg-slate-900 border border-slate-700 text-slate-400">확인 중</span>
+    </div>
+  </div>
+
+  <!-- 오늘 요약 -->
+  <div class="bg-gradient-to-br from-slate-900 to-slate-900/50 border border-slate-800 rounded-3xl p-5 mb-6">
+    <div class="flex items-center gap-2 mb-3">
+      <i data-lucide="calendar-check" class="w-4 h-4 text-amber-400"></i>
+      <span id="todayLabel" class="text-xs font-bold text-slate-400">오늘</span>
+    </div>
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div>
+        <p class="text-[10px] text-slate-500 font-bold mb-0.5">방문객</p>
+        <p id="sVisitors" class="text-lg font-black text-white tabular-nums">-</p>
+      </div>
+      <div>
+        <p class="text-[10px] text-slate-500 font-bold mb-0.5">매출</p>
+        <p id="sRevenue" class="text-lg font-black text-white tabular-nums">-</p>
+      </div>
+      <div>
+        <p class="text-[10px] text-slate-500 font-bold mb-0.5">연 누적 BEP</p>
+        <p id="sBep" class="text-lg font-black text-white tabular-nums">-</p>
+      </div>
+      <div>
+        <p class="text-[10px] text-slate-500 font-bold mb-0.5">안전점검</p>
+        <p id="sSafety" class="text-lg font-black text-slate-500">-</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 긴급 -->
+  <a href="pages/emergency.html" class="block bg-rose-950/60 hover:bg-rose-900/60 border border-rose-600/70 rounded-2xl p-4 mb-6 transition group shadow-lg shadow-rose-950/50">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-rose-600 flex items-center justify-center shrink-0 text-white shadow-md animate-pulse">
+        <i data-lucide="siren" class="w-5 h-5"></i>
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2">
+          <p class="font-black text-sm text-white">🚨 실내시설 비상 키오스크</p>
+          <span class="text-[10px] bg-rose-500/30 text-rose-300 font-bold px-1.5 py-0.5 rounded">상시 거치용</span>
+        </div>
+        <p class="text-[11px] text-rose-300/90 mt-0.5">119·응급실 원터치 직통 다이얼 & 전 직원 비상벨 전파</p>
+      </div>
+      <i data-lucide="chevron-right" class="w-4 h-4 text-rose-400 group-hover:translate-x-0.5 transition"></i>
+    </div>
+  </a>
+
+  <!-- 일상 운영 -->
+  <p class="text-[11px] font-black text-slate-500 mb-2.5 px-1 tracking-wider">일상 운영</p>
+  <div class="grid sm:grid-cols-2 gap-3 mb-6">
+
+    <a href="pages/operations.html" class="bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl p-4 transition group">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-emerald-600/20 flex items-center justify-center shrink-0">
+          <i data-lucide="trending-up" class="w-5 h-5 text-emerald-400"></i>
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="font-bold text-sm text-white">현장운영 대시보드</p>
+          <p class="text-[11px] text-slate-500 mt-0.5">매출·방문객 입력 및 BEP 관제</p>
+        </div>
+      </div>
+    </a>
+
+    <a href="pages/safety-check.html" class="bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl p-4 transition group">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-blue-600/20 flex items-center justify-center shrink-0">
+          <i data-lucide="clipboard-check" class="w-5 h-5 text-blue-400"></i>
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="font-bold text-sm text-white">일일 안전점검 일지</p>
+          <p class="text-[11px] text-slate-500 mt-0.5">개장 전 필수 점검</p>
+        </div>
+      </div>
+    </a>
+
+    <a href="pages/closing.html" class="bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl p-4 transition group">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-amber-600/20 flex items-center justify-center shrink-0">
+          <i data-lucide="wallet" class="w-5 h-5 text-amber-400"></i>
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="font-bold text-sm text-white">교대근무 · 마감정산</p>
+          <p class="text-[11px] text-slate-500 mt-0.5">현금 정산 및 인수인계</p>
+        </div>
+      </div>
+    </a>
+
+    <a href="pages/management.html" class="bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl p-4 transition group">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-orange-600/20 flex items-center justify-center shrink-0">
+          <i data-lucide="clipboard-list" class="w-5 h-5 text-orange-400"></i>
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="font-bold text-sm text-white">운영관리 통합보드</p>
+          <p class="text-[11px] text-purple-400 font-semibold mt-0.5">일일브리핑 · 예약캘린더 · AI인과데이터</p>
+        </div>
+      </div>
+    </a>
+  </div>
+
+  <!-- 고객 응대 & 현장 기록 -->
+  <p class="text-[11px] font-black text-slate-500 mb-2.5 px-1 tracking-wider">고객 응대 & 현장 기록</p>
+  <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+
+    <a href="pages/consent.html" class="bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl p-4 transition group">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-teal-600/20 flex items-center justify-center shrink-0">
+          <i data-lucide="file-signature" class="w-5 h-5 text-teal-400"></i>
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="font-bold text-sm text-white">안전이용 동의서</p>
+          <p class="text-[11px] text-slate-500 mt-0.5">고객 서명 · 매표소 발권 관리</p>
+        </div>
+      </div>
+    </a>
+
+    <a href="pages/booking.html" class="bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl p-4 transition group">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-indigo-600/20 flex items-center justify-center shrink-0">
+          <i data-lucide="calendar-plus" class="w-5 h-5 text-indigo-400"></i>
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="font-bold text-sm text-white">현장안내 · 단체예약</p>
+          <p class="text-[11px] text-slate-500 mt-0.5">실시간 혼잡도 · 단체 접수</p>
+        </div>
+      </div>
+    </a>
+
+    <a href="https://bongplaychat.netlify.app" target="_blank" rel="noopener noreferrer" class="bg-slate-900 hover:bg-slate-800/80 border border-emerald-900/40 hover:border-emerald-500/50 rounded-2xl p-4 transition group">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-emerald-600/20 flex items-center justify-center shrink-0">
+          <i data-lucide="message-square" class="w-5 h-5 text-emerald-400"></i>
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center justify-between">
+            <p class="font-bold text-sm text-white">봉챗 (단톡방 업무로그)</p>
+            <i data-lucide="external-link" class="w-3 h-3 text-slate-500 group-hover:text-emerald-400 transition"></i>
+          </div>
+          <p class="text-[11px] text-emerald-400 font-semibold mt-0.5">AI 대화 분류 · 업무 원장 ↗</p>
+        </div>
+      </div>
+    </a>
+
+    <a href="pages/archive.html" class="bg-slate-900 hover:bg-slate-800/80 border border-indigo-900/40 hover:border-indigo-500/50 rounded-2xl p-4 transition group">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-purple-600/20 flex items-center justify-center shrink-0">
+          <i data-lucide="images" class="w-5 h-5 text-purple-400"></i>
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center justify-between">
+            <p class="font-bold text-sm text-white">봉아카이브 (사진·영상)</p>
+            <i data-lucide="external-link" class="w-3 h-3 text-slate-500 group-hover:text-purple-400 transition"></i>
+          </div>
+          <p class="text-[11px] text-indigo-400 font-semibold mt-0.5">Google 5TB · 단톡방 사진 박제 ↗</p>
+        </div>
+      </div>
+    </a>
+  </div>
+
+  <!-- 경영 -->
+  <p class="text-[11px] font-black text-slate-500 mb-2.5 px-1 tracking-wider">경영 · 분석</p>
+  <div class="grid sm:grid-cols-2 gap-3 mb-8">
+
+    <a href="pages/master.html" class="bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl p-4 transition">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-purple-600/20 flex items-center justify-center shrink-0">
+          <i data-lucide="layout-dashboard" class="w-5 h-5 text-purple-400"></i>
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="font-bold text-sm text-white">총괄 마스터 대시보드</p>
+          <p class="text-[11px] text-slate-500 mt-0.5">전체 현황 · AI 오퍼레이터</p>
+        </div>
+      </div>
+    </a>
+
+  </div>
+
+  <!-- 메타버스 -->
+  <p class="text-[11px] font-black text-slate-500 mb-2.5 px-1 tracking-wider">가상 관제</p>
+  <div class="grid sm:grid-cols-2 gap-3 mb-8">
+    <a href="pages/metaverse.html" class="bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl p-4 transition">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-lime-600/20 flex items-center justify-center shrink-0">
+          <i data-lucide="globe" class="w-5 h-5 text-lime-400"></i>
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="font-bold text-sm text-white">메타버스 관제 (멀티플레이)</p>
+          <p class="text-[11px] text-slate-500 mt-0.5">3인 실시간 접속 · 운영 시뮬레이션 내장</p>
+        </div>
+      </div>
+    </a>
+    <a href="pages/simulator.html" class="bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl p-4 transition">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-slate-700/40 flex items-center justify-center shrink-0">
+          <i data-lucide="calculator" class="w-5 h-5 text-slate-400"></i>
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="font-bold text-sm text-white">손익 시뮬레이터</p>
+          <p class="text-[11px] text-slate-500 mt-0.5">BEP 민감도 · 동료보상 설계</p>
+        </div>
+      </div>
+    </a>
+  </div>
+
+  <!-- 문서 서식 -->
+  <p class="text-[11px] font-black text-slate-500 mb-2.5 px-1 tracking-wider">문서 서식</p>
+  <div class="grid sm:grid-cols-2 gap-3 mb-8">
+
+    <a href="forms/index.html" class="bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl p-4 transition">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-cyan-600/20 flex items-center justify-center shrink-0">
+          <i data-lucide="file-text" class="w-5 h-5 text-cyan-400"></i>
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="font-bold text-sm text-white">서식 모음 (11종)</p>
+          <p class="text-[11px] text-slate-500 mt-0.5">근로계약·사고보고·견적서 · 클릭 입력 후 PDF 저장</p>
+        </div>
+      </div>
+    </a>
+
+    <a href="forms/incident-report.html" class="bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl p-4 transition">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-rose-600/20 flex items-center justify-center shrink-0">
+          <i data-lucide="file-warning" class="w-5 h-5 text-rose-400"></i>
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="font-bold text-sm text-white">사고보고서 (바로가기)</p>
+          <p class="text-[11px] text-slate-500 mt-0.5">사고 발생 시 즉시 작성</p>
+        </div>
+      </div>
+    </a>
+  </div>
+
+  <p class="text-center text-[10px] text-slate-600 leading-relaxed">
+    경상북도 봉화군 봉화읍 유록길 22<br>
+    RE:PLAYCE · 리틀포레스트 봉플레이 운영시스템
+  </p>
+</div>
+
+<script>
+  const SALES_KEY='bongtteurak_actual_records_v4', AUDIT_KEY='bongplay_safety_audit_logs';
+  const BEP = (window.BONGPLAY_CONFIG && window.BONGPLAY_CONFIG.ANNUAL_BEP_VISITORS) || 19606;
+  const fmt = n => (Number(n)||0).toLocaleString('ko-KR');
+
+  function readLS(k, f) { try { const r=localStorage.getItem(k); return r?JSON.parse(r):f; } catch(e){ return f; } }
+
+  function render() {
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    document.getElementById('todayLabel').textContent = today;
+
+    const sales = readLS(SALES_KEY, []);
+    const rec = sales.find(r => r.date === today);
+    if (rec) {
+      document.getElementById('sVisitors').textContent = fmt(rec.totalVisitors)+'명';
+      document.getElementById('sRevenue').textContent = fmt(rec.totalRevenue)+'원';
+    } else {
+      document.getElementById('sVisitors').textContent = '미입력';
+      document.getElementById('sRevenue').textContent = '미입력';
+    }
+
+    const yr = today.slice(0,4);
+    const yearVis = sales.filter(r=>(r.date||'').startsWith(yr)).reduce((s,r)=>s+(r.totalVisitors||0),0);
+    document.getElementById('sBep').textContent = (yearVis/BEP*100).toFixed(1)+'%';
+
+    const audit = readLS(AUDIT_KEY, []).find(a => (a.date||'').slice(0,10) === today);
+    const el = document.getElementById('sSafety');
+    if (audit) {
+      const m = { pass:['이상무','text-emerald-400'], warn:['주의','text-amber-400'], fail:['부적합','text-rose-400'] };
+      const [t,c] = m[audit.decision] || ['확인','text-slate-400'];
+      el.textContent = t; el.className = 'text-lg font-black '+c;
+    } else {
+      el.textContent = '미점검'; el.className = 'text-lg font-black text-amber-400';
+    }
+  }
+
+  function updateBadge() {
+    const b = document.getElementById('dbBadge');
+    if (!window.BongplaySync) { b.textContent='로컬 저장'; return; }
+    const st = BongplaySync.getStatus();
+    if (!st.configured) { b.textContent='DB 미연동'; b.className='px-3 py-1.5 rounded-xl text-[11px] font-bold bg-slate-900 border border-slate-700 text-slate-400'; }
+    else if (!st.online) { b.textContent='오프라인'; b.className='px-3 py-1.5 rounded-xl text-[11px] font-bold bg-amber-900/30 border border-amber-600/40 text-amber-300'; }
+    else if (st.pending>0) { b.textContent='동기화 대기 '+st.pending; b.className='px-3 py-1.5 rounded-xl text-[11px] font-bold bg-amber-900/30 border border-amber-600/40 text-amber-300'; }
+    else { b.textContent='동기화 정상'; b.className='px-3 py-1.5 rounded-xl text-[11px] font-bold bg-emerald-900/30 border border-emerald-600/40 text-emerald-300'; }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    lucide.createIcons();
+    render();
+    if (window.BongplaySync) BongplaySync.onStatusChange(updateBadge);
+    updateBadge();
+  });
+</script>
+</body>
+</html>

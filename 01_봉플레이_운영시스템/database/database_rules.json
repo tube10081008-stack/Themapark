@@ -1,0 +1,114 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "rooms": {
+      "$roomId": {
+        "players": {
+          ".read": "auth != null",
+          "$uid": {
+            ".write": "(auth != null && auth.uid === $uid) || (auth != null && !newData.exists() && data.child('updatedAt').val() < (now - 60000))",
+            ".validate": "newData.hasChildren(['name','color','x','y','dir','space','updatedAt'])",
+            "name": {
+              ".validate": "newData.isString() && newData.val().length <= 20"
+            },
+            "color": {
+              ".validate": "newData.isString() && newData.val().matches(/^#[0-9a-fA-F]{6}$/)"
+            },
+            "x": {
+              ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 3000"
+            },
+            "y": {
+              ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 2000"
+            },
+            "dir": {
+              ".validate": "newData.val() === 'up' || newData.val() === 'down' || newData.val() === 'left' || newData.val() === 'right'"
+            },
+            "space": {
+              ".validate": "newData.val() === 'outdoor' || newData.val() === 'admin_indoor' || newData.val() === 'play_indoor'"
+            },
+            "role": {
+              ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 20)"
+            },
+            "slot": {
+              ".validate": "!newData.exists() || newData.val() === 'ticket' || newData.val() === 'field' || newData.val() === 'admin'"
+            },
+            "updatedAt": {
+              ".validate": "newData.isNumber()"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "chat": {
+          ".read": "auth != null",
+          "$messageId": {
+            ".write": "auth != null && ((!data.exists() && newData.child('uid').val() === auth.uid) || (!newData.exists() && (data.child('uid').val() === auth.uid || data.child('createdAt').val() < (now - 86400000))))",
+            ".validate": "newData.hasChildren(['uid','name','text','space','createdAt'])",
+            "uid": {
+              ".validate": "newData.val() === auth.uid"
+            },
+            "name": {
+              ".validate": "newData.isString() && newData.val().length <= 20"
+            },
+            "text": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 120"
+            },
+            "space": {
+              ".validate": "newData.val() === 'outdoor' || newData.val() === 'admin_indoor' || newData.val() === 'play_indoor'"
+            },
+            "createdAt": {
+              ".validate": "newData.isNumber()"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "sim": {
+          ".read": "auth != null",
+          ".write": "auth != null && newData.child('by').val() === auth.uid",
+          ".validate": "newData.hasChildren(['by','byName','kind','at'])",
+          "by": {
+            ".validate": "newData.val() === auth.uid"
+          },
+          "byName": {
+            ".validate": "newData.isString() && newData.val().length <= 20"
+          },
+          "kind": {
+            ".validate": "newData.val() === 'year' || newData.val() === 'bench'"
+          },
+          "policy": {
+            ".validate": "!newData.exists() || newData.val().length <= 20"
+          },
+          "seed": {
+            ".validate": "!newData.exists() || newData.isNumber()"
+          },
+          "at": {
+            ".validate": "newData.isNumber()"
+          },
+          "sum": {
+            ".validate": "!newData.exists() || newData.hasChildren()"
+          },
+          "results": {
+            ".validate": "!newData.exists() || newData.hasChildren()"
+          }
+        },
+        "emergency": {
+          ".read": "auth != null",
+          ".write": "auth != null",
+          ".validate": "!newData.exists() || newData.hasChildren(['active','at','byName'])"
+        },
+        "shift": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        },
+        "audits": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    }
+  }
+}

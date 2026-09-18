@@ -1,0 +1,1074 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>봉플레이 일일 안전점검 일지 (법정 규격)</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Canvas Signature Pad -->
+  <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800;900&display=swap');
+    body {
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* Screen vs Print Separation */
+    @media screen {
+      .print-only {
+        display: none !important;
+      }
+    }
+
+    @media print {
+      @page {
+        size: A4 portrait;
+        margin: 8mm 10mm 8mm 10mm;
+      }
+      body {
+        background: white !important;
+        color: #000 !important;
+        font-size: 8pt !important;
+        line-height: 1.25 !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+      .print-only {
+        display: block !important;
+      }
+      .official-table th, .official-table td {
+        border: 1px solid #111 !important;
+        padding: 3px 5px !important;
+        font-size: 7.5pt !important;
+      }
+      .official-table th {
+        background-color: #f1f5f9 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .page-break {
+        page-break-before: always;
+      }
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+
+  <!-- ========================================== -->
+  <!-- 1. SCREEN UI (태블릿/스마트폰 전용 인터랙티브 화면) -->
+  <!-- ========================================== -->
+  <div class="screen-ui no-print">
+
+    <!-- Top Global Header -->
+    <header class="sticky top-0 z-40 bg-slate-900 text-white border-b border-slate-800 shadow-md">
+      <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+          <div class="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center text-slate-950 font-black text-xl shadow-lg shadow-emerald-500/30">
+            <i data-lucide="shield-check" class="w-6 h-6 text-white"></i>
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <span class="font-extrabold text-base tracking-tight text-white">리틀포레스트 봉플레이</span>
+              <span class="text-[11px] bg-emerald-500/20 text-emerald-400 font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">법정 일일점검</span>
+            </div>
+            <p class="text-xs text-slate-400">어린이놀이시설 안전관리법 시행규칙 제16조 대응 규격</p>
+          </div>
+        </div>
+
+        <div class="flex items-center space-x-2">
+          <button onclick="openHistoryModal()" class="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition">
+            <i data-lucide="calendar" class="w-3.5 h-3.5 text-amber-400"></i>
+            <span>점검 이력 (<span id="historyCount">0</span>)</span>
+          </button>
+          <button onclick="printOfficialReport()" class="flex items-center space-x-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-md transition">
+            <i data-lucide="printer" class="w-3.5 h-3.5"></i>
+            <span>감사용 서식 인쇄/PDF</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="max-w-6xl mx-auto px-4 py-6">
+
+      <!-- Action Bar -->
+      <div class="mb-6">
+        <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div>
+            <div class="flex items-center space-x-2">
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
+                <i data-lucide="clock" class="w-3 h-3 mr-1"></i> 개장 전 필수 업무
+              </span>
+              <span class="text-xs text-slate-500">소재지: 경상북도 봉화군 봉화읍 유록길 22</span>
+            </div>
+            <h1 class="text-xl font-black text-slate-900 mt-1">오늘의 개장 전 안전점검 일지</h1>
+            <p class="text-xs text-slate-600 mt-0.5">매일 아침 09:30 개장 전 전 구역을 점검하고 이상 유무를 기록하여 서명합니다.</p>
+          </div>
+
+          <!-- Quick Action Buttons -->
+          <div class="flex flex-wrap items-center gap-2">
+            <button onclick="markAllPass()" class="flex items-center space-x-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs rounded-xl border border-emerald-200 transition">
+              <i data-lucide="check-check" class="w-4 h-4"></i>
+              <span>전체 정상 (All-Pass)</span>
+            </button>
+            <button onclick="resetCurrentForm()" class="flex items-center space-x-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold text-xs rounded-xl transition">
+              <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+              <span>초기화</span>
+            </button>
+            <button onclick="saveChecklist()" class="flex items-center space-x-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow transition">
+              <i data-lucide="save" class="w-4 h-4 text-emerald-400"></i>
+              <span>일지 저장</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Inspector & Facility Meta Grid -->
+      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm mb-6">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+          <div>
+            <span class="text-slate-500 font-medium block">시설명</span>
+            <span class="font-bold text-slate-900">리틀포레스트 봉플레이</span>
+          </div>
+          <div>
+            <span class="text-slate-500 font-medium block">소재지</span>
+            <span class="font-semibold text-slate-900">봉화군 봉화읍 유록길 22</span>
+          </div>
+          <div>
+            <span class="text-slate-500 font-medium block">점검일시</span>
+            <input type="datetime-local" id="inspectDateTime" class="mt-0.5 font-bold text-slate-900 bg-slate-50 border border-slate-300 rounded px-2 py-1 text-xs w-full">
+          </div>
+          <div>
+            <span class="text-slate-500 font-medium block">날씨 / 기온</span>
+            <div class="flex items-center space-x-1 mt-0.5">
+              <select id="weatherSelect" class="font-semibold text-slate-900 bg-slate-50 border border-slate-300 rounded px-2 py-1 text-xs">
+                <option value="맑음">☀️ 맑음</option>
+                <option value="구름조금">⛅ 구름조금</option>
+                <option value="흐림">☁️ 흐림</option>
+                <option value="비">🌧️ 비(강우)</option>
+                <option value="눈">❄️ 눈(강설)</option>
+              </select>
+              <input type="text" id="temperature" value="21℃" placeholder="기온" class="w-16 font-semibold text-slate-900 bg-slate-50 border border-slate-300 rounded px-2 py-1 text-xs text-center">
+            </div>
+          </div>
+
+          <div>
+            <span class="text-slate-500 font-medium block">안전관리책임자</span>
+            <input type="text" id="managerName" value="홍성현" class="mt-0.5 font-bold text-slate-900 bg-slate-50 border border-slate-300 rounded px-2 py-1 text-xs w-full">
+          </div>
+          <div>
+            <span class="text-slate-500 font-medium block">당일 현장점검자</span>
+            <input type="text" id="inspectorName" value="홍성현" placeholder="점검자 성명" class="mt-0.5 font-bold text-slate-900 bg-slate-50 border border-slate-300 rounded px-2 py-1 text-xs w-full">
+            <div class="flex flex-wrap gap-1 mt-1">
+              <button type="button" onclick="document.getElementById('inspectorName').value='홍성현'" class="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 rounded text-[10px] text-slate-700 font-semibold">홍성현</button>
+              <button type="button" onclick="document.getElementById('inspectorName').value='김주성'" class="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 rounded text-[10px] text-slate-700 font-semibold">김주성</button>
+              <button type="button" onclick="document.getElementById('inspectorName').value='김지연'" class="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 rounded text-[10px] text-slate-700 font-semibold">김지연</button>
+            </div>
+          </div>
+          <div>
+            <span class="text-slate-500 font-medium block">비상 연락처</span>
+            <span class="font-bold text-slate-900">010-5931-4144</span>
+          </div>
+          <div>
+            <span class="text-slate-500 font-medium block">최종 점검판정</span>
+            <span id="overallStatusBadge" class="inline-block mt-0.5 px-2.5 py-0.5 rounded-full font-bold text-xs bg-emerald-100 text-emerald-800">
+              정상 (개장 승인)
+            </span>
+          </div>
+        </div>
+
+        <!-- Real-time Progress Bar -->
+        <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+          <div class="flex items-center space-x-3 text-xs font-semibold">
+            <span class="text-slate-500">점검 진행률:</span>
+            <div class="w-36 md:w-56 h-2 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+              <div id="checkProgressBar" class="h-full bg-emerald-500 rounded-full transition-all duration-300" style="width: 0%;"></div>
+            </div>
+            <span id="checkProgressText" class="text-emerald-700 font-black">0 / 22 완료 (0%)</span>
+          </div>
+          <div class="flex items-center space-x-3 text-xs">
+            <span class="flex items-center space-x-1 font-semibold text-emerald-600">
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
+              <span>양호 <b id="countGood">0</b></span>
+            </span>
+            <span class="flex items-center space-x-1 font-semibold text-amber-600">
+              <span class="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span>
+              <span>주의 <b id="countWarn">0</b></span>
+            </span>
+            <span class="flex items-center space-x-1 font-semibold text-rose-600">
+              <span class="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span>
+              <span>정비필요 <b id="countBad">0</b></span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Inspection Items Section (4 Categories) -->
+      <div class="space-y-6">
+
+        <!-- 1. 야외 포레스트 어드벤처 & 짚라인 -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="bg-gradient-to-r from-emerald-800 to-teal-800 text-white px-5 py-3 flex items-center justify-between">
+            <div class="flex items-center space-x-2.5">
+              <i data-lucide="compass" class="w-5 h-5 text-emerald-300"></i>
+              <h3 class="font-bold text-sm tracking-wide">1. 야외 포레스트 어드벤처 & 짚라인 구역 (고위험 관리군)</h3>
+            </div>
+            <span class="text-[11px] bg-white/20 px-2 py-0.5 rounded font-medium">총 6개 항목</span>
+          </div>
+          <div class="divide-y divide-slate-100" id="group-adventure"></div>
+        </div>
+
+        <!-- 2. 실내 놀이동 -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="bg-gradient-to-r from-blue-800 to-indigo-800 text-white px-5 py-3 flex items-center justify-between">
+            <div class="flex items-center space-x-2.5">
+              <i data-lucide="home" class="w-5 h-5 text-blue-300"></i>
+              <h3 class="font-bold text-sm tracking-wide">2. 실내 놀이동 (정글짐, 트램펄린, 유아존)</h3>
+            </div>
+            <span class="text-[11px] bg-white/20 px-2 py-0.5 rounded font-medium">총 6개 항목</span>
+          </div>
+          <div class="divide-y divide-slate-100" id="group-indoor"></div>
+        </div>
+
+        <!-- 3. 야외 플레이존 -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="bg-gradient-to-r from-amber-700 to-orange-700 text-white px-5 py-3 flex items-center justify-between">
+            <div class="flex items-center space-x-2.5">
+              <i data-lucide="sun" class="w-5 h-5 text-amber-300"></i>
+              <h3 class="font-bold text-sm tracking-wide">3. 야외 플레이존 (모래놀이터, 언덕 슬로프, 수로, 관정)</h3>
+            </div>
+            <span class="text-[11px] bg-white/20 px-2 py-0.5 rounded font-medium">총 5개 항목</span>
+          </div>
+          <div class="divide-y divide-slate-100" id="group-outdoor"></div>
+        </div>
+
+        <!-- 4. 소방 / 응급구호 / 방역 -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="bg-gradient-to-r from-rose-800 to-red-800 text-white px-5 py-3 flex items-center justify-between">
+            <div class="flex items-center space-x-2.5">
+              <i data-lucide="cross" class="w-5 h-5 text-rose-300"></i>
+              <h3 class="font-bold text-sm tracking-wide">4. 응급구호 / 소방 / 방역 및 비상대응</h3>
+            </div>
+            <span class="text-[11px] bg-white/20 px-2 py-0.5 rounded font-medium">총 5개 항목</span>
+          </div>
+          <div class="divide-y divide-slate-100" id="group-safety"></div>
+        </div>
+
+      </div>
+
+      <!-- Deficiency & Actions Record -->
+      <div class="mt-6 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+        <div class="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
+          <div class="flex items-center space-x-2">
+            <i data-lucide="wrench" class="w-4 h-4 text-amber-500"></i>
+            <h3 class="font-bold text-sm text-slate-900">지적사항 및 즉각 조치내용 (보수/정비 기록)</h3>
+          </div>
+          <span class="text-xs text-slate-500">주의/불량 항목 발생 시 필수 기재</span>
+        </div>
+
+        <div class="space-y-3">
+          <textarea id="actionNotes" rows="3" placeholder="예: [1-5 하강구역] 짚라인 도착지 바크가 일부 유실되어 보충 1포대 포설 완료. / [2-4 볼풀장] 파손된 공 3개 수거 폐기." class="w-full text-xs text-slate-800 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"></textarea>
+
+          <!-- Photo Upload & Preview -->
+          <div class="flex items-center justify-between">
+            <label class="cursor-pointer inline-flex items-center space-x-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition border border-slate-300">
+              <i data-lucide="camera" class="w-4 h-4 text-emerald-600"></i>
+              <span>현장 정비/점검 사진 첨부</span>
+              <input type="file" id="photoInput" accept="image/*" multiple capture="environment" class="hidden" onchange="handlePhotoUpload(event)">
+            </label>
+            <span class="text-[11px] text-slate-400">스마트폰 카메라로 즉시 촬영 또는 갤러리 선택</span>
+          </div>
+
+          <div id="photoPreviewGrid" class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3"></div>
+        </div>
+      </div>
+
+      <!-- Final Judgment & Digital Signature -->
+      <div class="mt-6 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+        <div class="flex items-center space-x-2 border-b border-slate-100 pb-2 mb-4">
+          <i data-lucide="pen-tool" class="w-4 h-4 text-emerald-600"></i>
+          <h3 class="font-bold text-sm text-slate-900">종합 판정 및 점검자 전자 서명</h3>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+          <div class="space-y-3">
+            <label class="block text-xs font-bold text-slate-700">금일 종합 판정 결과:</label>
+            <div class="grid grid-cols-3 gap-2">
+              <label class="cursor-pointer p-3 border-2 rounded-xl text-center flex flex-col items-center justify-center transition" id="lbl-pass">
+                <input type="radio" name="finalDecision" value="pass" checked onchange="updateDecisionUI()" class="hidden">
+                <span class="text-sm font-black text-emerald-700">개장 승인 (정상)</span>
+                <span class="text-[11px] text-slate-500 mt-0.5">운영 지장 없음</span>
+              </label>
+              <label class="cursor-pointer p-3 border-2 rounded-xl text-center flex flex-col items-center justify-center transition" id="lbl-warn">
+                <input type="radio" name="finalDecision" value="warn" onchange="updateDecisionUI()" class="hidden">
+                <span class="text-sm font-black text-amber-700">조건부 개장 (주의)</span>
+                <span class="text-[11px] text-slate-500 mt-0.5">특정 기구 제한</span>
+              </label>
+              <label class="cursor-pointer p-3 border-2 rounded-xl text-center flex flex-col items-center justify-center transition" id="lbl-stop">
+                <input type="radio" name="finalDecision" value="stop" onchange="updateDecisionUI()" class="hidden">
+                <span class="text-sm font-black text-rose-700">개장 중지 (위험)</span>
+                <span class="text-[11px] text-slate-500 mt-0.5">긴급 정비 요망</span>
+              </label>
+            </div>
+
+            <div class="text-xs text-slate-500 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100">
+              본인은 어린이놀이시설 안전관리법 제15조 및 관계 규정에 의거하여 <b>리틀포레스트 봉플레이</b>의 모든 놀이 시설 및 소방·응급 장비의 점검을 누락 없이 성실히 수행하였음을 확인합니다.
+            </div>
+          </div>
+
+          <!-- Signature Pad -->
+          <div>
+            <div class="flex items-center justify-between mb-1.5">
+              <span class="text-xs font-bold text-slate-800">현장 점검자 / 안전관리책임자 서명:</span>
+              <button type="button" onclick="clearSignature()" class="text-[11px] text-slate-500 hover:text-rose-600 font-semibold underline">
+                서명 지우기
+              </button>
+            </div>
+            <div class="border-2 border-dashed border-slate-300 rounded-xl overflow-hidden bg-white relative">
+              <canvas id="signaturePad" class="w-full h-36 touch-none"></canvas>
+              <div id="signPlaceholder" class="absolute inset-0 flex items-center justify-center pointer-events-none text-slate-300 text-xs font-medium">
+                손가락이나 터치펜으로 여기에 서명하세요
+              </div>
+            </div>
+            <div class="flex items-center justify-between mt-1 text-[11px] text-slate-400">
+              <span>봉플레이 안전관리책임자 (인/서명)</span>
+              <span>봉화군청 감사 증빙 규격</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom Action Bar -->
+      <div class="mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-900 text-white p-5 rounded-2xl shadow-xl">
+        <div class="flex items-center space-x-3">
+          <div class="w-9 h-9 rounded-lg bg-emerald-500 flex items-center justify-center text-slate-950 font-black">
+            <i data-lucide="check" class="w-5 h-5 text-white"></i>
+          </div>
+          <div>
+            <p class="text-xs text-slate-400">점검이 완료되면 일지를 저장하거나 감사용 공식 보고서로 출력하세요.</p>
+            <h4 class="font-bold text-sm text-white">일일 점검표 저장 및 법정 공문서 A4 PDF 출력</h4>
+          </div>
+        </div>
+
+        <div class="flex items-center space-x-2.5 w-full sm:w-auto">
+          <button onclick="saveChecklist()" class="flex-1 sm:flex-none flex items-center justify-center space-x-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-sm rounded-xl shadow-lg transition">
+            <i data-lucide="save" class="w-4 h-4"></i>
+            <span>점검표 저장 완료</span>
+          </button>
+          <button onclick="printOfficialReport()" class="flex-1 sm:flex-none flex items-center justify-center space-x-2 px-5 py-3 bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold text-sm rounded-xl border border-slate-700 transition">
+            <i data-lucide="printer" class="w-4 h-4"></i>
+            <span>감사용 서식 인쇄</span>
+          </button>
+        </div>
+      </div>
+
+    </main>
+
+  </div>
+
+  <!-- ========================================== -->
+  <!-- 2. OFFICIAL PRINT REPORT (군청 감사용 A4 단일/표준 공문서 양식) -->
+  <!-- ========================================== -->
+  <div id="officialPrintReport" class="official-print-report print-only">
+    
+    <!-- Top Doc Standard Note -->
+    <div style="display: flex; justify-content: space-between; font-size: 7.5pt; color: #444; border-bottom: 1px solid #777; padding-bottom: 2px; margin-bottom: 5px;">
+      <span>[어린이놀이시설 안전관리법 시행규칙 제16조 관련 서식]</span>
+      <span>보존연한: 3년 │ 주무부서: 봉화군청 문화관광과 (조은정 주무관 054-679-6355)</span>
+    </div>
+
+    <!-- Title Box -->
+    <div style="text-align: center; margin-bottom: 8px;">
+      <h1 style="font-size: 14pt; font-weight: 900; letter-spacing: 2px; margin: 0; text-decoration: underline;">
+        어린이놀이시설 일일 안전점검 기록부
+      </h1>
+      <p style="font-size: 7.5pt; color: #555; margin: 2px 0 0 0;">
+        시설명: 리틀포레스트 봉플레이 (BongPlay) │ 소재지: 경상북도 봉화군 봉화읍 유록길 22
+      </p>
+    </div>
+
+    <!-- Meta Info Table -->
+    <table class="official-table" style="width: 100%; margin-bottom: 6px;">
+      <tr>
+        <th style="width: 14%; text-align: center;">시 설 명</th>
+        <td style="width: 36%; font-weight: bold;">리틀포레스트 봉플레이</td>
+        <th style="width: 14%; text-align: center;">소 재 지</th>
+        <td style="width: 36%;">경상북도 봉화군 봉화읍 유록길 22</td>
+      </tr>
+      <tr>
+        <th style="text-align: center;">점검일시</th>
+        <td id="p-date" style="font-weight: bold;">2026-09-09 09:30</td>
+        <th style="text-align: center;">날씨 / 기온</th>
+        <td id="p-weather">맑음 (21℃)</td>
+      </tr>
+      <tr>
+        <th style="text-align: center;">현장점검자</th>
+        <td id="p-inspector" style="font-weight: bold;">홍성현</td>
+        <th style="text-align: center;">안전관리책임자</th>
+        <td id="p-manager" style="font-weight: bold;">홍성현 (010-5931-4144)</td>
+      </tr>
+      <tr>
+        <th style="text-align: center;">종합 판정</th>
+        <td colspan="3" id="p-decision" style="text-align: center; font-weight: 900; font-size: 8.5pt;">
+          ■ 적합 (개장 승인)   □ 조건부 주의   □ 부적합 (사용 중지)
+        </td>
+      </tr>
+    </table>
+
+    <!-- 22 Items Inspection Table -->
+    <table class="official-table" style="width: 100%; margin-bottom: 6px;">
+      <thead>
+        <tr>
+          <th style="width: 6%; text-align: center;">연번</th>
+          <th style="width: 20%; text-align: center;">점검 구역</th>
+          <th style="width: 48%; text-align: center;">점검 대상 및 주요 점검 기준</th>
+          <th style="width: 12%; text-align: center;">점검결과</th>
+          <th style="width: 14%; text-align: center;">비고 / 상태</th>
+        </tr>
+      </thead>
+      <tbody id="p-table-body">
+        <!-- Dynamically injected rows -->
+      </tbody>
+    </table>
+
+    <!-- Deficiencies and Action Taken Summary Box -->
+    <div style="border: 1px solid #111; padding: 4px 6px; margin-bottom: 6px; font-size: 7.5pt;">
+      <div style="font-weight: bold; margin-bottom: 2px;">[지적사항 및 즉각 정비·조치 결과]</div>
+      <div id="p-actionNotes" style="min-height: 28px; white-space: pre-wrap; line-height: 1.3;">
+        특이사항 없음. 전 구역 놀이기구 및 소방·응급 구호 장비 정상 가동 확인 완료.
+      </div>
+    </div>
+
+    <!-- Official Confirmation & Signatures -->
+    <div style="border: 1px solid #111; padding: 5px 8px; font-size: 7.5pt; text-align: center;">
+      <p style="margin: 0 0 4px 0; line-height: 1.3;">
+        「어린이놀이시설 안전관리법」 제15조 및 동법 시행규칙 제16조에 따라<br>
+        리틀포레스트 봉플레이의 일일 안전점검을 이상 없이 성실히 수행하였음을 확인합니다.
+      </p>
+      <div style="font-weight: bold; margin-bottom: 4px;" id="p-sign-date">2026년 09월 09일</div>
+      
+      <div style="display: flex; justify-content: space-around; align-items: center; padding: 0 20px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span>현장점검자: <b id="p-inspector-sign-name">홍성현</b></span>
+          <div style="width: 65px; height: 28px; border: 1px dashed #777; display: flex; align-items: center; justify-content: center; position: relative;">
+            <img id="p-sign-img-inspector" style="max-height: 100%; max-width: 100%; object-fit: contain; display: none;">
+            <span id="p-sign-text-inspector" style="font-size: 7pt; color: #888;">(서명)</span>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span>안전관리책임자: <b id="p-manager-sign-name">홍성현</b></span>
+          <div style="width: 65px; height: 28px; border: 1px dashed #777; display: flex; align-items: center; justify-content: center; position: relative;">
+            <img id="p-sign-img-manager" style="max-height: 100%; max-width: 100%; object-fit: contain; display: none;">
+            <span id="p-sign-text-manager" style="font-size: 7pt; color: #888;">(인)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Photo Attachments on Print (if any) -->
+    <div id="p-photos-wrapper" style="margin-top: 6px; display: none;">
+      <div style="font-weight: bold; font-size: 7.5pt; margin-bottom: 2px;">[현장 확인 사진 증빙]</div>
+      <div id="p-photos-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;"></div>
+    </div>
+
+  </div>
+
+  <!-- Modal: History Logs Modal (No-Print) -->
+  <div id="historyModal" class="no-print fixed inset-0 z-50 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl max-h-[85vh] flex flex-col">
+      <div class="flex items-center justify-between pb-4 border-b border-slate-200">
+        <div class="flex items-center space-x-2">
+          <i data-lucide="folder-clock" class="w-5 h-5 text-emerald-600"></i>
+          <h3 class="font-black text-lg text-slate-900">누적 안전점검 일지 기록함</h3>
+        </div>
+        <button onclick="closeHistoryModal()" class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 hover:bg-slate-200">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="text-xs text-slate-500 py-2">
+        ※ 브라우저 로컬 저장소에 보관된 과거 점검 내역입니다. 클릭 시 해당 날짜의 점검표를 즉시 불러와 재인쇄할 수 있습니다.
+      </div>
+
+      <div id="historyList" class="flex-1 overflow-y-auto space-y-2 py-2 pr-1"></div>
+
+      <div class="pt-4 border-t border-slate-200 flex items-center justify-between">
+        <button onclick="exportHistoryCSV()" class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl transition flex items-center space-x-1.5">
+          <i data-lucide="download" class="w-3.5 h-3.5"></i>
+          <span>감사용 엑셀(CSV) 내보내기</span>
+        </button>
+        <button onclick="closeHistoryModal()" class="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition">
+          닫기
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Data definition for 22 items
+    const inspectionItems = [
+      // 1. 야외 포레스트 어드벤처 & 짚라인
+      { id: '1_1', group: '야외 어드벤처', sub: '짚라인', title: '[짚라인] 메인 와이어 장력 및 마모 상태', desc: '출발대~도착대 와이어 처짐 없음, 꼬임/단선/소선 끊김 현상 없음 확인' },
+      { id: '1_2', group: '야외 어드벤처', sub: '짚라인', title: '[짚라인] 롤러 트롤리 & 완충 스프링 브레이크', desc: '도착지 스프링 완충기 볼트 결속 확인, 트롤리 베어링 회전 소음 및 유격 점검' },
+      { id: '1_3', group: '야외 어드벤처', sub: '보호장구', title: '[하네스/헬멧] 안전 보호구 결속 및 위생 소독', desc: '어린이 및 성인용 전신 하네스 웨빙 헤짐 없음, 카라비너 잠금장치 정상 작동' },
+      { id: '1_4', group: '야외 어드벤처', sub: '네트어드벤처', title: '[네트 어드벤처] 로프 결속 및 지지목 브래킷', desc: '네트 그물코 찢어짐 없음, 수목 보호대 이탈 없음, 2중 안전 샤클 체결 상태' },
+      { id: '1_5', group: '야외 어드벤처', sub: '하강바닥', title: '[하강구역 바닥] 우드칩(바크) 충격흡수재 두께(25cm)', desc: '낙하 위험구역 바크 포설 두께 25cm 이상 유지, 뾰족한 돌/유리 이물질 제거' },
+      { id: '1_6', group: '야외 어드벤처', sub: '데크시설', title: '[출발/도착 데크] 안전 난간 흔들림 및 미끄럼방지', desc: '목재 데크 결함(가시 돋침) 없음, 계단 미끄럼 방지 패드 부착 상태 양호' },
+
+      // 2. 실내 놀이동
+      { id: '2_1', group: '실내 놀이동', sub: '정글짐', title: '[대형 정글짐] 안전 폼패딩 마감 및 연결 볼트 너트', desc: '스틸 파이프 외벽 보호 쿠션 찢어짐 없음, 노출된 볼트 캡 마감 이상 없음' },
+      { id: '2_2', group: '실내 놀이동', sub: '트램펄린', title: '[트램펄린] 도약면 매트 찢김 및 스프링 커버 패드', desc: '매트 구멍/실밥 풀림 없음, 스프링 노출 방지 보호패드 결속 완벽 확인' },
+      { id: '2_3', group: '실내 놀이동', sub: '미끄럼틀', title: '[미끄럼틀] 활강부 결합부 단차 및 정전기 방지', desc: '슬라이드 이음새 벌어짐/날카로운 모서리 없음, 하부 착지 매트 충격 흡수' },
+      { id: '2_4', group: '실내 놀이동', sub: '볼풀/유아', title: '[볼풀장 & 토들러존] 찌그러진 공 수거 및 위생 소독', desc: '깨지거나 찌그러진 공 분리 수거, 편백나무 큐브 이물질 선별 및 분무 소독' },
+      { id: '2_5', group: '실내 놀이동', sub: '추락방지망', title: '[추락방지 안전망] 2층 구조물 그물망 결속 상태', desc: '어린이 머리/손 끼임 방지 규격(8.9cm 이하 망목) 유지, 지퍼 마감 확인' },
+      { id: '2_6', group: '실내 놀이동', sub: '실내환경', title: '[실내 공조 및 바닥재] 환기 시스템 및 바닥 미끄럼', desc: '공기청정 환기 디퓨저 가동, 음료 쏟음 등 미끄럼 위험 구역 건조 및 청결' },
+
+      // 3. 야외 플레이존
+      { id: '3_1', group: '야외 플레이존', sub: '모래놀이', title: '[모래놀이터] 모래 이물질 및 동물 배설물 검사', desc: '모래 전면 갈퀴질 완료, 덮개 차광막 개방 후 건조, 유리조각 등 위험물 전무' },
+      { id: '3_2', group: '야외 플레이존', sub: '슬로프썰매', title: '[슬로프 썰매장] 언덕 슬로프 인조잔디 고정 핀 돌출', desc: '잔디 매트 고정용 스틸 팩 돌출 여부 전수 확인, 하부 완충 블록 정상' },
+      { id: '3_3', group: '야외 플레이존', sub: '수로/세족', title: '[체험 수로/세족장] 수질 청결 및 배수 밸브 상태', desc: '세족장 배수구 막힘 없음, 야외 수도꼭지 누수 없음, 미끄럼 방지 발판' },
+      { id: '3_4', group: '야외 플레이존', sub: '토목/관정', title: '[토목/관정 기반] 관정 덮개 잠금 및 사면 배수로', desc: '지하수 관정 보호 덮개 시건장치 확인, 토사 유실 방지 배수로 그레이팅 유격 없음' },
+      { id: '3_5', group: '야외 플레이존', sub: '차광막', title: '[야외 차광막/텐트] 팩 지지 로프 결속 및 안전플래그', desc: '강풍 대비 스트링 장력 확인, 노란색 안전 플래그(어린이 걸림 방지) 장착' },
+
+      // 4. 소방 / 응급 / 방역
+      { id: '4_1', group: '소방/응급구호', sub: '구급/AED', title: '[구급약품함 & AED] 의약품 유효기간 및 AED 배터리', desc: '소독약, 멸균거즈, 붕대, 밴드 수량 확보 및 AED 자체진단 정상 녹색불 점등' },
+      { id: '4_2', group: '소방/응급구호', sub: '소화기', title: '[분말소화기] 구역별 8개소 게이지 압력 및 안전핀', desc: '녹색 정상 압력 범위 확인, 소화기 전면 장애물 적치 금지 상태 점검' },
+      { id: '4_3', group: '소방/응급구호', sub: '피난시설', title: '[비상 대피로 & 유도등] 비상구 개폐 및 유도등 점등', desc: '놀이동 비상구 2개소 잠금 해제, 피난 유도등 상시 점등, 복도 물건 적치 없음' },
+      { id: '4_4', group: '소방/응급구호', sub: '안내표지', title: '[법정 안전수칙 표지판] 기구별 이용 연령 표기 선명성', desc: '신장 제한(100cm~), 최대 이용 인원, 보호자 동반 탑승 안내판 훼손 없음' },
+      { id: '4_5', group: '소방/응급구호', sub: 'CCTV관제', title: '[CCTV 관제 모니터] 사각지대 녹화 정상 가동', desc: '16채널 카메라 끊김 없음, 녹화 저장 장치(HDD) 정상 작동 녹화 표시등 점등' }
+    ];
+
+    const CHECKLIST_STORAGE_KEY = 'bongplay_safety_audit_logs';
+    let currentChecklist = {};
+    let attachedPhotos = [];
+    let signaturePad = null;
+
+    document.addEventListener('DOMContentLoaded', () => {
+      renderScreenChecklistItems();
+      lucide.createIcons();
+      initDateTime();
+      initSignaturePad();
+      loadLatestOrNew();
+      updateHistoryBadge();
+      updateDecisionUI();
+
+      // Hook print event to always prepare official table
+      window.onbeforeprint = prepareOfficialPrintReport;
+    });
+
+    function renderScreenChecklistItems() {
+      const gAdv = document.getElementById('group-adventure');
+      const gInd = document.getElementById('group-indoor');
+      const gOut = document.getElementById('group-outdoor');
+      const gSaf = document.getElementById('group-safety');
+
+      inspectionItems.forEach(item => {
+        let container = gAdv;
+        if (item.id.startsWith('2_')) container = gInd;
+        else if (item.id.startsWith('3_')) container = gOut;
+        else if (item.id.startsWith('4_')) container = gSaf;
+
+        const row = document.createElement('div');
+        row.className = 'p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 check-item';
+        row.setAttribute('data-id', item.id);
+        row.innerHTML = `
+          <div class="flex-1">
+            <div class="flex items-center space-x-2">
+              <span class="font-black text-xs text-slate-400">${item.id.replace('_', '-')}</span>
+              <h4 class="text-sm font-bold text-slate-900">${item.title}</h4>
+            </div>
+            <p class="text-xs text-slate-500 mt-1">${item.desc}</p>
+          </div>
+          <div class="flex items-center space-x-2">
+            <div class="inline-flex rounded-lg border border-slate-200 p-1 bg-slate-50 radio-group">
+              <button type="button" onclick="setItemStatus('${item.id}', '양호')" class="btn-status px-3 py-1 text-xs font-bold rounded transition text-slate-600 hover:bg-emerald-500 hover:text-white" data-status="양호">양호(○)</button>
+              <button type="button" onclick="setItemStatus('${item.id}', '주의')" class="btn-status px-3 py-1 text-xs font-bold rounded transition text-slate-600 hover:bg-amber-500 hover:text-white" data-status="주의">주의(△)</button>
+              <button type="button" onclick="setItemStatus('${item.id}', '불량')" class="btn-status px-3 py-1 text-xs font-bold rounded transition text-slate-600 hover:bg-rose-500 hover:text-white" data-status="불량">불량(×)</button>
+            </div>
+          </div>
+        `;
+        container.appendChild(row);
+      });
+    }
+
+    function initDateTime() {
+      const now = new Date();
+      now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+      document.getElementById('inspectDateTime').value = now.toISOString().slice(0, 16);
+    }
+
+    function initSignaturePad() {
+      const canvas = document.getElementById('signaturePad');
+      function resizeCanvas() {
+        const ratio = Math.max(window.devicePixelRatio || 1, 1);
+        canvas.width = canvas.offsetWidth * ratio;
+        canvas.height = canvas.offsetHeight * ratio;
+        canvas.getContext('2d').scale(ratio, ratio);
+      }
+      window.addEventListener('resize', resizeCanvas);
+      resizeCanvas();
+
+      signaturePad = new SignaturePad(canvas, {
+        backgroundColor: 'rgba(255, 255, 255, 0)',
+        penColor: 'rgb(15, 23, 42)',
+        minWidth: 1.5,
+        maxWidth: 3
+      });
+
+      signaturePad.addEventListener('beginStroke', () => {
+        document.getElementById('signPlaceholder').classList.add('hidden');
+      });
+    }
+
+    function clearSignature() {
+      if (signaturePad) {
+        signaturePad.clear();
+        document.getElementById('signPlaceholder').classList.remove('hidden');
+      }
+    }
+
+    function setItemStatus(id, status) {
+      currentChecklist[id] = status;
+      renderItemButtons(id, status);
+      updateStats();
+    }
+
+    function renderItemButtons(id, selectedStatus) {
+      const itemEl = document.querySelector(`.check-item[data-id="${id}"]`);
+      if (!itemEl) return;
+      const btns = itemEl.querySelectorAll('.btn-status');
+      btns.forEach(btn => {
+        const s = btn.getAttribute('data-status');
+        btn.classList.remove('bg-emerald-600', 'bg-amber-500', 'bg-rose-600', 'text-white', 'shadow-sm');
+        btn.classList.add('text-slate-600');
+
+        if (s === selectedStatus) {
+          btn.classList.remove('text-slate-600');
+          btn.classList.add('text-white', 'shadow-sm');
+          if (s === '양호') btn.classList.add('bg-emerald-600');
+          else if (s === '주의') btn.classList.add('bg-amber-500');
+          else if (s === '불량') btn.classList.add('bg-rose-600');
+        }
+      });
+    }
+
+    function markAllPass() {
+      inspectionItems.forEach(item => {
+        currentChecklist[item.id] = '양호';
+        renderItemButtons(item.id, '양호');
+      });
+      document.querySelector('input[name="finalDecision"][value="pass"]').checked = true;
+      updateDecisionUI();
+      updateStats();
+      showToast('22개 전 항목이 [양호 (○)]로 체크되었습니다.');
+    }
+
+    function resetCurrentForm() {
+      if (!confirm('현재 작성 중인 점검표를 초기화하시겠습니까?')) return;
+      currentChecklist = {};
+      inspectionItems.forEach(item => {
+        renderItemButtons(item.id, null);
+      });
+      document.getElementById('actionNotes').value = '';
+      attachedPhotos = [];
+      renderPhotoGrid();
+      clearSignature();
+      initDateTime();
+      updateStats();
+      showToast('점검표가 초기화되었습니다.');
+    }
+
+    function updateStats() {
+      let good = 0, warn = 0, bad = 0;
+      inspectionItems.forEach(item => {
+        const s = currentChecklist[item.id];
+        if (s === '양호') good++;
+        else if (s === '주의') warn++;
+        else if (s === '불량') bad++;
+      });
+
+      const total = inspectionItems.length;
+      const done = good + warn + bad;
+      const pct = Math.round((done / total) * 100);
+
+      document.getElementById('countGood').innerText = good;
+      document.getElementById('countWarn').innerText = warn;
+      document.getElementById('countBad').innerText = bad;
+      document.getElementById('checkProgressBar').style.width = pct + '%';
+      document.getElementById('checkProgressText').innerText = `${done} / ${total} 완료 (${pct}%)`;
+
+      if (bad > 0) {
+        document.querySelector('input[name="finalDecision"][value="stop"]').checked = true;
+      } else if (warn > 0) {
+        document.querySelector('input[name="finalDecision"][value="warn"]').checked = true;
+      }
+      updateDecisionUI();
+    }
+
+    function updateDecisionUI() {
+      const selected = document.querySelector('input[name="finalDecision"]:checked').value;
+      const passBox = document.getElementById('lbl-pass');
+      const warnBox = document.getElementById('lbl-warn');
+      const stopBox = document.getElementById('lbl-stop');
+      const badge = document.getElementById('overallStatusBadge');
+
+      [passBox, warnBox, stopBox].forEach(b => {
+        b.classList.remove('border-emerald-500', 'bg-emerald-50', 'border-amber-500', 'bg-amber-50', 'border-rose-500', 'bg-rose-50', 'border-slate-200');
+        b.classList.add('border-slate-200');
+      });
+
+      if (selected === 'pass') {
+        passBox.classList.add('border-emerald-500', 'bg-emerald-50');
+        badge.className = 'inline-block mt-0.5 px-2.5 py-0.5 rounded-full font-bold text-xs bg-emerald-100 text-emerald-800';
+        badge.innerText = '정상 (개장 승인)';
+      } else if (selected === 'warn') {
+        warnBox.classList.add('border-amber-500', 'bg-amber-50');
+        badge.className = 'inline-block mt-0.5 px-2.5 py-0.5 rounded-full font-bold text-xs bg-amber-100 text-amber-800';
+        badge.innerText = '주의 (조건부 운영)';
+      } else {
+        stopBox.classList.add('border-rose-500', 'bg-rose-50');
+        badge.className = 'inline-block mt-0.5 px-2.5 py-0.5 rounded-full font-bold text-xs bg-rose-100 text-rose-800';
+        badge.innerText = '위험 (개장 중지)';
+      }
+    }
+
+    function handlePhotoUpload(e) {
+      const files = Array.from(e.target.files);
+      if (!files.length) return;
+
+      files.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          attachedPhotos.push({
+            id: Date.now() + Math.random(),
+            dataUrl: event.target.result
+          });
+          renderPhotoGrid();
+        };
+        reader.readAsDataURL(file);
+      });
+      e.target.value = '';
+    }
+
+    function renderPhotoGrid() {
+      const grid = document.getElementById('photoPreviewGrid');
+      grid.innerHTML = '';
+      attachedPhotos.forEach((p, idx) => {
+        const div = document.createElement('div');
+        div.className = 'relative group rounded-xl overflow-hidden border border-slate-200 bg-slate-100 aspect-video';
+        div.innerHTML = `
+          <img src="${p.dataUrl}" class="w-full h-full object-cover">
+          <button type="button" onclick="removePhoto(${idx})" class="absolute top-1 right-1 w-6 h-6 rounded-full bg-rose-600 text-white flex items-center justify-center opacity-80 hover:opacity-100 shadow">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+          </button>
+        `;
+        grid.appendChild(div);
+      });
+      lucide.createIcons();
+    }
+
+    function removePhoto(idx) {
+      attachedPhotos.splice(idx, 1);
+      renderPhotoGrid();
+    }
+
+    // ====================================================
+    // PREPARE OFFICIAL GOVERNMENT AUDIT REPORT (Print View)
+    // ====================================================
+    function prepareOfficialPrintReport() {
+      // 1. Meta values
+      const rawDt = document.getElementById('inspectDateTime').value || '';
+      const formattedDt = rawDt.replace('T', ' ');
+      document.getElementById('p-date').innerText = formattedDt || '2026-09-09 09:30';
+      document.getElementById('p-weather').innerText = `${document.getElementById('weatherSelect').value} (${document.getElementById('temperature').value || '21℃'})`;
+      
+      const inspector = document.getElementById('inspectorName').value || '홍성현';
+      const manager = document.getElementById('managerName').value || '홍성현';
+      document.getElementById('p-inspector').innerText = inspector;
+      document.getElementById('p-manager').innerText = `${manager} (010-5931-4144)`;
+      document.getElementById('p-inspector-sign-name').innerText = inspector;
+      document.getElementById('p-manager-sign-name').innerText = manager;
+
+      // Date for footer signature
+      const dateParts = rawDt.split('T')[0].split('-');
+      if (dateParts.length === 3) {
+        document.getElementById('p-sign-date').innerText = `${dateParts[0]}년 ${dateParts[1]}월 ${dateParts[2]}일`;
+      } else {
+        const today = new Date();
+        document.getElementById('p-sign-date').innerText = `${today.getFullYear()}년 ${String(today.getMonth()+1).padStart(2,'0')}월 ${String(today.getDate()).padStart(2,'0')}일`;
+      }
+
+      // 2. Decision Radio
+      const decision = document.querySelector('input[name="finalDecision"]:checked').value;
+      if (decision === 'pass') {
+        document.getElementById('p-decision').innerHTML = `<span style="color:#047857; font-weight:900;">■ 적합 (개장 승인)</span> &nbsp;&nbsp; □ 조건부 주의 &nbsp;&nbsp; □ 부적합 (사용 중지)`;
+      } else if (decision === 'warn') {
+        document.getElementById('p-decision').innerHTML = `□ 적합 (개장 승인) &nbsp;&nbsp; <span style="color:#b45309; font-weight:900;">■ 조건부 주의 (부분 보완)</span> &nbsp;&nbsp; □ 부적합 (사용 중지)`;
+      } else {
+        document.getElementById('p-decision').innerHTML = `□ 적합 (개장 승인) &nbsp;&nbsp; □ 조건부 주의 &nbsp;&nbsp; <span style="color:#b91c1c; font-weight:900;">■ 부적합 (개장 불가 / 사용 중지)</span>`;
+      }
+
+      // 3. Compact 22-row Table Body
+      const tbody = document.getElementById('p-table-body');
+      tbody.innerHTML = '';
+      
+      inspectionItems.forEach((item, index) => {
+        const tr = document.createElement('tr');
+        const st = currentChecklist[item.id] || '양호';
+        
+        let statusBadge = '';
+        let noteText = '-';
+        if (st === '양호') {
+          statusBadge = '<span style="font-weight: bold; color: #000;">○ 양호</span>';
+        } else if (st === '주의') {
+          statusBadge = '<span style="font-weight: bold; color: #b45309;">△ 주의</span>';
+          noteText = '보완 조치 요망';
+        } else {
+          statusBadge = '<span style="font-weight: bold; color: #b91c1c;">× 정비요망</span>';
+          noteText = '즉시 사용 금지';
+        }
+
+        tr.innerHTML = `
+          <td style="text-align: center; font-weight: bold;">${index + 1}</td>
+          <td style="font-weight: 600;">${item.group} &gt; ${item.sub}</td>
+          <td><b>${item.title.replace(/\[.*?\]\s*/, '')}</b> (${item.desc.slice(0, 32)}...)</td>
+          <td style="text-align: center;">${statusBadge}</td>
+          <td style="text-align: center; font-size: 7pt;">${noteText}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      // 4. Action notes
+      const notes = document.getElementById('actionNotes').value.trim();
+      document.getElementById('p-actionNotes').innerText = notes ? notes : '특이사항 없음. 전 구역 놀이시설 및 소방·응급 구호 장비 이상 없음 (정상 가동 승인).';
+
+      // 5. Signature image
+      if (signaturePad && !signaturePad.isEmpty()) {
+        const signData = signaturePad.toDataURL();
+        
+        const imgInspector = document.getElementById('p-sign-img-inspector');
+        imgInspector.src = signData;
+        imgInspector.style.display = 'block';
+        document.getElementById('p-sign-text-inspector').style.display = 'none';
+
+        const imgManager = document.getElementById('p-sign-img-manager');
+        imgManager.src = signData;
+        imgManager.style.display = 'block';
+        document.getElementById('p-sign-text-manager').style.display = 'none';
+      } else {
+        document.getElementById('p-sign-img-inspector').style.display = 'none';
+        document.getElementById('p-sign-text-inspector').style.display = 'block';
+        document.getElementById('p-sign-img-manager').style.display = 'none';
+        document.getElementById('p-sign-text-manager').style.display = 'block';
+      }
+
+      // 6. Photo Attachments
+      const photoWrap = document.getElementById('p-photos-wrapper');
+      const photoGrid = document.getElementById('p-photos-grid');
+      photoGrid.innerHTML = '';
+      if (attachedPhotos.length > 0) {
+        photoWrap.style.display = 'block';
+        attachedPhotos.slice(0, 4).forEach((p, i) => {
+          const pDiv = document.createElement('div');
+          pDiv.style.border = '1px solid #777';
+          pDiv.style.padding = '2px';
+          pDiv.style.textAlign = 'center';
+          pDiv.innerHTML = `
+            <img src="${p.dataUrl}" style="max-height: 80px; margin: 0 auto; object-fit: contain;">
+            <span style="font-size: 6.5pt; display: block; margin-top: 1px;">현장 점검 사진 #${i+1}</span>
+          `;
+          photoGrid.appendChild(pDiv);
+        });
+      } else {
+        photoWrap.style.display = 'none';
+      }
+    }
+
+    function printOfficialReport() {
+      prepareOfficialPrintReport();
+      window.print();
+    }
+
+    function saveChecklist() {
+      const unchecked = inspectionItems.filter(item => !currentChecklist[item.id]);
+      if (unchecked.length > 0) {
+        if (!confirm(`아직 점검되지 않은 항목이 ${unchecked.length}개 있습니다. 그대로 저장하시겠습니까?`)) {
+          return;
+        }
+      }
+
+      if (signaturePad.isEmpty()) {
+        if (!confirm('점검자 서명이 누락되었습니다. 서명 없이 저장하시겠습니까? (군청 제출 시 서명이 필수입니다.)')) {
+          return;
+        }
+      }
+
+      const log = {
+        id: 'LOG_' + Date.now(),
+        date: document.getElementById('inspectDateTime').value,
+        weather: document.getElementById('weatherSelect').value,
+        temperature: document.getElementById('temperature').value,
+        inspector: document.getElementById('inspectorName').value,
+        manager: document.getElementById('managerName').value,
+        checklist: { ...currentChecklist },
+        actionNotes: document.getElementById('actionNotes').value,
+        photos: attachedPhotos,
+        signature: signaturePad.isEmpty() ? null : signaturePad.toDataURL(),
+        decision: document.querySelector('input[name="finalDecision"]:checked').value,
+        timestamp: new Date().toISOString()
+      };
+
+      let logs = JSON.parse(localStorage.getItem(CHECKLIST_STORAGE_KEY) || '[]');
+      logs.unshift(log);
+      if (logs.length > 60) logs = logs.slice(0, 60);
+      localStorage.setItem(CHECKLIST_STORAGE_KEY, JSON.stringify(logs));
+
+      updateHistoryBadge();
+      showToast('일일 안전점검표가 성공적으로 저장되었습니다!');
+    }
+
+    function updateHistoryBadge() {
+      const logs = JSON.parse(localStorage.getItem(CHECKLIST_STORAGE_KEY) || '[]');
+      document.getElementById('historyCount').innerText = logs.length;
+    }
+
+    function openHistoryModal() {
+      const modal = document.getElementById('historyModal');
+      const list = document.getElementById('historyList');
+      const logs = JSON.parse(localStorage.getItem(CHECKLIST_STORAGE_KEY) || '[]');
+
+      list.innerHTML = '';
+      if (logs.length === 0) {
+        list.innerHTML = `<div class="text-center py-8 text-slate-400 text-xs">저장된 점검 일지가 없습니다.</div>`;
+      } else {
+        logs.forEach((item) => {
+          const div = document.createElement('div');
+          div.className = 'p-3.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-emerald-50/60 transition cursor-pointer flex items-center justify-between';
+          div.innerHTML = `
+            <div>
+              <div class="flex items-center space-x-2">
+                <span class="font-bold text-xs text-slate-900">${item.date ? item.date.replace('T', ' ') : '일시 미기재'}</span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold ${item.decision === 'pass' ? 'bg-emerald-100 text-emerald-800' : (item.decision === 'warn' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800')}">
+                  ${item.decision === 'pass' ? '정상(승인)' : (item.decision === 'warn' ? '주의' : '중지')}
+                </span>
+                <span class="text-[11px] text-slate-500">${item.weather} (${item.temperature})</span>
+              </div>
+              <p class="text-xs text-slate-600 mt-1">점검자: <b>${item.inspector || '미지정'}</b> │ 조치내역: ${item.actionNotes ? item.actionNotes.slice(0, 30) + '...' : '이상 없음'}</p>
+            </div>
+            <div class="flex items-center space-x-2">
+              <button onclick="event.stopPropagation(); loadLog('${item.id}')" class="px-2.5 py-1 text-xs bg-slate-900 text-white rounded-lg font-semibold hover:bg-slate-800">
+                불러오기
+              </button>
+              <button onclick="event.stopPropagation(); deleteLog('${item.id}')" class="p-1 text-slate-400 hover:text-rose-600 rounded">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+              </button>
+            </div>
+          `;
+          div.onclick = () => loadLog(item.id);
+          list.appendChild(div);
+        });
+      }
+      lucide.createIcons();
+      modal.classList.remove('hidden');
+    }
+
+    function closeHistoryModal() {
+      document.getElementById('historyModal').classList.add('hidden');
+    }
+
+    function loadLog(id) {
+      const logs = JSON.parse(localStorage.getItem(CHECKLIST_STORAGE_KEY) || '[]');
+      const target = logs.find(l => l.id === id);
+      if (!target) return;
+
+      document.getElementById('inspectDateTime').value = target.date || '';
+      document.getElementById('weatherSelect').value = target.weather || '맑음';
+      document.getElementById('temperature').value = target.temperature || '20℃';
+      document.getElementById('inspectorName').value = target.inspector || '';
+      document.getElementById('managerName').value = target.manager || '홍성현';
+      document.getElementById('actionNotes').value = target.actionNotes || '';
+
+      currentChecklist = target.checklist || {};
+      inspectionItems.forEach(item => {
+        renderItemButtons(item.id, currentChecklist[item.id] || null);
+      });
+
+      attachedPhotos = target.photos || [];
+      renderPhotoGrid();
+
+      if (target.signature) {
+        signaturePad.fromDataURL(target.signature);
+        document.getElementById('signPlaceholder').classList.add('hidden');
+      } else {
+        clearSignature();
+      }
+
+      if (target.decision) {
+        const radio = document.querySelector(`input[name="finalDecision"][value="${target.decision}"]`);
+        if (radio) radio.checked = true;
+      }
+      updateDecisionUI();
+      updateStats();
+      closeHistoryModal();
+      showToast(`${target.date.replace('T', ' ')} 일지를 불러왔습니다.`);
+    }
+
+    function deleteLog(id) {
+      if (!confirm('이 점검 일지를 삭제하시겠습니까?')) return;
+      let logs = JSON.parse(localStorage.getItem(CHECKLIST_STORAGE_KEY) || '[]');
+      logs = logs.filter(l => l.id !== id);
+      localStorage.setItem(CHECKLIST_STORAGE_KEY, JSON.stringify(logs));
+      openHistoryModal();
+      updateHistoryBadge();
+    }
+
+    function loadLatestOrNew() {
+      markAllPass();
+    }
+
+    function exportHistoryCSV() {
+      const logs = JSON.parse(localStorage.getItem(CHECKLIST_STORAGE_KEY) || '[]');
+      if (!logs.length) {
+        alert('내보낼 점검 데이터가 없습니다.');
+        return;
+      }
+
+      let csv = "\uFEFF점검일시,날씨,기온,점검자,관리책임자,종합판정,특이사항및조치내역,점검항목수\n";
+      logs.forEach(l => {
+        const dt = (l.date || '').replace('T', ' ');
+        const dec = l.decision === 'pass' ? '개장승인' : (l.decision === 'warn' ? '조건부개장' : '개장중지');
+        const notes = '"' + (l.actionNotes || '').replace(/"/g, '""') + '"';
+        csv += `${dt},${l.weather},${l.temperature},${l.inspector},${l.manager},${dec},${notes},${Object.keys(l.checklist || {}).length}\n`;
+      });
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `봉플레이_안전점검일지_누적기록_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    function showToast(msg) {
+      const toast = document.createElement('div');
+      toast.className = 'no-print fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-2xl border border-slate-700 text-xs font-bold flex items-center space-x-2 transition-all transform duration-300';
+      toast.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-emerald-400"></i><span>${msg}</span>`;
+      document.body.appendChild(toast);
+      lucide.createIcons();
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-2');
+        setTimeout(() => toast.remove(), 300);
+      }, 2500);
+    }
+  </script>
+</body>
+</html>

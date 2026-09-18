@@ -1,0 +1,144 @@
+/* ============================================================
+   봉플레이 운영시스템 — 공통 인쇄 스타일
+   ------------------------------------------------------------
+   화면은 다크 테마, 인쇄물은 흰 종이에 검은 글씨.
+   서식(forms/)과 동일한 출력 품질을 맞추기 위한 공통 규칙.
+   ============================================================ */
+
+@media print {
+
+  @page {
+    size: A4;
+    margin: 15mm 12mm;
+  }
+
+  /* ── 색 반전: 화면 다크 → 인쇄물은 흰 바탕 ── */
+  html, body {
+    background: #fff !important;
+    color: #111 !important;
+    font-size: 11pt;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* 다크 배경 계열을 전부 흰색으로 */
+  [class*="bg-slate-9"], [class*="bg-slate-8"], [class*="bg-slate-95"],
+  [class*="bg-gray-9"], [class*="bg-gray-8"],
+  [class*="bg-zinc-9"], [class*="bg-zinc-8"],
+  [class*="bg-black"] {
+    background: #fff !important;
+    box-shadow: none !important;
+  }
+
+  /* 밝은 글씨 계열을 검게 */
+  [class*="text-white"], [class*="text-slate-1"], [class*="text-slate-2"],
+  [class*="text-slate-3"], [class*="text-gray-1"], [class*="text-gray-2"] {
+    color: #111 !important;
+  }
+  [class*="text-slate-4"], [class*="text-slate-5"], [class*="text-slate-6"] {
+    color: #555 !important;
+  }
+
+  /* 테두리는 옅은 회색으로 */
+  [class*="border-slate-"], [class*="border-gray-"], [class*="border-zinc-"] {
+    border-color: #ccc !important;
+  }
+
+  /* 강조색(빨강·초록·노랑 등)은 남기되 배경만 제거 */
+  [class*="bg-rose-"], [class*="bg-red-"], [class*="bg-emerald-"],
+  [class*="bg-green-"], [class*="bg-amber-"], [class*="bg-yellow-"],
+  [class*="bg-blue-"], [class*="bg-indigo-"], [class*="bg-purple-"],
+  [class*="bg-teal-"], [class*="bg-cyan-"], [class*="bg-orange-"] {
+    background: transparent !important;
+    border: 1px solid #bbb !important;
+  }
+
+  /* ── 인쇄에서 감출 요소 ── */
+  .no-print,
+  button, .btn,
+  nav, header nav,
+  [onclick*="Modal"],
+  [class*="fixed"],
+  [class*="sticky"],
+  a[href*="index.html"],
+  #toast, #dbModal, #incidentModal, #apiModal,
+  input[type="range"] {
+    display: none !important;
+  }
+
+  /* 모달이 열린 채로 인쇄하는 경우는 예외적으로 허용 */
+  .print-target {
+    display: block !important;
+    position: static !important;
+    background: #fff !important;
+    box-shadow: none !important;
+    border: 0 !important;
+    padding: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /* ── 입력 요소를 값만 보이게 ── */
+  input, select, textarea {
+    background: transparent !important;
+    color: #111 !important;
+    border: 0 !important;
+    border-bottom: 1px solid #999 !important;
+    border-radius: 0 !important;
+    padding: 1px 2px !important;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  select { background-image: none !important; }
+  input[type="checkbox"] {
+    -webkit-appearance: checkbox;
+    appearance: checkbox;
+    border: 1px solid #333 !important;
+  }
+
+  /* ── 표 ── */
+  table { border-collapse: collapse !important; width: 100% !important; }
+  th, td {
+    border: 1px solid #999 !important;
+    padding: 5px 8px !important;
+    color: #111 !important;
+    background: #fff !important;
+  }
+  th { background: #f4f4f4 !important; font-weight: 700; }
+
+  /* ── 레이아웃 정리 ── */
+  .grid { display: block !important; }
+  .grid > * { margin-bottom: 6px; }
+  [class*="max-w-"] { max-width: none !important; }
+  [class*="overflow-"] { overflow: visible !important; }
+  [class*="rounded"] { border-radius: 0 !important; }
+
+  /* 줄바꿈 제어 */
+  h1, h2, h3, table, .avoid-break { page-break-inside: avoid; }
+  h1, h2, h3 { page-break-after: avoid; }
+  .page-break { page-break-before: always; }
+
+
+  /* ── 숨겨진 탭·섹션은 인쇄하지 않음 ──
+     Tailwind의 hidden 클래스가 붙은 요소가 인쇄물에 되살아나
+     보이지 않던 탭까지 전부 출력되는 문제를 막는다. */
+  .hidden { display: none !important; }
+
+  /* 캘린더 그리드는 표 형태를 유지 */
+  #calGrid { display: grid !important; grid-template-columns: repeat(7, 1fr) !important; gap: 2px !important; }
+  #calGrid > * { border: 1px solid #ccc !important; min-height: 48px !important; }
+
+  /* 링크 URL 노출 방지 */
+  a[href]::after { content: "" !important; }
+
+  /* ── 인쇄물 머리글 ── */
+  body::before {
+    content: "리틀포레스트 봉플레이 · 경상북도 봉화군 봉화읍 유록길 22";
+    display: block;
+    font-size: 9pt;
+    color: #666;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 5px;
+    margin-bottom: 12px;
+  }
+}

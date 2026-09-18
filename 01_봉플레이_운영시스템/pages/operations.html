@@ -1,0 +1,3500 @@
+<!DOCTYPE html>
+<html lang="ko" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>리틀포레스트 봉플레이 | 매출 &amp; 손익분기(BEP) 실시간 관제 대시보드</title>
+  
+  <!-- Fonts: Noto Sans KR & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800;900&family=Noto+Sans+KR:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../assets/config.js"></script>
+  <script src="../assets/bongplay-sync.js"></script>
+  <script src="../assets/bongplay-id.js"></script>
+  <script src="../assets/bongplay-notify.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Noto Sans KR', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace']
+          },
+          colors: {
+            brand: {
+              50: '#ecfdf5',
+              500: '#10b981',
+              600: '#059669',
+              700: '#047857'
+            }
+          }
+        }
+      }
+    };
+  </script>
+
+  <style>
+    html, body {
+      max-width: 100vw;
+      overflow-x: hidden !important;
+      width: 100%;
+    }
+    * {
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    input, textarea {
+      user-select: text;
+    }
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.2);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(100, 116, 139, 0.4);
+      border-radius: 9999px;
+    }
+    .touch-btn {
+      touch-action: manipulation;
+      transition: transform 0.08s ease, background-color 0.15s ease, border-color 0.15s ease;
+    }
+    .touch-btn:active {
+      transform: scale(0.97);
+    }
+    /* Glow highlights for goal achievement */
+    .glow-success {
+      border-color: rgba(16, 185, 129, 0.5) !important;
+      box-shadow: 0 0 25px -4px rgba(16, 185, 129, 0.25);
+    }
+  </style>
+
+  <script src="../assets/config.js"></script>
+  <script src="../assets/bongplay-sync.js"></script>
+  <script src="../assets/bongplay-id.js"></script>
+  <link rel="stylesheet" href="../assets/print.css">
+</head>
+<body class="min-h-screen bg-[#070b12] text-slate-100 flex flex-col font-sans antialiased overflow-y-auto lg:overflow-hidden w-full max-w-full overflow-x-hidden">
+
+  <!-- ================================================================= -->
+  <!-- TOP KIOSK HEADER: LIVE STATUS & WALL CONTROLS                     -->
+  <!-- ================================================================= -->
+  <header class="bg-[#0e1626]/95 backdrop-blur border-b border-slate-800/80 px-3 sm:px-5 py-2 flex-none flex items-center justify-between z-20 w-full max-w-full overflow-hidden">
+    
+    <!-- Left: Branding & Operating Context -->
+    <div class="flex items-center gap-2.5 shrink-0">
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-lg shadow-lg shadow-emerald-500/20 font-black shrink-0">
+        🌲
+      </div>
+      <div>
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <h1 class="text-xs sm:text-base font-black tracking-tight text-white whitespace-nowrap">리틀포레스트 봉플레이</h1>
+          <span class="px-2 py-0.5 text-[10px] font-extrabold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 rounded-md whitespace-nowrap hidden sm:inline">
+            매출·BEP 관제실
+          </span>
+          <span id="hdrOpModeBadge" class="px-2 py-0.5 text-[10px] font-extrabold bg-blue-500/15 text-blue-400 border border-blue-500/30 rounded-md whitespace-nowrap">
+            평일 (목표 36만)
+          </span>
+        </div>
+        <p class="text-[10px] text-slate-400 font-medium hidden md:block">손익분기 매출액(2.36억) 실시간 추적 시스템</p>
+      </div>
+    </div>
+
+    <!-- Center: Safe Operations Counter (Large Screen Only) -->
+    <div class="hidden xl:flex items-center gap-2 bg-slate-950/70 px-3 py-1 rounded-xl border border-slate-800 shrink-0">
+      <div class="w-6 h-6 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs font-bold shrink-0">
+        🛡️
+      </div>
+      <div class="flex items-baseline gap-1.5 whitespace-nowrap">
+        <span class="text-[10px] uppercase font-bold text-slate-400">무사고 운용</span>
+        <span id="hdrSafeDays" class="text-base font-black font-mono text-amber-400 tabular-nums">0</span>
+        <span class="text-xs text-slate-400 font-bold">일째</span>
+        <span class="text-[9px] text-emerald-400 bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-800/40">3년 연속 도전 중</span>
+      </div>
+    </div>
+
+    <!-- Right: Live Clock & Main Action Buttons -->
+    <div class="flex items-center gap-1 sm:gap-2 shrink-0">
+      <div class="text-right hidden 2xl:block mr-1 whitespace-nowrap">
+        <div id="hdrLiveDate" class="text-[10px] font-medium text-slate-400">2026년 9월 9일 (수)</div>
+        <div id="hdrLiveTime" class="text-sm font-black font-mono text-emerald-400 tabular-nums leading-tight">10:45:00</div>
+      </div>
+
+      <!-- Weather & Micro-Telemetry Button -->
+      <button id="btnOpenWeatherModal" onclick="openWeatherModal()" class="touch-btn px-2 sm:px-2.5 py-1.5 bg-sky-950/60 hover:bg-sky-900/80 text-sky-300 border border-sky-500/50 font-bold text-xs rounded-xl shadow flex items-center gap-1 whitespace-nowrap" title="10분 주기 기상 텔레메트리 & 돌풍 감지">
+        <i data-lucide="cloud-rain" class="w-3.5 h-3.5"></i>
+        <span id="hdrWeatherSummary" class="hidden lg:inline text-[11px]">21.5℃</span>
+      </button>
+
+      <!-- 1-Visit Journey Lookup -->
+      <button id="btnOpenJourneyModal" onclick="openOpJourneyModal()" class="touch-btn px-2 sm:px-2.5 py-1.5 bg-purple-950/60 hover:bg-purple-900/80 text-purple-300 border border-purple-500/50 font-bold text-xs rounded-xl shadow flex items-center gap-1 whitespace-nowrap" title="방문객 1회 전주기 여정 타임라인 조회">
+        <i data-lucide="route" class="w-3.5 h-3.5"></i>
+        <span class="hidden lg:inline text-[11px]">여정 360°</span>
+      </button>
+
+      <!-- POS Item Order Button -->
+      <button id="btnOpenPosModal" onclick="openPosModal(false)" class="touch-btn px-2.5 sm:px-3 py-1.5 bg-amber-950/60 hover:bg-amber-900/80 text-amber-300 border border-amber-600/50 font-bold text-xs rounded-xl shadow flex items-center gap-1 whitespace-nowrap" title="POS 품목 주문">
+        <i data-lucide="shopping-bag" class="w-3.5 h-3.5"></i>
+        <span class="hidden sm:inline text-[11px]">POS 주문</span>
+      </button>
+
+      <!-- Field AI Ops Button -->
+      <button id="btnOpenAiOpsModal" onclick="openAiOpsModal()" class="touch-btn px-2 sm:px-2.5 py-1.5 bg-cyan-950/60 hover:bg-cyan-900/80 text-cyan-300 border border-cyan-500/50 font-bold text-xs rounded-xl shadow flex items-center gap-1 whitespace-nowrap" title="현장 AI 관제">
+        <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+        <span class="hidden xl:inline text-[11px]">AI관제</span>
+      </button>
+
+      <!-- Staff Shift Button -->
+      <button id="btnOpenStaffModal" onclick="openStaffModal()" class="touch-btn px-2 sm:px-2.5 py-1.5 bg-indigo-950/60 hover:bg-indigo-900/80 text-indigo-300 border border-indigo-500/50 font-bold text-xs rounded-xl shadow flex items-center gap-1 whitespace-nowrap" title="근무자 시프트 및 구역 동적 재배치">
+        <i data-lucide="users" class="w-3.5 h-3.5"></i>
+        <span class="hidden 2xl:inline text-[11px]">인력배치</span>
+      </button>
+
+      <!-- Staff Task Duration Log Button -->
+      <button id="btnOpenTaskModal" onclick="openTaskModal()" class="touch-btn px-2 sm:px-2.5 py-1.5 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-500/50 font-bold text-xs rounded-xl shadow flex items-center gap-1 whitespace-nowrap" title="현장 작업별 소요시간 실측 로깅">
+        <i data-lucide="timer" class="w-3.5 h-3.5"></i>
+        <span class="hidden 2xl:inline text-[11px]">작업시간</span>
+      </button>
+
+      <!-- Main Action: Record Daily Performance Button -->
+      <button id="btnOpenEntryModal" class="touch-btn px-3 sm:px-4 py-1.5 sm:py-2 bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-600 hover:from-emerald-500 text-white font-black text-xs sm:text-sm rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-1.5 whitespace-nowrap shrink-0">
+        <i data-lucide="plus-circle" class="w-4 h-4"></i>
+        <span>오늘 실적 입력</span>
+      </button>
+
+      <!-- Cloud DB Sync Status & Device Role -->
+      <button onclick="openDbModal()" id="dbSyncBtn" class="touch-btn px-2 sm:px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 font-bold text-xs rounded-xl shadow flex items-center gap-1 shrink-0" title="클라우드 DB 동기화 &amp; 기기 위치">
+        <i data-lucide="database" class="w-3.5 h-3.5 text-emerald-400 shrink-0"></i>
+        <span id="dbSyncDot" class="w-1.5 h-1.5 rounded-full bg-slate-500 sm:hidden"></span>
+        <span id="dbSyncText" class="hidden sm:inline text-[11px] whitespace-nowrap">DB 미연동</span>
+      </button>
+
+      <!-- Fullscreen Toggle -->
+      <button id="btnToggleFullscreen" title="전체화면" class="touch-btn p-1.5 sm:p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 shrink-0">
+        <i data-lucide="maximize" class="w-3.5 h-3.5"></i>
+      </button>
+
+      <!-- Settings / Backup -->
+      <button id="btnOpenSettings" title="데이터 관리 & 백업" class="touch-btn p-1.5 sm:p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 shrink-0">
+        <i data-lucide="settings" class="w-3.5 h-3.5"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- ================================================================= -->
+  <!-- MAIN DISPLAY: 4 TARGET TIERS (ZERO COLLISION HIERARCHY)           -->
+  <!-- ================================================================= -->
+  <main class="flex-1 p-3 sm:p-4 flex flex-col gap-3 sm:gap-4 overflow-y-auto lg:overflow-hidden w-full max-w-full overflow-x-hidden">
+
+    <!-- REAL-TIME WEATHER & WIND-GUST SAFETY TICKER (Section 6) -->
+    <div id="weatherSafetyBanner" class="hidden bg-amber-950/90 border border-amber-500/80 rounded-2xl p-3 flex-col sm:flex-row items-center justify-between gap-2 shadow-lg flex-none transition-all">
+      <div class="flex items-center gap-2.5 text-xs text-amber-200">
+        <span class="text-xl">⚠️</span>
+        <div>
+          <span class="font-extrabold text-amber-300" id="weatherAlertTitle">강풍 주의보 감지</span>
+          <span class="text-amber-200/90 ml-1.5" id="weatherAlertDesc">순간최대풍속 12.4 m/s (짚코스터 안전 기준 12.0 m/s 초과)</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <button type="button" onclick="autoTriggerWeatherPause()" class="touch-btn px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs rounded-xl shadow">
+          짚코스터 즉시 가동중단 (weather_pause)
+        </button>
+        <button type="button" onclick="dismissWeatherAlert()" class="p-1 text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- 4 GRAND TARGET CARDS: FLAWLESS HIERARCHICAL LAYOUT -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-3.5 flex-none w-full">
+
+      <!-- 1. DAILY REVENUE TARGET CARD -->
+      <div id="cardDaily" class="bg-[#0e1626]/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between transition-all duration-300 shadow-sm min-h-[145px]">
+        <!-- Top Label & Status Pill -->
+        <div class="flex items-center justify-between pb-1">
+          <span class="flex items-center gap-1.5 text-xs font-extrabold text-blue-400 uppercase tracking-wide">
+            <i data-lucide="sun" class="w-3.5 h-3.5"></i>
+            일일 매출 (TODAY)
+          </span>
+          <span id="badgeDailyStatus" class="px-2 py-0.5 text-[10px] font-black rounded-md bg-slate-800 text-slate-400 font-mono">
+            기록 대기
+          </span>
+        </div>
+
+        <!-- Center: Hero Rate & Clean Sub-metrics (VERTICAL STACK TO PREVENT OVERLAP) -->
+        <div class="my-1.5 space-y-1">
+          <div class="flex items-baseline justify-between">
+            <div class="flex items-baseline gap-1">
+              <span id="valDailyRate" class="text-3xl sm:text-4xl font-black font-mono text-white tabular-nums tracking-tight">0.0%</span>
+              <span class="text-[10px] text-slate-400 font-bold uppercase">달성</span>
+            </div>
+            <span id="badgeDailyGapPill" class="text-[11px] font-bold font-mono text-slate-400">목표 36만 원</span>
+          </div>
+
+          <div class="flex items-center justify-between text-xs font-mono pt-0.5 border-t border-slate-800/60">
+            <div class="flex items-baseline gap-1">
+              <span class="text-[10px] text-slate-400">당일 실적:</span>
+              <strong id="valDailyActualRev" class="text-blue-400 font-bold text-sm">0 원</strong>
+            </div>
+            <div class="text-[11px] text-slate-400">
+              목표: <span id="valDailyTargetRev" class="text-slate-300">36만 원</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom: Progress Bar & Sub-stats -->
+        <div class="space-y-1">
+          <div class="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
+            <div id="barDaily" class="bg-gradient-to-r from-blue-600 to-cyan-400 h-full rounded-full transition-all duration-700" style="width: 0%;"></div>
+          </div>
+          <div class="flex items-center justify-between text-[10px] text-slate-400">
+            <span id="subDailyVisitors">방문객: 0명 (목표 30명)</span>
+            <span id="subDailyGap" class="font-medium text-slate-400">목표까지 360,000원</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. WEEKLY REVENUE TARGET CARD -->
+      <div id="cardWeekly" class="bg-[#0e1626]/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between transition-all duration-300 shadow-sm min-h-[145px]">
+        <div class="flex items-center justify-between pb-1">
+          <span class="flex items-center gap-1.5 text-xs font-extrabold text-emerald-400 uppercase tracking-wide">
+            <i data-lucide="calendar-range" class="w-3.5 h-3.5"></i>
+            이번 주 매출 (WEEK)
+          </span>
+          <span class="px-2 py-0.5 text-[10px] font-extrabold rounded-md bg-emerald-950/60 text-emerald-400 border border-emerald-800/50 font-mono">
+            월~일 누적
+          </span>
+        </div>
+
+        <div class="my-1.5 space-y-1">
+          <div class="flex items-baseline justify-between">
+            <div class="flex items-baseline gap-1">
+              <span id="valWeeklyRate" class="text-3xl sm:text-4xl font-black font-mono text-white tabular-nums tracking-tight">0.0%</span>
+              <span class="text-[10px] text-slate-400 font-bold uppercase">달성</span>
+            </div>
+            <span id="badgeWeeklyGapPill" class="text-[11px] font-bold font-mono text-slate-400">목표 536만 원</span>
+          </div>
+
+          <div class="flex items-center justify-between text-xs font-mono pt-0.5 border-t border-slate-800/60">
+            <div class="flex items-baseline gap-1">
+              <span class="text-[10px] text-slate-400">주간 누적:</span>
+              <strong id="valWeeklyActualRev" class="text-emerald-400 font-bold text-sm">0 원</strong>
+            </div>
+            <div class="text-[11px] text-slate-400">
+              목표: <span id="valWeeklyTargetRev" class="text-slate-300">536만 원</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="space-y-1">
+          <div class="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
+            <div id="barWeekly" class="bg-gradient-to-r from-emerald-600 to-teal-400 h-full rounded-full transition-all duration-700" style="width: 0%;"></div>
+          </div>
+          <div class="flex items-center justify-between text-[10px] text-slate-400">
+            <span id="subWeeklyVisitors">누적: 0명 (목표 446명)</span>
+            <span id="subWeeklyGap" class="font-medium text-slate-400">목표까지 5,360,000원</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. MONTHLY REVENUE TARGET CARD -->
+      <div id="cardMonthly" class="bg-[#0e1626]/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between transition-all duration-300 shadow-sm min-h-[145px]">
+        <div class="flex items-center justify-between pb-1">
+          <span class="flex items-center gap-1.5 text-xs font-extrabold text-amber-400 uppercase tracking-wide">
+            <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
+            이달 매출 (MONTH)
+          </span>
+          <span id="badgeMonthName" class="px-2 py-0.5 text-[10px] font-extrabold rounded-md bg-amber-950/60 text-amber-400 border border-amber-800/50 font-mono">
+            9월 목표
+          </span>
+        </div>
+
+        <div class="my-1.5 space-y-1">
+          <div class="flex items-baseline justify-between">
+            <div class="flex items-baseline gap-1">
+              <span id="valMonthlyRate" class="text-3xl sm:text-4xl font-black font-mono text-white tabular-nums tracking-tight">0.0%</span>
+              <span class="text-[10px] text-slate-400 font-bold uppercase">달성</span>
+            </div>
+            <span id="badgeMonthlyGapPill" class="text-[11px] font-bold font-mono text-slate-400">목표 2,216만</span>
+          </div>
+
+          <div class="flex items-center justify-between text-xs font-mono pt-0.5 border-t border-slate-800/60">
+            <div class="flex items-baseline gap-1">
+              <span class="text-[10px] text-slate-400">월 누적:</span>
+              <strong id="valMonthlyActualRev" class="text-amber-400 font-bold text-sm">0 원</strong>
+            </div>
+            <div class="text-[11px] text-slate-400">
+              목표: <span id="valMonthlyTargetRev" class="text-slate-300">2,216만 원</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="space-y-1">
+          <div class="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
+            <div id="barMonthly" class="bg-gradient-to-r from-amber-500 to-orange-400 h-full rounded-full transition-all duration-700" style="width: 0%;"></div>
+          </div>
+          <div class="flex items-center justify-between text-[10px] text-slate-400">
+            <span id="subMonthlyDays">잔여 21일</span>
+            <span id="subMonthlyNeedDaily" class="font-medium text-slate-400">일평균 105만 원 필요</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. ANNUAL BEP REVENUE CARD -->
+      <div id="cardAnnual" class="bg-[#0e1626]/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between transition-all duration-300 shadow-sm min-h-[145px]">
+        <div class="flex items-center justify-between pb-1">
+          <span class="flex items-center gap-1.5 text-xs font-extrabold text-indigo-400 uppercase tracking-wide">
+            <i data-lucide="award" class="w-3.5 h-3.5"></i>
+            연간 BEP (ANNUAL)
+          </span>
+          <span class="px-2 py-0.5 text-[10px] font-black rounded-md bg-indigo-950 text-indigo-300 border border-indigo-800/70 font-mono">
+            BEP 2.36억
+          </span>
+        </div>
+
+        <div class="my-1.5 space-y-1">
+          <div class="flex items-baseline justify-between">
+            <div class="flex items-baseline gap-1">
+              <span id="valAnnualRate" class="text-3xl sm:text-4xl font-black font-mono text-white tabular-nums tracking-tight">0.0%</span>
+              <span class="text-[10px] text-slate-400 font-bold uppercase">돌파율</span>
+            </div>
+            <span id="badgeAnnualGapPill" class="text-[11px] font-bold font-mono text-indigo-300">BEP 2억 3,600만</span>
+          </div>
+
+          <div class="flex items-center justify-between text-xs font-mono pt-0.5 border-t border-slate-800/60">
+            <div class="flex items-baseline gap-1">
+              <span class="text-[10px] text-slate-400">연간 누적:</span>
+              <strong id="valAnnualActualRev" class="text-indigo-400 font-bold text-sm">0 원</strong>
+            </div>
+            <div class="text-[11px] text-slate-400">
+              분기점: <span class="text-slate-300">2억 3,600만</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="space-y-1">
+          <div class="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
+            <div id="barAnnual" class="bg-gradient-to-r from-indigo-600 via-purple-500 to-pink-500 h-full rounded-full transition-all duration-700" style="width: 0%;"></div>
+          </div>
+          <div class="flex items-center justify-between text-[10px] text-slate-400">
+            <span>인센티브 풀: <strong id="valIncentivePool" class="text-indigo-300 font-mono font-bold">0 원</strong></span>
+            <span id="subAnnualGap" class="font-medium text-slate-400">BEP까지 2.36억</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ROW 2: CHART & LOG TABLE (GUARANTEED GENEROUS HEIGHTS) -->
+    <div class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4 min-h-[360px] lg:min-h-0 w-full">
+
+      <!-- Left 8 Cols: Revenue Trend Chart -->
+      <div class="lg:col-span-8 bg-[#0e1626]/90 border border-slate-800/90 rounded-2xl p-3.5 sm:p-4 flex flex-col overflow-hidden shadow-sm">
+        <div class="flex items-center justify-between pb-2.5 border-b border-slate-800 flex-none">
+          <div class="flex items-center gap-2">
+            <i data-lucide="trending-up" class="w-4 h-4 text-emerald-400"></i>
+            <h2 class="text-xs sm:text-sm font-extrabold text-white">매출 실적 및 BEP 진척도 추이</h2>
+            <span class="text-[11px] text-slate-500 font-medium hidden sm:inline">(부가매출 발생 시 조기 BEP 달성)</span>
+          </div>
+
+          <!-- Metric Toggle -->
+          <div class="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800/80">
+            <button id="btnChartRev" class="touch-btn px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-600 text-white shadow">
+              매출액 추이
+            </button>
+            <button id="btnChartVis" class="touch-btn px-2.5 py-1 text-xs font-bold rounded-lg text-slate-400 hover:text-white">
+              방문객수 추이
+            </button>
+          </div>
+        </div>
+
+        <!-- Canvas Wrapper (Fixed min-height guarantees chart never collapses!) -->
+        <div class="flex-1 relative mt-2.5 w-full min-h-[220px] sm:min-h-[260px] flex items-center justify-center">
+          <canvas id="mainTrendChart" class="w-full h-full"></canvas>
+          
+          <!-- Sleek Floating Status Box (Top Right Pill - Non Intrusive) -->
+          <div id="chartEmptyFloatBox" class="absolute top-2.5 right-2.5 z-10 bg-slate-950/90 border border-slate-700/80 rounded-xl px-3 py-1.5 shadow-xl backdrop-blur flex items-center gap-2 text-xs transition-opacity duration-300">
+            <span class="flex h-2 w-2 relative shrink-0">
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span class="text-slate-300 font-medium text-[11px] whitespace-nowrap">실적 등록 대기 중 (주간 기준 목표선 표시)</span>
+            <button id="btnEmptyTrigger" class="touch-btn px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] rounded-md shadow shrink-0">
+              + 오늘 입력
+            </button>
+            <button id="btnCloseFloatBox" class="text-slate-400 hover:text-slate-200 p-0.5 ml-0.5 shrink-0">
+              <i data-lucide="x" class="w-3 h-3"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Financial Insights Footer -->
+        <div class="pt-2.5 border-t border-slate-800 flex-none grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+          <div class="bg-slate-950/50 rounded-xl p-2 border border-slate-800/60">
+            <div class="text-[10px] text-slate-400 font-bold">평일 목표 매출</div>
+            <div class="text-xs sm:text-sm font-extrabold font-mono text-blue-400 mt-0.5">일 36만 원 (30명)</div>
+          </div>
+          <div class="bg-slate-950/50 rounded-xl p-2 border border-slate-800/60">
+            <div class="text-[10px] text-slate-400 font-bold">주말 목표 매출</div>
+            <div class="text-xs sm:text-sm font-extrabold font-mono text-emerald-400 mt-0.5">일 178만 원 (148명)</div>
+          </div>
+          <div class="bg-slate-950/50 rounded-xl p-2 border border-slate-800/60">
+            <div class="text-[10px] text-slate-400 font-bold">부가매출 레버리지</div>
+            <div class="text-xs sm:text-sm font-extrabold font-mono text-amber-400 mt-0.5">객단가 상승 → 조기 BEP</div>
+          </div>
+          <div class="bg-slate-950/50 rounded-xl p-2 border border-slate-800/60">
+            <div class="text-[10px] text-slate-400 font-bold">연간 BEP 매출 분기점</div>
+            <div class="text-xs sm:text-sm font-extrabold font-mono text-indigo-400 mt-0.5">총 2억 3,600만 원</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right 4 Cols: Real Recorded Daily Log -->
+      <div class="lg:col-span-4 bg-[#0e1626]/90 border border-slate-800/90 rounded-2xl p-3.5 sm:p-4 flex flex-col overflow-hidden shadow-sm min-h-[280px]">
+        <div class="flex items-center justify-between pb-2.5 border-b border-slate-800 flex-none">
+          <div class="flex items-center gap-2">
+            <i data-lucide="receipt" class="w-4 h-4 text-emerald-400"></i>
+            <h2 class="text-xs sm:text-sm font-extrabold text-white whitespace-nowrap">현장 매출 마감 대장</h2>
+          </div>
+          <span class="text-xs text-slate-400 font-mono whitespace-nowrap">누적 <strong id="lblTotalDays" class="text-emerald-400">0</strong>일</span>
+        </div>
+
+        <!-- Scrollable Real Entries List -->
+        <div id="logListContainer" class="flex-1 overflow-y-auto space-y-2 py-2 pr-1 min-h-[180px]">
+          <!-- Will be filled by real records only -->
+        </div>
+
+        <!-- Real Log Footer -->
+        <div class="pt-2.5 border-t border-slate-800 flex-none flex items-center justify-between text-xs">
+          <span id="lblLiveAvgTicket" class="text-slate-400 text-[11px] whitespace-nowrap">누적 평균 객단가: <strong>0원</strong></span>
+          <button id="btnQuickExport" class="touch-btn text-[11px] font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 shrink-0">
+            <i data-lucide="download" class="w-3.5 h-3.5"></i>
+            <span>엑셀 다운로드</span>
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- ================================================================= -->
+  <!-- MODAL: TOUCH ENTRY PAD                                            -->
+  <!-- ================================================================= -->
+  <div id="entryModal" class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md hidden flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+    <div class="bg-[#0e1626] border border-slate-800 rounded-3xl shadow-2xl max-w-2xl w-full max-h-[92vh] flex flex-col p-5 sm:p-6 my-auto">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between pb-3.5 border-b border-slate-800 flex-none">
+        <div>
+          <h3 class="text-base sm:text-lg font-black text-white flex items-center gap-2">
+            <span class="text-xl">📝</span>
+            일일 매출 &amp; 실적 입력 패드
+          </h3>
+          <p class="text-xs text-slate-400 mt-0.5">당일 현장 마감 데이터를 터치로 입력하여 대시보드에 누적합니다</p>
+        </div>
+        <button id="btnCloseEntryModal" class="touch-btn p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="flex-1 overflow-y-auto py-3.5 space-y-3.5 pr-1">
+        
+        <!-- Date & Operating Mode Selection -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <div>
+            <label class="text-xs font-bold text-slate-400 block mb-1">운영 날짜</label>
+            <input type="date" id="inputEntryDate" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-sm font-mono font-bold text-white focus:border-emerald-500 outline-none">
+          </div>
+          <div class="sm:col-span-2">
+            <label class="text-xs font-bold text-slate-400 block mb-1">운영 구분 (목표 매출 자동 설정)</label>
+            <div class="grid grid-cols-3 gap-1.5">
+              <button type="button" data-opmode="weekday" class="btn-opmode touch-btn p-2.5 rounded-xl border border-blue-500 bg-blue-500/20 text-blue-400 text-xs font-extrabold text-center">
+                평일 (36만)
+              </button>
+              <button type="button" data-opmode="weekend" class="btn-opmode touch-btn p-2.5 rounded-xl border border-slate-700 bg-slate-950 text-slate-400 text-xs font-bold text-center">
+                주말 (178만)
+              </button>
+              <button type="button" data-opmode="festival" class="btn-opmode touch-btn p-2.5 rounded-xl border border-slate-700 bg-slate-950 text-slate-400 text-xs font-bold text-center">
+                축제 (172만)
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Big Touch Input Grid -->
+        <div class="space-y-2.5">
+          
+          <!-- Category 1: 어린이 일반 (14,000원) -->
+          <div class="bg-slate-950/70 p-3 rounded-xl border border-slate-800 flex items-center justify-between">
+            <div>
+              <div class="font-extrabold text-xs sm:text-sm text-white">어린이 일반 (14,000원)</div>
+              <div class="text-[11px] text-slate-500">개인/가족 나들이 유아 및 초등생</div>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-slate-800 text-white font-bold text-base" data-target="cntChild" data-val="-5">-5</button>
+              <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-slate-800 text-white font-bold text-base" data-target="cntChild" data-val="-1">-1</button>
+              <input type="number" id="cntChild" value="0" min="0" class="w-14 sm:w-16 h-9 sm:h-10 bg-slate-900 border border-slate-700 rounded-lg text-center font-mono font-black text-base text-emerald-400 outline-none">
+              <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-slate-800 text-white font-bold text-base" data-target="cntChild" data-val="1">+1</button>
+              <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-emerald-600 text-white font-bold text-base" data-target="cntChild" data-val="5">+5</button>
+            </div>
+          </div>
+
+          <!-- Category 2: 보호자권 (5,000원) -->
+          <div class="bg-slate-950/70 p-3 rounded-xl border border-slate-800 flex items-center justify-between">
+            <div>
+              <div class="font-extrabold text-xs sm:text-sm text-white">보호자권 (5,000원)</div>
+              <div class="text-[11px] text-slate-500">동반 보호자 (음료 교환권 포함)</div>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-slate-800 text-white font-bold text-base" data-target="cntAdult" data-val="-5">-5</button>
+              <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-slate-800 text-white font-bold text-base" data-target="cntAdult" data-val="-1">-1</button>
+              <input type="number" id="cntAdult" value="0" min="0" class="w-14 sm:w-16 h-9 sm:h-10 bg-slate-900 border border-slate-700 rounded-lg text-center font-mono font-black text-base text-emerald-400 outline-none">
+              <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-slate-800 text-white font-bold text-base" data-target="cntAdult" data-val="1">+1</button>
+              <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-emerald-600 text-white font-bold text-base" data-target="cntAdult" data-val="5">+5</button>
+            </div>
+          </div>
+
+          <!-- Category 3: 단체 / 어린이집 (7,000원) -->
+          <div class="bg-slate-950/70 p-3 rounded-xl border border-slate-800 flex items-center justify-between">
+            <div>
+              <div class="font-extrabold text-xs sm:text-sm text-white">어린이집/유치원 단체 (7,000원)</div>
+              <div class="text-[11px] text-slate-500">평일 단체 유치 (버스 대절 방문)</div>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-slate-800 text-white font-bold text-base" data-target="cntGroup" data-val="-10">-10</button>
+              <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-slate-800 text-white font-bold text-base" data-target="cntGroup" data-val="-1">-1</button>
+              <input type="number" id="cntGroup" value="0" min="0" class="w-14 sm:w-16 h-9 sm:h-10 bg-slate-900 border border-slate-700 rounded-lg text-center font-mono font-black text-base text-emerald-400 outline-none">
+              <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-slate-800 text-white font-bold text-base" data-target="cntGroup" data-val="1">+1</button>
+              <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-emerald-600 text-white font-bold text-base" data-target="cntGroup" data-val="10">+10</button>
+            </div>
+          </div>
+
+          <!-- Category 4: 부가 매출 (카페/음료/굿즈/대관) -->
+          <div class="bg-emerald-950/30 p-3 rounded-xl border border-emerald-800/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <div class="font-extrabold text-xs sm:text-sm text-emerald-300 flex items-center gap-1">
+                <i data-lucide="coffee" class="w-3.5 h-3.5 text-emerald-400"></i>
+                <span>부가 매출 (카페·매점·굿즈·대관)</span>
+              </div>
+              <div class="text-[11px] text-emerald-400/80 flex items-center gap-2 mt-0.5">
+                <span>인원 부족을 극복하는 핵심 동력</span>
+                <button type="button" onclick="openPosModal(true)" class="px-2 py-0.5 rounded-md bg-emerald-900/80 border border-emerald-500/50 text-emerald-200 hover:bg-emerald-800 text-[10px] font-bold inline-flex items-center gap-1 transition">
+                  <i data-lucide="shopping-bag" class="w-3 h-3"></i>
+                  <span>POS 품목별 선택</span>
+                </button>
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5 self-end sm:self-auto">
+              <button type="button" class="touch-btn btn-inc-cash px-2.5 h-9 sm:h-10 rounded-lg bg-emerald-950 border border-emerald-700 text-emerald-300 font-bold text-xs" data-target="cntExtraRev" data-val="50000">+5만</button>
+              <button type="button" class="touch-btn btn-inc-cash px-2.5 h-9 sm:h-10 rounded-lg bg-emerald-950 border border-emerald-700 text-emerald-300 font-bold text-xs" data-target="cntExtraRev" data-val="100000">+10만</button>
+              <input type="number" id="cntExtraRev" value="0" step="10000" class="w-28 sm:w-32 h-9 sm:h-10 bg-slate-900 border border-emerald-700 rounded-lg text-right px-2.5 font-mono font-black text-sm sm:text-base text-emerald-300 outline-none">
+              <span class="text-xs text-slate-400 font-bold">원</span>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- 유입 채널 분해 -->
+        <div class="mt-3 p-3 rounded-xl bg-slate-900/60 border border-indigo-800/50">
+          <div class="flex items-start justify-between gap-2 mb-2.5">
+            <div>
+              <div class="text-xs font-black text-indigo-300 flex items-center gap-1.5">
+                <i data-lucide="git-branch" class="w-3.5 h-3.5"></i>
+                유입 채널 분해
+              </div>
+              <div class="text-[11px] text-indigo-400/70 mt-0.5">
+                "우리가 한 행동 → 이 숫자" 인과 기록. 2호점 제안의 핵심 근거가 됩니다.
+              </div>
+            </div>
+            <span id="chSumBadge" class="text-[10px] px-2 py-1 rounded-lg bg-slate-800 text-slate-400 font-bold shrink-0">합계 0명</span>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <label class="flex items-center gap-1.5 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5">
+              <span class="text-[10px] text-slate-400 font-bold flex-1">교육청 단체</span>
+              <input type="number" id="chEduGroup" value="0" class="ch-input w-14 bg-transparent text-right font-mono font-bold text-xs text-white outline-none">
+            </label>
+            <label class="flex items-center gap-1.5 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5">
+              <span class="text-[10px] text-slate-400 font-bold flex-1">유치원·어린이집</span>
+              <input type="number" id="chKinder" value="0" class="ch-input w-14 bg-transparent text-right font-mono font-bold text-xs text-white outline-none">
+            </label>
+            <label class="flex items-center gap-1.5 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5">
+              <span class="text-[10px] text-slate-400 font-bold flex-1">맘카페·체험단</span>
+              <input type="number" id="chMomcafe" value="0" class="ch-input w-14 bg-transparent text-right font-mono font-bold text-xs text-white outline-none">
+            </label>
+            <label class="flex items-center gap-1.5 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5">
+              <span class="text-[10px] text-slate-400 font-bold flex-1">온라인 예약</span>
+              <input type="number" id="chOnline" value="0" class="ch-input w-14 bg-transparent text-right font-mono font-bold text-xs text-white outline-none">
+            </label>
+            <label class="flex items-center gap-1.5 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5">
+              <span class="text-[10px] text-slate-400 font-bold flex-1">축제·행사 연계</span>
+              <input type="number" id="chFestival" value="0" class="ch-input w-14 bg-transparent text-right font-mono font-bold text-xs text-white outline-none">
+            </label>
+            <label class="flex items-center gap-1.5 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5">
+              <span class="text-[10px] text-slate-400 font-bold flex-1">바우처·협약</span>
+              <input type="number" id="chVoucher" value="0" class="ch-input w-14 bg-transparent text-right font-mono font-bold text-xs text-white outline-none">
+            </label>
+            <label class="flex items-center gap-1.5 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5">
+              <span class="text-[10px] text-slate-400 font-bold flex-1">재방문</span>
+              <input type="number" id="chRevisit" value="0" class="ch-input w-14 bg-transparent text-right font-mono font-bold text-xs text-white outline-none">
+            </label>
+            <label class="flex items-center gap-1.5 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5">
+              <span class="text-[10px] text-slate-400 font-bold flex-1">워크인</span>
+              <input type="number" id="chWalkin" value="0" class="ch-input w-14 bg-transparent text-right font-mono font-bold text-xs text-white outline-none">
+            </label>
+            <label class="flex items-center gap-1.5 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5">
+              <span class="text-[10px] text-slate-400 font-bold flex-1">기타</span>
+              <input type="number" id="chEtc" value="0" class="ch-input w-14 bg-transparent text-right font-mono font-bold text-xs text-white outline-none">
+            </label>
+          </div>
+
+          <p id="chWarn" class="hidden mt-2 text-[10px] text-amber-400 font-bold"></p>
+        </div>
+
+        <!-- Incident & Notes -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+          <div class="sm:col-span-2">
+            <label class="text-xs font-bold text-slate-400 block mb-1">운영 메모 &amp; 부가매출 특이사항</label>
+            <input type="text" id="inputEntryMemo" placeholder="예: 영주 OO어린이집 35명 단체 방문, 카페 음료 45잔 판매" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs text-white focus:border-emerald-500 outline-none">
+          </div>
+          <div>
+            <label class="text-xs font-bold text-slate-400 block mb-1">안전 운용 여부</label>
+            <label class="flex items-center gap-2 h-10 px-3 bg-slate-950 border border-slate-700 rounded-xl cursor-pointer">
+              <input type="checkbox" id="chkEntrySafe" checked class="w-4 h-4 rounded accent-emerald-500">
+              <span class="text-xs font-extrabold text-emerald-400">무사고 정상 운용</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Live Modal Preview -->
+        <div class="bg-emerald-950/50 border border-emerald-700/60 rounded-xl p-3.5 flex items-center justify-between">
+          <div>
+            <div class="text-[10px] text-emerald-300 font-bold uppercase">오늘 마감 합산 매출액</div>
+            <div class="flex items-baseline gap-2 mt-0.5">
+              <span id="previewRevenue" class="text-xl sm:text-2xl font-black font-mono text-emerald-400">0 원</span>
+            </div>
+          </div>
+          <div class="text-right">
+            <div class="text-[10px] text-slate-400 font-bold uppercase">총 방문객 / 환산 객단가</div>
+            <div class="flex items-baseline justify-end gap-1.5 mt-0.5">
+              <span id="previewVisitors" class="text-base font-bold font-mono text-white">0명</span>
+              <span class="text-xs text-slate-400">|</span>
+              <span id="previewAvgTicket" class="text-xs font-bold font-mono text-cyan-400">객단가 0원</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Action Footer -->
+      <div class="pt-3 border-t border-slate-800 flex items-center gap-3 flex-none">
+        <button type="button" id="btnCancelEntry" class="touch-btn flex-1 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs sm:text-sm">
+          취소
+        </button>
+        <button type="button" id="btnSaveDailyEntry" class="touch-btn flex-[2] py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 text-white font-extrabold text-sm sm:text-base shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2">
+          <i data-lucide="check" class="w-4 h-4"></i>
+          <span>오늘 실적 마감 저장</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- MODAL: DATA MANAGEMENT & BACKUP                                   -->
+  <!-- ================================================================= -->
+  <div id="settingsModal" class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md hidden flex items-center justify-center p-4">
+    <div class="bg-[#0e1626] border border-slate-800 rounded-3xl shadow-2xl max-w-md w-full p-5 space-y-3.5">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h3 class="font-extrabold text-sm sm:text-base text-white flex items-center gap-2">
+          <i data-lucide="database" class="w-4 h-4 text-emerald-400"></i>
+          데이터 관리 및 백업
+        </h3>
+        <button id="btnCloseSettings" class="touch-btn p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <p class="text-xs text-slate-400 leading-relaxed">
+        모든 실적 데이터는 모니터 브라우저(localStorage)에 안전하게 저장됩니다. 정기적으로 엑셀 백업을 다운로드해 두시면 안전합니다.
+      </p>
+
+      <div class="space-y-2">
+        <button id="btnExportCsv" class="touch-btn w-full py-2.5 px-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center justify-between">
+          <span class="flex items-center gap-2">
+            <i data-lucide="file-spreadsheet" class="w-4 h-4 text-emerald-400"></i>
+            전체 실적 엑셀(CSV) 다운로드
+          </span>
+          <i data-lucide="download" class="w-4 h-4 text-slate-400"></i>
+        </button>
+
+        <button id="btnExportJson" class="touch-btn w-full py-2.5 px-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center justify-between">
+          <span class="flex items-center gap-2">
+            <i data-lucide="code" class="w-4 h-4 text-blue-400"></i>
+            JSON 전체 데이터 백업
+          </span>
+          <i data-lucide="download" class="w-4 h-4 text-slate-400"></i>
+        </button>
+
+        <button id="btnClearAllRecords" class="touch-btn w-full py-2.5 px-3.5 rounded-xl bg-rose-950/40 border border-rose-800/60 hover:bg-rose-900/60 text-rose-300 text-xs font-bold flex items-center justify-between">
+          <span class="flex items-center gap-2">
+            <i data-lucide="trash-2" class="w-4 h-4 text-rose-400"></i>
+            전체 실적 데이터 완전 초기화
+          </span>
+          <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-400"></i>
+        </button>
+      </div>
+
+      <div class="pt-2 border-t border-slate-800">
+        <button id="btnDoneSettings" class="touch-btn w-full py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-xs">
+          닫기
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- MODAL: CLOUD DB SYNC & DEVICE LOCATION (사무실 / 매표소 / 현장)     -->
+  <!-- ================================================================= -->
+  <div id="dbModal" class="fixed inset-0 z-[60] bg-slate-950/85 backdrop-blur-md hidden flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+    <div class="bg-[#0e1626] border border-slate-700 rounded-3xl shadow-2xl max-w-lg w-full p-5 space-y-4 my-auto">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-9 h-9 rounded-xl bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center">
+            <i data-lucide="database" class="w-4 h-4 text-emerald-400"></i>
+          </div>
+          <div>
+            <h3 class="font-black text-base text-white">클라우드 DB 연동 &amp; 기기 설정</h3>
+            <p class="text-[11px] text-slate-400">3개 기기 실시간 동기화 (사무실 / 매표소 / 현장)</p>
+          </div>
+        </div>
+        <button onclick="closeDbModal()" class="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 hover:bg-slate-700">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs text-slate-300">
+        <div class="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 text-[11px] text-emerald-300 leading-relaxed">
+          <b>🏢 현재 기기 위치 설정</b><br>
+          이 PC를 <b>[사무실]</b>로 지정하면 매표소(동의서/발권) 및 야외 현장(안전점검) 기기에서 수집된 실시간 데이터가 이 관제 대시보드로 자동 동기화됩니다.
+        </div>
+
+        <div>
+          <label class="block text-slate-400 font-bold mb-1">이 기기의 위치 (역할)</label>
+          <select id="deviceLabelInput" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-white text-xs font-bold outline-none focus:border-emerald-500">
+            <option value="사무실" selected>사무실 (관제/마감/정산 PC)</option>
+            <option value="매표소">매표소 (발권/예약 PC·태블릿)</option>
+            <option value="현장">현장 (야외 안전점검 스마트폰)</option>
+            <option value="대표">대표 개인기기</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-slate-400 font-bold mb-1">Supabase Project URL</label>
+          <input type="text" id="dbUrlInput" placeholder="https://xxxxx.supabase.co" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white font-mono text-xs outline-none focus:border-emerald-500">
+        </div>
+
+        <div>
+          <label class="block text-slate-400 font-bold mb-1">anon public key</label>
+          <input type="password" id="dbKeyInput" placeholder="eyJhbGci..." class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white font-mono text-xs outline-none focus:border-emerald-500">
+        </div>
+
+        <div id="dbTestResult" class="hidden rounded-xl p-3 text-[11px] font-bold"></div>
+
+        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1.5 text-[11px] text-slate-400">
+          <p>• 오프라인 상태에서도 현장 운영과 로컬 저장은 정상 유지됩니다.</p>
+          <p>• 대기 중인 동기화 항목: <b id="dbQueueCount" class="text-white font-mono">0</b>건</p>
+        </div>
+      </div>
+
+      <div class="pt-3 border-t border-slate-800 flex items-center justify-end gap-2">
+        <button onclick="testDbConnection()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold transition">연결 테스트</button>
+        <button onclick="saveDbConfig()" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black shadow-lg transition">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- MODAL: P0-1 TOUCH POS & ITEM-LEVEL ORDER (AI CAUSAL ENGINE)        -->
+  <!-- ================================================================= -->
+  <div id="posModal" class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md hidden flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+    <div class="bg-[#0e1626] border border-slate-800 rounded-3xl shadow-2xl max-w-2xl w-full max-h-[92vh] flex flex-col p-5 sm:p-6 my-auto">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between pb-3.5 border-b border-slate-800 flex-none">
+        <div>
+          <h3 class="text-base sm:text-lg font-black text-white flex items-center gap-2">
+            <span class="text-xl">🛍️</span>
+            <span>현장 POS 품목 주문 (P0-1 주문·항목 원장)</span>
+          </h3>
+          <p class="text-xs text-slate-400 mt-0.5">단순 부가매출 총액이 아닌 개별 상품·카테고리 단위 인과 데이터 수집</p>
+        </div>
+        <button type="button" onclick="closePosModal()" class="touch-btn p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Visit session binding & Payment Method -->
+      <div class="pt-3 pb-2 space-y-2.5 flex-none">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div>
+            <label class="text-[11px] font-bold text-slate-400 block mb-1">방문 세션 연동 (선택)</label>
+            <select id="posVisitSelect" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs font-mono text-emerald-400 outline-none">
+              <option value="">- 워크인 / 일반 현장 결제 -</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-[11px] font-bold text-slate-400 block mb-1">결제 수단</label>
+            <select id="posPaymentMethod" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs font-bold text-white outline-none">
+              <option value="card">신용/체크카드</option>
+              <option value="cash">현금</option>
+              <option value="local_pay">봉화사랑상품권 / 지역화폐</option>
+              <option value="mobile_pay">간편결제 (카카오/네이버/제로)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Product Category Filter Tabs -->
+        <div class="flex items-center gap-1.5 overflow-x-auto pb-1" id="posCategoryTabs">
+          <button type="button" onclick="filterPosCategory('all')" class="pos-tab px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-600 text-white" data-cat="all">전체 품목</button>
+          <button type="button" onclick="filterPosCategory('fnb')" class="pos-tab px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 text-slate-300 hover:text-white" data-cat="fnb">☕ F&amp;B / 카페</button>
+          <button type="button" onclick="filterPosCategory('addon')" class="pos-tab px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 text-slate-300 hover:text-white" data-cat="addon">🎢 체험 / 짚코스터</button>
+          <button type="button" onclick="filterPosCategory('merch')" class="pos-tab px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 text-slate-300 hover:text-white" data-cat="merch">🧦 굿즈 / 용품</button>
+          <button type="button" onclick="filterPosCategory('rental')" class="pos-tab px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 text-slate-300 hover:text-white" data-cat="rental">⛺ 대관 / 피크닉</button>
+        </div>
+      </div>
+
+      <!-- Product Items List (Scrollable) -->
+      <div id="posProductsContainer" class="flex-1 overflow-y-auto py-2 space-y-2 pr-1 max-h-[340px]">
+        <!-- Populated dynamically via JS -->
+      </div>
+
+      <!-- Cart / Receipt Summary Footer -->
+      <div class="pt-3 border-t border-slate-800 space-y-2 flex-none">
+        <div class="bg-slate-950/80 p-3 rounded-2xl border border-slate-800 flex items-center justify-between">
+          <div>
+            <div class="text-[10px] text-slate-400 font-bold uppercase">선택 품목 내역</div>
+            <div class="text-sm text-slate-300 font-bold" id="posCartSummary">선택된 품목 없음 (0건)</div>
+          </div>
+          <div class="text-right">
+            <div class="text-[10px] text-amber-400 font-bold uppercase">결제 예정 금액</div>
+            <div class="text-2xl font-black font-mono text-amber-400" id="posTotalAmount">0 원</div>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button type="button" onclick="clearPosCart()" class="touch-btn px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold text-xs">
+            초기화
+          </button>
+          <button type="button" onclick="submitPosOrder()" class="touch-btn flex-1 py-3 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 text-white font-extrabold text-sm shadow-lg shadow-amber-600/30 flex items-center justify-center gap-2">
+            <i data-lucide="check-circle" class="w-4 h-4"></i>
+            <span>주문 결제 &amp; AI 품목 원장 기록</span>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- MODAL: FIELD AI TELEMETRY & EVENT TAGGER (P0-3, P0-4, P0-5)        -->
+  <!-- ================================================================= -->
+  <div id="aiOpsModal" class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md hidden flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+    <div class="bg-[#0e1626] border border-slate-800 rounded-3xl shadow-2xl max-w-2xl w-full max-h-[92vh] flex flex-col p-5 sm:p-6 my-auto">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between pb-3.5 border-b border-slate-800 flex-none">
+        <div>
+          <h3 class="text-base sm:text-lg font-black text-white flex items-center gap-2">
+            <span class="text-xl">⚡</span>
+            <span>현장 AI 관제 패널 (P0-3 ~ P0-5)</span>
+          </h3>
+          <p class="text-xs text-slate-400 mt-0.5">시설 이용 이벤트(P0-3) · 대기열 텔레메트리(P0-4) · 운영 개입(P0-5)</p>
+        </div>
+        <button type="button" onclick="closeAiOpsModal()" class="touch-btn p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Mode Switch Tabs -->
+      <div class="flex items-center gap-2 pt-3 pb-2 border-b border-slate-800 flex-none">
+        <button type="button" onclick="switchAiOpsTab('events')" id="tabBtnEvents" class="flex-1 py-2 rounded-xl text-xs font-bold bg-cyan-600 text-white flex items-center justify-center gap-1.5 transition">
+          <i data-lucide="play-circle" class="w-3.5 h-3.5"></i>
+          <span>시설 현장 태거 (P0-3)</span>
+        </button>
+        <button type="button" onclick="switchAiOpsTab('telemetry')" id="tabBtnTelemetry" class="flex-1 py-2 rounded-xl text-xs font-bold bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center gap-1.5 transition">
+          <i data-lucide="activity" class="w-3.5 h-3.5"></i>
+          <span>대기열 텔레메트리 (P0-4)</span>
+        </button>
+        <button type="button" onclick="switchAiOpsTab('actions')" id="tabBtnActions" class="flex-1 py-2 rounded-xl text-xs font-bold bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center gap-1.5 transition">
+          <i data-lucide="shield-alert" class="w-3.5 h-3.5"></i>
+          <span>운영 조치(Action) (P0-5)</span>
+        </button>
+      </div>
+
+      <!-- Tab Content Area -->
+      <div class="flex-1 overflow-y-auto py-3 space-y-3.5 pr-1">
+
+        <!-- TAB 1: P0-3 FACILITY EVENT TAGGER -->
+        <div id="aiTabEvents" class="space-y-3">
+          <div class="bg-slate-950/70 p-3 rounded-2xl border border-slate-800">
+            <label class="text-xs font-bold text-slate-300 block mb-1.5">대상 놀이 시설 선택</label>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5" id="facilitySelectorP03">
+              <button type="button" onclick="selectFacilityP03('silver_coaster')" class="fac-btn-p03 p-2 rounded-xl border border-cyan-500 bg-cyan-950/40 text-cyan-300 text-xs font-bold text-center" data-fac="silver_coaster">🎢 짚코스터</button>
+              <button type="button" onclick="selectFacilityP03('all_season_sled')" class="fac-btn-p03 p-2 rounded-xl border border-slate-700 bg-slate-900 text-slate-400 text-xs font-bold text-center" data-fac="all_season_sled">🛷 사계절 썰매</button>
+              <button type="button" onclick="selectFacilityP03('indoor_trampoline')" class="fac-btn-p03 p-2 rounded-xl border border-slate-700 bg-slate-900 text-slate-400 text-xs font-bold text-center" data-fac="indoor_trampoline">🎪 실내 트램펄린</button>
+              <button type="button" onclick="selectFacilityP03('central_net')" class="fac-btn-p03 p-2 rounded-xl border border-slate-700 bg-slate-900 text-slate-400 text-xs font-bold text-center" data-fac="central_net">🕸️ 그물놀이터</button>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <div class="text-xs font-black text-slate-300 flex items-center justify-between">
+              <span>원터치 이용 결과 태깅 (1-Tap 현장 기록)</span>
+              <span id="p03RecentCount" class="text-[10px] font-mono text-cyan-400">오늘 0건 기록</span>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button type="button" onclick="logFacilityEvent('completed')" class="touch-btn p-3.5 rounded-2xl bg-emerald-950/60 border border-emerald-500/60 hover:bg-emerald-900/80 text-left transition flex items-center justify-between group">
+                <div>
+                  <div class="font-extrabold text-sm text-emerald-300 flex items-center gap-1.5">
+                    <span>✅</span> <span>정상 탑승 완료</span>
+                  </div>
+                  <div class="text-[10px] text-emerald-400/70 mt-0.5">completed · 안전 수칙 준수 정상 이용</div>
+                </div>
+                <span class="text-xs font-mono font-bold text-emerald-400 group-hover:translate-x-1 transition">+1 기록</span>
+              </button>
+
+              <button type="button" onclick="logFacilityEvent('re_ride')" class="touch-btn p-3.5 rounded-2xl bg-blue-950/60 border border-blue-500/60 hover:bg-blue-900/80 text-left transition flex items-center justify-between group">
+                <div>
+                  <div class="font-extrabold text-sm text-blue-300 flex items-center gap-1.5">
+                    <span>🔄</span> <span>재탑승 (만족도 최고)</span>
+                  </div>
+                  <div class="text-[10px] text-blue-400/70 mt-0.5">re_ride · 동일 고객 추가 연속 이용</div>
+                </div>
+                <span class="text-xs font-mono font-bold text-blue-400 group-hover:translate-x-1 transition">+1 기록</span>
+              </button>
+
+              <button type="button" onclick="logFacilityEvent('cancelled_weather', '강풍/우천 안전 기준 초과')" class="touch-btn p-3.5 rounded-2xl bg-amber-950/60 border border-amber-500/60 hover:bg-amber-900/80 text-left transition flex items-center justify-between group">
+                <div>
+                  <div class="font-extrabold text-sm text-amber-300 flex items-center gap-1.5">
+                    <span>🌧️</span> <span>기상악화 일시 중단</span>
+                  </div>
+                  <div class="text-[10px] text-amber-400/70 mt-0.5">cancelled_weather · 돌풍/우천 안전 조치</div>
+                </div>
+                <span class="text-xs font-mono font-bold text-amber-400 group-hover:translate-x-1 transition">기록</span>
+              </button>
+
+              <button type="button" onclick="logFacilityEvent('height_weight_fail', '신장 100cm 미만 또는 체중 85kg 초과')" class="touch-btn p-3.5 rounded-2xl bg-rose-950/60 border border-rose-500/60 hover:bg-rose-900/80 text-left transition flex items-center justify-between group">
+                <div>
+                  <div class="font-extrabold text-sm text-rose-300 flex items-center gap-1.5">
+                    <span>📏</span> <span>신체 조건 미달</span>
+                  </div>
+                  <div class="text-[10px] text-rose-400/70 mt-0.5">height_weight_fail · 키/체중 미달 안내</div>
+                </div>
+                <span class="text-xs font-mono font-bold text-rose-400 group-hover:translate-x-1 transition">기록</span>
+              </button>
+
+              <button type="button" onclick="logFacilityEvent('customer_giveup', '어린이 탑승 직전 무서움 호소')" class="touch-btn p-3.5 rounded-2xl bg-purple-950/60 border border-purple-500/60 hover:bg-purple-900/80 text-left transition flex items-center justify-between group sm:col-span-2">
+                <div>
+                  <div class="font-extrabold text-sm text-purple-300 flex items-center gap-1.5">
+                    <span>✋</span> <span>고객 자발적 탑승 포기</span>
+                  </div>
+                  <div class="text-[10px] text-purple-400/70 mt-0.5">customer_giveup · 겁/공포/컨디션 사유</div>
+                </div>
+                <span class="text-xs font-mono font-bold text-purple-400 group-hover:translate-x-1 transition">기록</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 2: P0-4 QUEUE TELEMETRY -->
+        <div id="aiTabTelemetry" class="space-y-3 hidden">
+          <div class="bg-slate-950/70 p-3 rounded-2xl border border-slate-800 space-y-3">
+            <div>
+              <label class="text-xs font-bold text-slate-300 block mb-1">관측 대상 시설</label>
+              <select id="telemetryFacility" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white outline-none">
+                <option value="silver_coaster">🎢 짚코스터 (하늘놀이터)</option>
+                <option value="all_season_sled">🛷 사계절 썰매장</option>
+                <option value="indoor_trampoline">🎪 실내 트램펄린 &amp; 볼풀장</option>
+                <option value="ticketing_gate">🎟️ 매표소 대기열</option>
+              </select>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[11px] font-bold text-slate-400 block mb-1">현재 줄 선 인원 (대기객)</label>
+                <div class="flex items-center gap-1.5">
+                  <button type="button" onclick="adjustTelemetryQueue(-5)" class="touch-btn w-8 h-8 rounded-lg bg-slate-800 text-white font-bold text-xs">-5</button>
+                  <input type="number" id="telemetryQueue" value="12" min="0" class="flex-1 h-8 bg-slate-900 border border-slate-700 rounded-lg text-center font-mono font-bold text-white text-xs outline-none">
+                  <button type="button" onclick="adjustTelemetryQueue(5)" class="touch-btn w-8 h-8 rounded-lg bg-cyan-600 text-white font-bold text-xs">+5</button>
+                </div>
+              </div>
+
+              <div>
+                <label class="text-[11px] font-bold text-slate-400 block mb-1">예상 대기시간 (분)</label>
+                <div class="flex items-center gap-1.5">
+                  <button type="button" onclick="adjustTelemetryWait(-5)" class="touch-btn w-8 h-8 rounded-lg bg-slate-800 text-white font-bold text-xs">-5</button>
+                  <input type="number" id="telemetryWait" value="15" min="0" class="flex-1 h-8 bg-slate-900 border border-slate-700 rounded-lg text-center font-mono font-bold text-white text-xs outline-none">
+                  <button type="button" onclick="adjustTelemetryWait(5)" class="touch-btn w-8 h-8 rounded-lg bg-cyan-600 text-white font-bold text-xs">+5</button>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label class="text-[11px] font-bold text-slate-400 block mb-1">혼잡도 상태 (Status)</label>
+              <div class="grid grid-cols-4 gap-1.5" id="telemetryStatusGroup">
+                <button type="button" onclick="selectTelemetryStatus('smooth')" class="status-btn p-2 rounded-xl border border-slate-700 bg-slate-900 text-slate-400 text-xs font-bold text-center" data-status="smooth">여유 🟢</button>
+                <button type="button" onclick="selectTelemetryStatus('moderate')" class="status-btn p-2 rounded-xl border border-amber-500 bg-amber-950/40 text-amber-300 text-xs font-bold text-center" data-status="moderate">보통 🟡</button>
+                <button type="button" onclick="selectTelemetryStatus('busy')" class="status-btn p-2 rounded-xl border border-slate-700 bg-slate-900 text-slate-400 text-xs font-bold text-center" data-status="busy">혼잡 🟠</button>
+                <button type="button" onclick="selectTelemetryStatus('overloaded')" class="status-btn p-2 rounded-xl border border-slate-700 bg-slate-900 text-slate-400 text-xs font-bold text-center" data-status="overloaded">포화 🔴</button>
+              </div>
+            </div>
+          </div>
+
+          <button type="button" onclick="submitTelemetrySnapshot()" class="touch-btn w-full py-3 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 text-white font-extrabold text-sm shadow-lg shadow-cyan-600/30 flex items-center justify-center gap-2">
+            <i data-lucide="send" class="w-4 h-4"></i>
+            <span>대기열 텔레메트리 스냅샷 전송 (시계열 누적)</span>
+          </button>
+        </div>
+
+        <!-- TAB 3: P0-5 OPERATOR ACTION LOG -->
+        <div id="aiTabActions" class="space-y-3 hidden">
+          <div class="bg-slate-950/70 p-3 rounded-2xl border border-slate-800 space-y-2.5">
+            <div>
+              <label class="text-xs font-bold text-slate-300 block mb-1">개입 대상 시설</label>
+              <select id="actionTargetFacility" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white outline-none">
+                <option value="silver_coaster">🎢 짚코스터 (하늘놀이터)</option>
+                <option value="indoor_play">🎪 실내놀이동 전관</option>
+                <option value="ticketing_gate">🎟️ 매표소 및 게이트</option>
+                <option value="park_wide">🌲 봉플레이 전체 파크</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="text-xs font-bold text-slate-300 block mb-1">운영 개입 조치 유형 (Action Type)</label>
+              <select id="actionTypeSelect" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs font-bold text-purple-300 outline-none">
+                <option value="staff_reallocation">요원 추가 배치 (인력 분산/보강)</option>
+                <option value="crowd_diversion">고객 분산 유도 (대기열 완화 안내)</option>
+                <option value="interval_reduction">탑승 간격 단축 (시간당 처리량 증대)</option>
+                <option value="weather_pause">기상 악화로 인한 임시 가동 정지</option>
+                <option value="resume_operation">안전 확인 후 정상 운용 재개</option>
+                <option value="ticketing_assistance">매표 창구 추가 오픈 및 지원</option>
+              </select>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="text-[11px] font-bold text-slate-400 block mb-1">사유 코드 (Reason Code)</label>
+                <select id="actionReasonCode" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-xs text-white outline-none">
+                  <option value="queue_overflow">대기인원 급증 (15분 초과)</option>
+                  <option value="group_surge">대규모 단체 버스 도착</option>
+                  <option value="weather_alert">돌풍 및 강우 발생</option>
+                  <option value="routine_schedule">시간대별 정기 순환 근무</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-[11px] font-bold text-slate-400 block mb-1">기대 효과 (Expected Effect)</label>
+                <input type="text" id="actionExpectedEffect" value="대기시간 10분 단축 및 병목 해소" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-xs text-emerald-400 outline-none font-bold">
+              </div>
+            </div>
+          </div>
+
+          <button type="button" onclick="submitOperatorAction()" class="touch-btn w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 text-white font-extrabold text-sm shadow-lg shadow-purple-600/30 flex items-center justify-center gap-2">
+            <i data-lucide="check-square" class="w-4 h-4"></i>
+            <span>운영 조치(Action Log) 기록 (강화학습 인과 원장)</span>
+          </button>
+        </div>
+
+      </div>
+
+      <!-- Action Footer -->
+      <div class="pt-3 border-t border-slate-800 flex justify-end">
+        <button type="button" onclick="closeAiOpsModal()" class="touch-btn px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold text-xs">
+          닫기
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- MODAL: P1-5 STAFF SHIFTS & DYNAMIC ZONE REASSIGNMENT               -->
+  <!-- ================================================================= -->
+  <div id="modalStaffAssignment" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+    <div class="bg-[#0e1626] border border-indigo-500/40 rounded-3xl max-w-xl w-full p-5 sm:p-6 shadow-2xl space-y-4 my-auto animate-scale-in">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div class="flex items-center gap-2.5">
+          <div class="w-9 h-9 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-black">
+            <i data-lucide="users" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-black text-white">근무자 시프트 & 구역 재배치 (P1-5)</h3>
+            <p class="text-xs text-indigo-400">대기열 급증 및 혼잡 발생 시 현장 근무자 구역 동적 전환</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeStaffModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Current Shifts List -->
+      <div class="space-y-2">
+        <div class="text-xs font-bold text-slate-400 flex items-center justify-between">
+          <span>오늘 근무 편성표 및 현재 배치 구역</span>
+          <span class="text-[11px] text-slate-500">실시간 연동</span>
+        </div>
+        <div id="staffShiftListContainer" class="space-y-2 max-h-48 overflow-y-auto pr-1">
+          <!-- Rendered by renderStaffShifts() -->
+        </div>
+      </div>
+
+      <!-- Zone Reassignment Form -->
+      <form id="staffReassignForm" onsubmit="submitStaffReassignment(event)" class="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 space-y-3 text-xs">
+        <div class="font-extrabold text-white flex items-center gap-1.5 text-sm text-indigo-300">
+          <i data-lucide="arrow-right-left" class="w-4 h-4"></i>
+          <span>동적 구역 재배치 명령 (인과 원장 기록)</span>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div>
+            <label class="font-bold text-slate-300 block mb-1">재배치 대상 직원</label>
+            <select id="reassignStaffSelect" onchange="onStaffSelectChange()" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white outline-none focus:border-indigo-500">
+              <!-- populated dynamically -->
+            </select>
+          </div>
+
+          <div>
+            <label class="font-bold text-slate-300 block mb-1">현재 구역 (자동 감지)</label>
+            <input type="text" id="reassignFromZone" readonly class="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-400 font-bold outline-none">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div>
+            <label class="font-bold text-slate-300 block mb-1">이동 배치 구역 (To Zone)</label>
+            <select id="reassignToZone" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-indigo-300 font-bold outline-none focus:border-indigo-500">
+              <option value="indoor_net">🎪 실내놀이동 (네트/트램펄린)</option>
+              <option value="outdoor_coaster">🎢 야외 하늘놀이터 (짚라인/코스터)</option>
+              <option value="ticket_gate">🎟️ 매표소 및 입장 게이트</option>
+              <option value="fnb_lounge">☕ 카페테리아 & 가족 쉼터</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="font-bold text-slate-300 block mb-1">재배치 사유 (Reason)</label>
+            <select id="reassignReason" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white outline-none focus:border-indigo-500">
+              <option value="congestion_relief">대기열 급증 혼잡 완화</option>
+              <option value="safety_assist">안전 브리핑/장비 착용 집중 지원</option>
+              <option value="shift_break">정기 교대 휴식</option>
+              <option value="relief_cover">식사/용무 대체 근무</option>
+            </select>
+          </div>
+        </div>
+
+        <button type="submit" class="touch-btn w-full py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 text-white font-extrabold text-xs shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-1.5">
+          <i data-lucide="check" class="w-4 h-4"></i>
+          <span>구역 재배치 즉시 적용 및 인과 로그 기록</span>
+        </button>
+      </form>
+
+      <div class="pt-2 flex justify-end">
+        <button type="button" onclick="closeStaffModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold rounded-xl text-xs transition">
+          닫기
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- MODAL: P1-6 STAFF TASK DURATION LOGGING (작업 소요시간 실측)        -->
+  <!-- ================================================================= -->
+  <div id="modalStaffTask" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+    <div class="bg-[#0e1626] border border-rose-500/40 rounded-3xl max-w-xl w-full p-5 sm:p-6 shadow-2xl space-y-4 my-auto animate-scale-in">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div class="flex items-center gap-2.5">
+          <div class="w-9 h-9 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center font-black">
+            <i data-lucide="timer" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-black text-white">현장 작업 소요 시간 측정 (P1-6)</h3>
+            <p class="text-xs text-rose-400">안전점검, 시설 소독, 안전 브리핑 등의 실작업 시간을 분 단위 기록</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeTaskModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Task Logger Form -->
+      <form id="staffTaskForm" onsubmit="submitStaffTask(event)" class="space-y-3 text-xs">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div>
+            <label class="font-bold text-slate-300 block mb-1">작업 유형 (Task Type)</label>
+            <select id="taskTypeSelect" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-rose-300 font-bold outline-none focus:border-rose-500">
+              <option value="safety_check">안전점검 (오픈 전 점검 및 순찰)</option>
+              <option value="facility_sanitization" selected>시설 소독 및 방역/청결</option>
+              <option value="customer_briefing">탑승객 안전수칙 브리핑/하네스 착용</option>
+              <option value="crowd_control">대기열 분산 및 고객 동선 유도</option>
+              <option value="opening_prep">개장 준비 세팅</option>
+              <option value="closing_clean">마감 정산 및 시설 정리</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="font-bold text-slate-300 block mb-1">대상 시설/구역</label>
+            <select id="taskFacilitySelect" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white outline-none focus:border-rose-500">
+              <option value="indoor_net">🎪 실내놀이동 (네트/트램펄린)</option>
+              <option value="outdoor_coaster">🎢 야외 짚코스터/짚라인</option>
+              <option value="ticket_gate">🎟️ 매표소 및 출입 게이트</option>
+              <option value="fnb_lounge">☕ 카페테리아 및 쉼터</option>
+              <option value="park_all">🌲 파크 전체</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div>
+            <label class="font-bold text-slate-300 block mb-1">수행 직원</label>
+            <select id="taskStaffSelect" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white outline-none focus:border-rose-500">
+              <!-- populated dynamically -->
+            </select>
+          </div>
+
+          <div>
+            <label class="font-bold text-slate-300 block mb-1">점검/작업 결과</label>
+            <select id="taskResultSelect" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs font-bold text-emerald-400 outline-none focus:border-rose-500">
+              <option value="pass">정상 통과 (Pass)</option>
+              <option value="rework">보완/재작업 필요 (Rework)</option>
+              <option value="incomplete">중단/미완료 (Incomplete)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Duration with quick increment pills -->
+        <div>
+          <label class="font-bold text-slate-300 block mb-1">소요 시간 (분 단위 실측)</label>
+          <div class="flex items-center gap-2">
+            <input type="number" id="taskDurationInput" value="15" min="1" max="480" class="w-24 bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-sm font-black font-mono text-white text-center outline-none focus:border-rose-500">
+            <span class="text-xs text-slate-400 font-bold">분</span>
+            <div class="flex items-center gap-1 ml-auto">
+              <button type="button" onclick="addDurationMinutes(5)" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs">+5분</button>
+              <button type="button" onclick="addDurationMinutes(10)" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs">+10분</button>
+              <button type="button" onclick="addDurationMinutes(15)" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs">+15분</button>
+              <button type="button" onclick="addDurationMinutes(30)" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs">+30분</button>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label class="font-bold text-slate-300 block mb-1">특이사항 / 작업 메모 (선택)</label>
+          <input type="text" id="taskMemoInput" placeholder="예: 짚코스터 2차 와이어 장력 재측정 후 정상 확인" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white placeholder-slate-500 outline-none focus:border-rose-500">
+        </div>
+
+        <button type="submit" class="touch-btn w-full py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 text-white font-extrabold text-xs shadow-lg shadow-rose-600/30 flex items-center justify-center gap-1.5">
+          <i data-lucide="check-circle" class="w-4 h-4"></i>
+          <span>작업 실측 로그 저장 (운영 효율성 분석 데이터)</span>
+        </button>
+      </form>
+
+      <!-- Recent Task Logs Preview -->
+      <div class="space-y-1.5">
+        <div class="text-xs font-bold text-slate-400">최근 실측된 작업 이력 (최근 5건)</div>
+        <div id="recentTaskLogsContainer" class="bg-slate-950/80 border border-slate-800 rounded-2xl p-2.5 max-h-36 overflow-y-auto space-y-1 text-[11px]">
+          <!-- Rendered by renderRecentTaskLogs() -->
+        </div>
+      </div>
+
+      <div class="pt-2 flex justify-end">
+        <button type="button" onclick="closeTaskModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold rounded-xl text-xs transition">
+          닫기
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- MODAL: WEATHER & ENVIRONMENTAL MICRO-TELEMETRY (Section 6)        -->
+  <!-- ================================================================= -->
+  <div id="modalWeatherTelemetry" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+    <div class="bg-[#0e1626] border border-sky-600/50 rounded-3xl w-full max-w-xl p-4 sm:p-6 space-y-4 shadow-2xl relative text-left">
+      <!-- Header -->
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-xl bg-sky-900/60 text-sky-400 flex items-center justify-center">
+            <i data-lucide="cloud-rain" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="text-sm sm:text-base font-black text-white">기상·환경 10분 마이크로 텔레메트리 (Section 6)</h3>
+            <p class="text-xs text-slate-400">순간최대풍속(Gust) 기반 짚코스터 가동 판정 및 미세 기상 시계열</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeWeatherModal()" class="touch-btn p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Live Weather Cards (Grid) -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+        <div class="bg-slate-950 p-2.5 rounded-2xl border border-slate-800">
+          <span class="text-[10px] font-bold text-slate-400">실외 / 실내 기온</span>
+          <div class="text-base sm:text-lg font-black font-mono text-amber-400 mt-0.5" id="wtrCardTemp">21.5℃ / 22.8℃</div>
+          <span class="text-[9px] text-slate-500">실외 / 실내</span>
+        </div>
+        <div class="bg-slate-950 p-2.5 rounded-2xl border border-slate-800">
+          <span class="text-[10px] font-bold text-slate-400">실외 / 실내 습도</span>
+          <div class="text-base sm:text-lg font-black font-mono text-cyan-400 mt-0.5" id="wtrCardHum">55% / 48%</div>
+          <span class="text-[9px] text-slate-500">쾌적 구간</span>
+        </div>
+        <div class="bg-slate-950 p-2.5 rounded-2xl border border-slate-800">
+          <span class="text-[10px] font-bold text-slate-400">평균 / 순간 돌풍</span>
+          <div class="text-base sm:text-lg font-black font-mono text-sky-300 mt-0.5" id="wtrCardWind">3.2 / 4.8 m/s</div>
+          <span class="text-[9px] text-emerald-400 font-bold" id="wtrCardWindStatus">안전 (&lt; 8.5m/s)</span>
+        </div>
+        <div class="bg-slate-950 p-2.5 rounded-2xl border border-slate-800">
+          <span class="text-[10px] font-bold text-slate-400">강수량 / 특보</span>
+          <div class="text-base sm:text-lg font-black font-mono text-emerald-400 mt-0.5" id="wtrCardRain">0.0 mm / 정상</div>
+          <span class="text-[9px] text-slate-500">우천 없음</span>
+        </div>
+      </div>
+
+      <!-- Coaster Safety Evaluation Card -->
+      <div id="wtrEvalBox" class="p-3.5 rounded-2xl border flex items-center justify-between gap-3 bg-emerald-950/40 border-emerald-500/50">
+        <div class="flex items-center gap-2.5">
+          <span class="text-2xl" id="wtrEvalIcon">✅</span>
+          <div>
+            <div class="text-xs font-black text-emerald-300" id="wtrEvalTitle">실버 짚코스터 정상 운행 가능</div>
+            <div class="text-[11px] text-emerald-200/80 mt-0.5" id="wtrEvalDesc">기상 조건 양호 (순간최대풍속 4.8 m/s &lt; 12.0 m/s)</div>
+          </div>
+        </div>
+        <button type="button" id="btnWtrActionTrigger" onclick="triggerWtrInterventionAction()" class="touch-btn px-3 py-1.5 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-500 text-white shrink-0 shadow">
+          정상 확인
+        </button>
+      </div>
+
+      <!-- Manual Measurement Form / Simulation -->
+      <form id="formWeatherTelemetry" onsubmit="submitWeatherTelemetryForm(event)" class="space-y-3 bg-slate-950/70 p-3.5 rounded-2xl border border-slate-800 text-xs">
+        <div class="font-black text-white flex items-center justify-between">
+          <span>기상 실측값 수기 등록 / 시뮬레이션</span>
+          <div class="flex items-center gap-1">
+            <button type="button" onclick="simulateGustSpike(13.2)" class="px-2 py-0.5 bg-rose-900/60 text-rose-300 border border-rose-700/60 rounded-lg text-[10px] font-bold hover:bg-rose-800">
+              돌풍 13.2m/s 시뮬
+            </button>
+            <button type="button" onclick="simulateGustSpike(4.5)" class="px-2 py-0.5 bg-emerald-900/60 text-emerald-300 border border-emerald-700/60 rounded-lg text-[10px] font-bold hover:bg-emerald-800">
+              평온 4.5m/s 시뮬
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div>
+            <label class="font-bold text-slate-400 block mb-1">실외 기온 (℃)</label>
+            <input type="number" step="0.1" id="inputWtrTemp" value="21.5" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 font-mono text-white text-xs outline-none">
+          </div>
+          <div>
+            <label class="font-bold text-slate-400 block mb-1">실외 습도 (%)</label>
+            <input type="number" id="inputWtrHum" value="55" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 font-mono text-white text-xs outline-none">
+          </div>
+          <div>
+            <label class="font-bold text-slate-400 block mb-1">평균 풍속 (m/s)</label>
+            <input type="number" step="0.1" id="inputWtrWindSpeed" value="3.2" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 font-mono text-white text-xs outline-none">
+          </div>
+          <div>
+            <label class="font-bold text-slate-400 block mb-1">순간최대풍속 (m/s)</label>
+            <input type="number" step="0.1" id="inputWtrWindGust" value="4.8" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 font-mono text-amber-300 font-bold text-xs outline-none">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <div>
+            <label class="font-bold text-slate-400 block mb-1">강수량 (mm/hr)</label>
+            <input type="number" step="0.1" id="inputWtrRain" value="0.0" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 font-mono text-white text-xs outline-none">
+          </div>
+          <div>
+            <label class="font-bold text-slate-400 block mb-1">풍향</label>
+            <select id="inputWtrDir" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-white text-xs outline-none">
+              <option value="NW">북서 (NW)</option>
+              <option value="W">서 (W)</option>
+              <option value="N">북 (N)</option>
+              <option value="SW">남서 (SW)</option>
+              <option value="SE">남동 (SE)</option>
+            </select>
+          </div>
+          <div class="col-span-2 sm:col-span-1">
+            <label class="font-bold text-slate-400 block mb-1">기상 특보</label>
+            <select id="inputWtrWarning" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-white text-xs outline-none">
+              <option value="none">특보 없음 (정상)</option>
+              <option value="strong_wind_watch">강풍주의보</option>
+              <option value="heavy_rain_advisory">호우주의보</option>
+              <option value="heatwave_warning">폭염주의보</option>
+            </select>
+          </div>
+        </div>
+
+        <button type="submit" class="touch-btn w-full py-2.5 rounded-xl bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 text-white font-extrabold text-xs shadow-lg shadow-sky-600/30 flex items-center justify-center gap-1.5">
+          <i data-lucide="save" class="w-4 h-4"></i>
+          <span>10분 기상 텔레메트리 스냅샷 저장 및 안전판정 갱신</span>
+        </button>
+      </form>
+
+      <!-- Recent 10-Minute Micro-Telemetry Log Table -->
+      <div class="space-y-1.5">
+        <div class="text-xs font-bold text-slate-400">최근 10분 주기 시계열 관측 이력 (최근 6구간)</div>
+        <div id="wtrTelemetryTableContainer" class="bg-slate-950/80 border border-slate-800 rounded-2xl p-2 max-h-36 overflow-y-auto text-[11px]">
+          <!-- Rendered by renderWeatherTelemetry() -->
+        </div>
+      </div>
+
+      <div class="pt-2 flex justify-end">
+        <button type="button" onclick="closeWeatherModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold rounded-xl text-xs transition">
+          닫기
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- MODAL: SECTION 10 VISIT 360° JOURNEY TIMELINE LOOKUP              -->
+  <!-- ================================================================= -->
+  <div id="modalOpJourney" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+    <div class="bg-[#0e1626] border border-purple-500/40 rounded-3xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl space-y-4 my-auto animate-scale-in">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div class="flex items-center gap-2.5">
+          <div class="w-9 h-9 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center font-black">
+            <i data-lucide="route" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-black text-white">방문객 1회 전주기 여정 (Visit 360°)</h3>
+            <p class="text-xs text-purple-400">발권 → 시설 이용 → 구매 → 퇴장 인과 타임라인 실시간 조회</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeOpJourneyModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Search & Recent Select -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+        <div class="sm:col-span-2 flex gap-1.5">
+          <input type="text" id="opJourneySearchInput" placeholder="방문 ID (vst_...), 보호자 성명, 연락처" class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono placeholder-slate-500">
+          <button type="button" onclick="searchOpJourney()" class="px-3.5 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl flex items-center gap-1">
+            <i data-lucide="search" class="w-3.5 h-3.5"></i> 조회
+          </button>
+        </div>
+        <div>
+          <select id="opJourneyVisitSelect" onchange="loadOpJourney(this.value)" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-xs text-slate-300 font-mono">
+            <option value="">최근 방문 선택...</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Quick KPI Strip -->
+      <div id="opJourneyKpiStrip" class="grid grid-cols-4 gap-2 bg-slate-950/80 p-3 rounded-2xl border border-slate-800 text-center text-xs">
+        <div>
+          <span class="text-[10px] text-slate-500 block font-bold">체류시간</span>
+          <strong id="opJStayTime" class="text-white font-mono text-sm">-</strong>
+        </div>
+        <div>
+          <span class="text-[10px] text-slate-500 block font-bold">총 결제액</span>
+          <strong id="opJSpend" class="text-amber-400 font-mono text-sm">-</strong>
+        </div>
+        <div>
+          <span class="text-[10px] text-slate-500 block font-bold">시설 탑승</span>
+          <strong id="opJRides" class="text-emerald-400 font-mono text-sm">-</strong>
+        </div>
+        <div>
+          <span class="text-[10px] text-slate-500 block font-bold">만족도 (NPS)</span>
+          <strong id="opJNps" class="text-cyan-400 font-mono text-sm">-</strong>
+        </div>
+      </div>
+
+      <!-- Timeline Display Box -->
+      <div id="opJourneyTimelineBox" class="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-4 max-h-72 overflow-y-auto space-y-3">
+        <!-- Rendered by renderOpJourneyTimeline() -->
+      </div>
+
+      <div class="pt-2 flex justify-between items-center text-xs">
+        <button type="button" onclick="createOpSimulatedJourney()" class="px-3 py-1.5 rounded-xl bg-indigo-950/60 hover:bg-indigo-900/80 border border-indigo-500/40 text-indigo-300 font-bold flex items-center gap-1.5">
+          <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> 1회 여정 시뮬레이션 생성
+        </button>
+        <button type="button" onclick="closeOpJourneyModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold rounded-xl text-xs transition">
+          닫기
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- JAVASCRIPT ENGINE (CLEAN & BULLETPROOF RENDERING)                 -->
+  <!-- ================================================================= -->
+  <script>
+    // -----------------------------------------------------------------
+    // BUSINESS & TARGET CONSTANTS (SSOT from BongplayID.MASTER_TARGETS)
+    // -----------------------------------------------------------------
+    const MASTER_T = (window.BongplayID && window.BongplayID.MASTER_TARGETS) || {};
+    const MASTER_P = (window.BongplayID && window.BongplayID.MASTER_PRODUCTS) || {};
+
+    const BEP_ANNUAL_REVENUE = (MASTER_T.annual_bep && MASTER_T.annual_bep.target_revenue) || 236000000;
+    const BEP_ANNUAL_TARGET = (MASTER_T.annual_bep && MASTER_T.annual_bep.target_visitors) || 19606;
+    const FIXED_ANNUAL_COST = (MASTER_T.annual_bep && MASTER_T.annual_bep.fixed_cost) || 228900000;
+    const VAR_COST_PER_HEAD = (MASTER_T.annual_bep && MASTER_T.annual_bep.variable_cost_per_person) || 361;
+
+    // Pricing (Standard & Promo from SSOT)
+    const PRICE_CHILD_STD = (MASTER_P.PROD_CHILD_BASIC_STD && MASTER_P.PROD_CHILD_BASIC_STD.price) || 15000;
+    const PRICE_CHILD = (MASTER_P.PROD_CHILD_BASIC_PROMO && MASTER_P.PROD_CHILD_BASIC_PROMO.price) || 14000;
+    const PRICE_ADULT = (MASTER_P.PROD_ADULT_STD && MASTER_P.PROD_ADULT_STD.price) || 5000;
+    const PRICE_GROUP = (MASTER_P.PROD_GROUP_VOUCHER && MASTER_P.PROD_GROUP_VOUCHER.price) || 7000;
+    const PRICE_GROUP_ALL = (MASTER_P.PROD_GROUP_ALL && MASTER_P.PROD_GROUP_ALL.price) || 16800;
+
+    // Daily Targets
+    const TARGET_REV_WEEKDAY = (MASTER_T.weekday_target && MASTER_T.weekday_target.target_revenue) || 360000;
+    const TARGET_REV_WEEKEND = (MASTER_T.weekend_target && MASTER_T.weekend_target.target_revenue) || 1780000;
+    const TARGET_REV_FESTIVAL = (MASTER_T.festival_target && MASTER_T.festival_target.target_revenue) || 1720000;
+
+    const TARGET_VIS_WEEKDAY = (MASTER_T.weekday_target && MASTER_T.weekday_target.target_visitors) || 30;
+    const TARGET_VIS_WEEKEND = (MASTER_T.weekend_target && MASTER_T.weekend_target.target_visitors) || 148;
+    const TARGET_VIS_FESTIVAL = (MASTER_T.festival_target && MASTER_T.festival_target.target_visitors) || 143;
+
+    // Weekly Targets
+    const WEEKLY_TARGET_REVENUE = 5360000; // 주간 536만 원
+    const WEEKLY_TARGET_VISITORS = 446;
+
+    // Storage Key
+    const STORAGE_KEY = 'bongtteurak_actual_records_v4';
+    // 총괄 마스터 대시보드 연동용 키 (마스터가 이 키를 읽어 실시간 지표를 표시)
+    const MASTER_SYNC_KEY = 'bongplay_dashboard_data';
+
+    // v3 등 구버전 키에 남은 실적을 현재 키로 흡수 (데이터 유실 방지)
+    function migrateLegacyRecords() {
+      try {
+        const legacyKeys = ['bongtteurak_actual_records_v3', 'bongtteurak_actual_records_v2'];
+        let merged = false;
+        legacyKeys.forEach(k => {
+          const raw = localStorage.getItem(k);
+          if (!raw) return;
+          const old = JSON.parse(raw);
+          if (!Array.isArray(old) || !old.length) return;
+          old.forEach(o => {
+            if (!o || !o.date) return;
+            if (!records.some(r => r.date === o.date)) { records.push(o); merged = true; }
+          });
+        });
+        if (merged) { saveRealRecords(); }
+      } catch (e) { /* 마이그레이션 실패는 무시 */ }
+    }
+
+    // 최근 실적을 마스터 대시보드가 인식하는 형식으로 변환·동기화
+    function syncToMasterDashboard() {
+      try {
+        if (!records.length) return;
+        const sorted = [...records].sort((a, b) => (a.date > b.date ? 1 : -1));
+        const latest = sorted[sorted.length - 1];
+        const ym = (latest.date || '').slice(0, 7);
+        const monthRevenue = records
+          .filter(r => (r.date || '').slice(0, 7) === ym)
+          .reduce((sum, r) => sum + (r.totalRevenue || 0), 0);
+
+        const payload = {
+          date: latest.date,
+          todayRevenue: latest.totalRevenue || 0,
+          todayVisitors: latest.totalVisitors || 0,
+          monthRevenue: monthRevenue,
+          updatedAt: new Date().toISOString()
+        };
+        localStorage.setItem(MASTER_SYNC_KEY, JSON.stringify(payload));
+        localStorage.setItem('bongtteurak_dashboard_data', JSON.stringify(payload));
+      } catch (e) { /* 동기화 실패는 현장 운영을 막지 않음 */ }
+    }
+
+    // State
+    let records = [];
+    let chartInstance = null;
+    let selectedOpMode = 'weekday';
+    let currentChartMetric = 'revenue'; // 'revenue' | 'visitors'
+
+    // -----------------------------------------------------------------
+    // INITIALIZATION & REAL-TIME CLOCK
+    // -----------------------------------------------------------------
+    document.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+      initClock();
+      loadRealRecords();
+      migrateLegacyRecords();
+      syncToMasterDashboard();
+      initEvents();
+      renderAll();
+    });
+
+    function initClock() {
+      const dateEl = document.getElementById('hdrLiveDate');
+      const timeEl = document.getElementById('hdrLiveTime');
+      const modeBadge = document.getElementById('hdrOpModeBadge');
+
+      function updateClock() {
+        const now = new Date();
+        const days = ['일', '월', '화', '수', '목', '금', '토'];
+        const yr = now.getFullYear();
+        const mo = now.getMonth() + 1;
+        const dt = now.getDate();
+        const dayName = days[now.getDay()];
+
+        const hh = String(now.getHours()).padStart(2, '0');
+        const mm = String(now.getMinutes()).padStart(2, '0');
+        const ss = String(now.getSeconds()).padStart(2, '0');
+
+        if (dateEl) dateEl.textContent = `${yr}년 ${mo}월 ${dt}일 (${dayName})`;
+        if (timeEl) timeEl.textContent = `${hh}:${mm}:${ss}`;
+
+        const isWeekend = (now.getDay() === 0 || now.getDay() === 6);
+        if (modeBadge) {
+          if (isWeekend) {
+            modeBadge.textContent = '주말 (목표 178만 원)';
+            modeBadge.className = 'px-2 py-0.5 text-[10px] font-extrabold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 rounded-md whitespace-nowrap';
+          } else {
+            modeBadge.textContent = '평일 (목표 36만 원)';
+            modeBadge.className = 'px-2 py-0.5 text-[10px] font-extrabold bg-blue-500/15 text-blue-400 border border-blue-500/30 rounded-md whitespace-nowrap';
+          }
+        }
+      }
+
+      updateClock();
+      setInterval(updateClock, 1000);
+    }
+
+    // -----------------------------------------------------------------
+    // LOAD REAL RECORDS
+    // -----------------------------------------------------------------
+    function loadRealRecords() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          records = JSON.parse(raw);
+        } else {
+          // Check if previous version had records and migrate
+          const prevRaw = localStorage.getItem('bongtteurak_actual_records_v3');
+          if (prevRaw) {
+            records = JSON.parse(prevRaw);
+            saveRealRecords();
+          } else {
+            records = [];
+          }
+        }
+      } catch (e) {
+        console.error('Error loading records:', e);
+        records = [];
+      }
+    }
+
+    function saveRealRecords() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+      } catch (e) {
+        console.error('Error saving records:', e);
+      }
+    }
+
+    function getTodayStr() {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+
+    function getMondayOfCurrentWeek() {
+      const d = new Date();
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+      const monday = new Date(d.getFullYear(), d.getMonth(), diff);
+      return `${monday.getFullYear()}-${String(monday.getMonth()+1).padStart(2,'0')}-${String(monday.getDate()).padStart(2,'0')}`;
+    }
+
+    function getSundayOfCurrentWeek() {
+      const d = new Date();
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? 0 : 7);
+      const sunday = new Date(d.getFullYear(), d.getMonth(), diff);
+      return `${sunday.getFullYear()}-${String(sunday.getMonth()+1).padStart(2,'0')}-${String(sunday.getDate()).padStart(2,'0')}`;
+    }
+
+    function getMonthCalendarTargetRevenue(year, month) {
+      const numDays = new Date(year, month, 0).getDate();
+      let totalRev = 0;
+      for (let day = 1; day <= numDays; day++) {
+        const dt = new Date(year, month - 1, day);
+        const isWeekend = (dt.getDay() === 0 || dt.getDay() === 6);
+        totalRev += isWeekend ? TARGET_REV_WEEKEND : TARGET_REV_WEEKDAY;
+      }
+      return totalRev;
+    }
+
+    function fmtMan(val) {
+      if (val >= 100000000) {
+        return (val / 100000000).toFixed(2) + '억';
+      }
+      if (val >= 10000) {
+        return Math.round(val / 10000).toLocaleString() + '만 원';
+      }
+      return val.toLocaleString() + '원';
+    }
+
+    // -----------------------------------------------------------------
+    // RENDER ALL TIERS (HIIERARCHICAL & OVERLAP-FREE)
+    // -----------------------------------------------------------------
+    function renderAll() {
+      records.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+      const now = new Date();
+      const todayStr = getTodayStr();
+      const curYear = now.getFullYear();
+      const curMonth = now.getMonth() + 1;
+      const monthPrefix = `${curYear}-${String(curMonth).padStart(2, '0')}`;
+      
+      const monStr = getMondayOfCurrentWeek();
+      const sunStr = getSundayOfCurrentWeek();
+
+      // 1. DAILY REVENUE STATS
+      const todayRecord = records.find(r => r.date === todayStr);
+      const isWeekendToday = (now.getDay() === 0 || now.getDay() === 6);
+      const dailyTargetRev = todayRecord ? todayRecord.targetRevenue : (isWeekendToday ? TARGET_REV_WEEKEND : TARGET_REV_WEEKDAY);
+      const dailyTargetVis = todayRecord ? todayRecord.targetVisitors : (isWeekendToday ? TARGET_VIS_WEEKEND : TARGET_VIS_WEEKDAY);
+
+      const dailyActualRev = todayRecord ? todayRecord.totalRevenue : 0;
+      let dailyActualVis = todayRecord ? todayRecord.totalVisitors : 0;
+
+      // Realtime issued tickets from consents
+      try {
+        const cRaw = localStorage.getItem('bongplay_safety_consents') || localStorage.getItem('bongtteurak_consents_v1');
+        if (cRaw) {
+          const cList = JSON.parse(cRaw);
+          if (Array.isArray(cList)) {
+            let issuedVis = 0;
+            let issuedTeams = 0;
+            let waitingVis = 0;
+            let waitingTeams = 0;
+            cList.forEach(c => {
+              const cDate = c.createdDate || c.created_date || (c.arrival_at ? c.arrival_at.slice(0, 10) : '') || (c.timestamp ? c.timestamp.slice(0, 10) : '');
+              if (cDate === todayStr || (c.created_at && c.created_at.slice(0, 10) === todayStr)) {
+                const count = (c.children ? c.children.length : 0) + 1;
+                if (c.isIssued || c.is_issued) {
+                  issuedVis += count;
+                  issuedTeams++;
+                } else {
+                  waitingVis += count;
+                  waitingTeams++;
+                }
+              }
+            });
+            if (issuedVis > dailyActualVis) dailyActualVis = issuedVis;
+            window._liveConsentStats = { issuedVis, issuedTeams, waitingVis, waitingTeams };
+          }
+        }
+      } catch (e) {}
+
+      const dailyRate = ((dailyActualRev / dailyTargetRev) * 100).toFixed(1);
+      const dailyBarPct = Math.min(Math.round((dailyActualRev / dailyTargetRev) * 100), 100);
+
+      document.getElementById('valDailyRate').textContent = `${dailyRate}%`;
+      document.getElementById('valDailyActualRev').textContent = `${dailyActualRev.toLocaleString()}원`;
+      document.getElementById('valDailyTargetRev').textContent = fmtMan(dailyTargetRev);
+      document.getElementById('barDaily').style.width = `${dailyBarPct}%`;
+      
+      const liveStats = window._liveConsentStats;
+      if (liveStats && liveStats.issuedTeams > 0) {
+        document.getElementById('subDailyVisitors').textContent = `방문객: ${dailyActualVis}명 (${liveStats.issuedTeams}팀 발권) · 목표 ${dailyTargetVis}명`;
+        document.getElementById('subDailyVisitors').title = `발권완료: ${liveStats.issuedTeams}팀(${dailyActualVis}명) | 대기중: ${liveStats.waitingTeams}팀(${liveStats.waitingVis}명)`;
+      } else {
+        document.getElementById('subDailyVisitors').textContent = `방문객: ${dailyActualVis}명 (목표 ${dailyTargetVis}명)`;
+      }
+
+      const dailyGapRev = dailyTargetRev - dailyActualRev;
+      const subDailyGapEl = document.getElementById('subDailyGap');
+      const badgeDailyEl = document.getElementById('badgeDailyStatus');
+      const badgeDailyGapPill = document.getElementById('badgeDailyGapPill');
+      const cardDailyEl = document.getElementById('cardDaily');
+
+      if (todayRecord) {
+        if (dailyActualRev >= dailyTargetRev) {
+          badgeDailyEl.textContent = '목표 달성!';
+          badgeDailyEl.className = 'px-2 py-0.5 text-[10px] font-black rounded-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
+          badgeDailyGapPill.textContent = `+${(dailyActualRev - dailyTargetRev).toLocaleString()}원 초과`;
+          badgeDailyGapPill.className = 'text-[11px] font-bold font-mono text-emerald-400';
+          subDailyGapEl.textContent = `목표 +${(dailyActualRev - dailyTargetRev).toLocaleString()}원 초과 달성!`;
+          subDailyGapEl.className = 'font-bold text-emerald-400';
+          cardDailyEl.classList.add('glow-success');
+        } else {
+          badgeDailyEl.textContent = '운영 중';
+          badgeDailyEl.className = 'px-2 py-0.5 text-[10px] font-black rounded-md bg-blue-500/20 text-blue-400 border border-blue-500/30';
+          badgeDailyGapPill.textContent = `목표까지 ${dailyGapRev.toLocaleString()}원`;
+          badgeDailyGapPill.className = 'text-[11px] font-bold font-mono text-slate-400';
+          subDailyGapEl.textContent = `목표까지 ${dailyGapRev.toLocaleString()}원`;
+          subDailyGapEl.className = 'font-medium text-slate-400';
+          cardDailyEl.classList.remove('glow-success');
+        }
+      } else {
+        badgeDailyEl.textContent = '기록 대기';
+        badgeDailyEl.className = 'px-2 py-0.5 text-[10px] font-black rounded-md bg-slate-800 text-slate-400';
+        badgeDailyGapPill.textContent = `목표 ${fmtMan(dailyTargetRev)}`;
+        badgeDailyGapPill.className = 'text-[11px] font-bold font-mono text-slate-400';
+        subDailyGapEl.textContent = `목표까지 ${dailyTargetRev.toLocaleString()}원`;
+        cardDailyEl.classList.remove('glow-success');
+      }
+
+      // 2. WEEKLY REVENUE STATS (Mon-Sun)
+      const weeklyRecords = records.filter(r => r.date >= monStr && r.date <= sunStr);
+      const weeklyActualRev = weeklyRecords.reduce((sum, r) => sum + r.totalRevenue, 0);
+      const weeklyActualVis = weeklyRecords.reduce((sum, r) => sum + r.totalVisitors, 0);
+      const weeklyRate = ((weeklyActualRev / WEEKLY_TARGET_REVENUE) * 100).toFixed(1);
+      const weeklyBarPct = Math.min(Math.round((weeklyActualRev / WEEKLY_TARGET_REVENUE) * 100), 100);
+
+      document.getElementById('valWeeklyRate').textContent = `${weeklyRate}%`;
+      document.getElementById('valWeeklyActualRev').textContent = fmtMan(weeklyActualRev);
+      document.getElementById('valWeeklyTargetRev').textContent = fmtMan(WEEKLY_TARGET_REVENUE);
+      document.getElementById('barWeekly').style.width = `${weeklyBarPct}%`;
+      document.getElementById('subWeeklyVisitors').textContent = `누적: ${weeklyActualVis}명 (목표 ${WEEKLY_TARGET_VISITORS}명)`;
+
+      const subWeeklyGapEl = document.getElementById('subWeeklyGap');
+      const badgeWeeklyGapPill = document.getElementById('badgeWeeklyGapPill');
+      if (weeklyActualRev >= WEEKLY_TARGET_REVENUE) {
+        badgeWeeklyGapPill.textContent = `+${fmtMan(weeklyActualRev - WEEKLY_TARGET_REVENUE)} 초과`;
+        badgeWeeklyGapPill.className = 'text-[11px] font-bold font-mono text-emerald-400';
+        subWeeklyGapEl.textContent = `주간 목표 +${fmtMan(weeklyActualRev - WEEKLY_TARGET_REVENUE)} 초과!`;
+        subWeeklyGapEl.className = 'font-bold text-emerald-400';
+        document.getElementById('cardWeekly').classList.add('glow-success');
+      } else {
+        badgeWeeklyGapPill.textContent = `목표 ${fmtMan(WEEKLY_TARGET_REVENUE)}`;
+        badgeWeeklyGapPill.className = 'text-[11px] font-bold font-mono text-slate-400';
+        subWeeklyGapEl.textContent = `목표까지 ${fmtMan(WEEKLY_TARGET_REVENUE - weeklyActualRev)}`;
+        subWeeklyGapEl.className = 'font-medium text-slate-400';
+        document.getElementById('cardWeekly').classList.remove('glow-success');
+      }
+
+      // 3. MONTHLY REVENUE STATS
+      const monthlyRecords = records.filter(r => r.date.startsWith(monthPrefix));
+      const monthlyActualRev = monthlyRecords.reduce((sum, r) => sum + r.totalRevenue, 0);
+      const monthlyTargetRev = getMonthCalendarTargetRevenue(curYear, curMonth);
+      const monthlyRate = ((monthlyActualRev / monthlyTargetRev) * 100).toFixed(1);
+      const monthlyBarPct = Math.min(Math.round((monthlyActualRev / monthlyTargetRev) * 100), 100);
+
+      document.getElementById('badgeMonthName').textContent = `${curMonth}월 목표`;
+      document.getElementById('valMonthlyRate').textContent = `${monthlyRate}%`;
+      document.getElementById('valMonthlyActualRev').textContent = fmtMan(monthlyActualRev);
+      document.getElementById('valMonthlyTargetRev').textContent = fmtMan(monthlyTargetRev);
+      document.getElementById('barMonthly').style.width = `${monthlyBarPct}%`;
+
+      const daysInMonth = new Date(curYear, curMonth, 0).getDate();
+      const remainingDays = Math.max(0, daysInMonth - now.getDate());
+      document.getElementById('subMonthlyDays').textContent = `잔여 ${remainingDays}일`;
+
+      const remainMonthlyRev = Math.max(0, monthlyTargetRev - monthlyActualRev);
+      const needPerDayRev = remainingDays > 0 ? Math.round(remainMonthlyRev / remainingDays) : 0;
+      document.getElementById('subMonthlyNeedDaily').textContent = remainingDays > 0
+        ? `일평균 ${fmtMan(needPerDayRev)} 필요`
+        : (monthlyActualRev >= monthlyTargetRev ? '이달 목표 완수!' : '이달 마감');
+
+      // 4. ANNUAL BEP REVENUE STATS (BEP 2억 3,600만 원)
+      const annualActualRev = records.reduce((sum, r) => sum + r.totalRevenue, 0);
+      const annualActualVis = records.reduce((sum, r) => sum + r.totalVisitors, 0);
+      const annualRate = ((annualActualRev / BEP_ANNUAL_REVENUE) * 100).toFixed(1);
+      const annualBarPct = Math.min(Math.round((annualActualRev / BEP_ANNUAL_REVENUE) * 100), 100);
+
+      document.getElementById('valAnnualRate').textContent = `${annualRate}%`;
+      document.getElementById('valAnnualActualRev').textContent = fmtMan(annualActualRev);
+      document.getElementById('barAnnual').style.width = `${annualBarPct}%`;
+
+      const annualGapRev = Math.max(0, BEP_ANNUAL_REVENUE - annualActualRev);
+      document.getElementById('subAnnualGap').textContent = annualGapRev > 0
+        ? `BEP까지 ${fmtMan(annualGapRev)}`
+        : '🎉 BEP 돌파 완료! 순익 구간';
+
+      // Incentive Pool
+      const totalVarCost = annualActualVis * VAR_COST_PER_HEAD;
+      const daysCount = records.length;
+      const proratedFixed = daysCount > 0 ? (FIXED_ANNUAL_COST * (daysCount / 365)) : 0;
+      const operatingProfit = annualActualRev - totalVarCost - proratedFixed;
+      let incentivePool = 0;
+      if (operatingProfit > 0) {
+        incentivePool = Math.round(operatingProfit * 0.05); // 1년차 5%
+      }
+      document.getElementById('valIncentivePool').textContent = `${incentivePool.toLocaleString()} 원`;
+
+      // 5. SAFE DAYS COUNT
+      let safeDays = 0;
+      for (let i = records.length - 1; i >= 0; i--) {
+        if (records[i].isSafe) {
+          safeDays++;
+        } else {
+          break;
+        }
+      }
+      document.getElementById('hdrSafeDays').textContent = safeDays;
+
+      // 6. LOGS & CHARTS
+      renderRealLogs(annualActualRev, annualActualVis);
+      renderRevenueChart();
+    }
+
+    // -----------------------------------------------------------------
+    // RENDER LOG TABLE (CLEAN, NO WEIRD WRAPPING)
+    // -----------------------------------------------------------------
+    function renderRealLogs(totalRev, totalVis) {
+      const container = document.getElementById('logListContainer');
+      const totalDaysEl = document.getElementById('lblTotalDays');
+      const avgTicketEl = document.getElementById('lblLiveAvgTicket');
+      if (!container) return;
+
+      container.innerHTML = '';
+      totalDaysEl.textContent = records.length;
+
+      const avgTicket = totalVis > 0 ? Math.round(totalRev / totalVis) : 0;
+      if (avgTicketEl) {
+        avgTicketEl.innerHTML = `누적 평균 객단가: <strong class="text-white font-mono">${avgTicket.toLocaleString()}원</strong>`;
+      }
+
+      if (records.length === 0) {
+        container.innerHTML = `
+          <div class="h-full min-h-[160px] flex flex-col items-center justify-center text-center p-4 text-slate-500">
+            <i data-lucide="inbox" class="w-8 h-8 mb-1.5 opacity-40"></i>
+            <p class="text-xs font-semibold">입력된 실제 매출 실적이 없습니다</p>
+            <p class="text-[11px] text-slate-600 mt-0.5">상단 [오늘 실적 입력] 버튼을 눌러 첫날의 매출을 등록해 주세요.</p>
+          </div>
+        `;
+        lucide.createIcons();
+        return;
+      }
+
+      const reversed = [...records].reverse();
+
+      reversed.forEach((rec, idx) => {
+        const item = document.createElement('div');
+        item.className = 'bg-slate-950/70 p-2.5 sm:p-3 rounded-xl border border-slate-800/80 hover:border-slate-700 flex items-center justify-between text-xs transition gap-2';
+        
+        const isMet = rec.totalRevenue >= rec.targetRevenue;
+        const rate = ((rec.totalRevenue / rec.targetRevenue) * 100).toFixed(0);
+
+        // Format short date: e.g. "09/09(수)"
+        const dtParts = rec.date.split('-');
+        const shortDate = dtParts.length === 3 ? `${dtParts[1]}.${dtParts[2]}` : rec.date;
+
+        item.innerHTML = `
+          <div class="space-y-1 min-w-0 flex-1">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <span class="font-mono font-black text-white text-xs whitespace-nowrap shrink-0">${shortDate}</span>
+              <span class="text-[10px] px-1.5 py-0.2 rounded font-semibold whitespace-nowrap shrink-0 ${rec.opMode === 'weekend' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/40' : 'bg-blue-950 text-blue-300 border border-blue-800/40'}">
+                ${rec.opMode === 'weekend' ? '주말' : rec.opMode === 'festival' ? '은어축제' : '평일'}
+              </span>
+              <span class="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold whitespace-nowrap shrink-0 ${isMet ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-800 text-slate-400'}">
+                ${rate}% 달성
+              </span>
+            </div>
+            <div class="text-[11px] text-slate-400 truncate">
+              ${rec.memo || `${rec.totalVisitors}명 정상 방문`}
+            </div>
+          </div>
+          <div class="text-right font-mono shrink-0">
+            <div class="font-black text-emerald-400 text-sm whitespace-nowrap">${rec.totalRevenue.toLocaleString()}원</div>
+            <div class="text-[10px] text-slate-500 whitespace-nowrap">입장 ${rec.ticketRevenue.toLocaleString()} · 부가 ${rec.extraRevenue.toLocaleString()}</div>
+          </div>
+        `;
+        container.appendChild(item);
+      });
+    }
+
+    // -----------------------------------------------------------------
+    // RENDER REVENUE TREND CHART (PROPER SCALE & CLEAN VIEW)
+    // -----------------------------------------------------------------
+    function renderRevenueChart() {
+      const canvas = document.getElementById('mainTrendChart');
+      const floatBox = document.getElementById('chartEmptyFloatBox');
+      if (!canvas || typeof Chart === 'undefined') return;
+
+      if (records.length === 0) {
+        if (floatBox) floatBox.classList.remove('hidden');
+        
+        // Render 7-day target baseline (월~일) so canvas is beautifully active
+        const ctx = canvas.getContext('2d');
+        const labels = ['월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일'];
+        const targets = currentChartMetric === 'revenue' 
+          ? [36, 36, 36, 36, 36, 178, 178] 
+          : [30, 30, 30, 30, 30, 148, 148];
+        const actuals = [0, 0, 0, 0, 0, 0, 0];
+
+        if (chartInstance) chartInstance.destroy();
+        chartInstance = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                label: currentChartMetric === 'revenue' ? '기준 목표 매출 (만 원)' : '기준 목표 방문객 (명)',
+                data: targets,
+                borderColor: '#f59e0b',
+                borderWidth: 2,
+                borderDash: [4, 4],
+                pointRadius: 0,
+                fill: false
+              },
+              {
+                label: currentChartMetric === 'revenue' ? '실제 매출액 (만 원)' : '실제 방문객 (명)',
+                data: actuals,
+                borderColor: '#10b981',
+                backgroundColor: 'rgba(16, 185, 129, 0.08)',
+                borderWidth: 2,
+                tension: 0.25,
+                fill: true,
+                pointRadius: 3,
+                pointBackgroundColor: '#10b981'
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: 'top',
+                labels: { color: '#cbd5e1', font: { family: 'Noto Sans KR', size: 11, weight: 'bold' } }
+              },
+              tooltip: {
+                callbacks: {
+                  label: function(ctx) {
+                    return currentChartMetric === 'revenue'
+                      ? `${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()}만 원`
+                      : `${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()}명`;
+                  }
+                }
+              }
+            },
+            scales: {
+              x: { grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#94a3b8', font: { family: 'Noto Sans KR', size: 11 } } },
+              y: {
+                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                ticks: {
+                  color: '#94a3b8',
+                  font: { family: 'JetBrains Mono', size: 11 },
+                  callback: function(val) { return currentChartMetric === 'revenue' ? val + '만' : val + '명'; }
+                }
+              }
+            }
+          }
+        });
+        return;
+      } else {
+        if (floatBox) floatBox.classList.add('hidden');
+      }
+
+      const ctx = canvas.getContext('2d');
+      const labels = records.map(r => {
+        const p = r.date.split('-');
+        return p.length === 3 ? `${p[1]}.${p[2]}` : r.date;
+      });
+      
+      const dataActual = currentChartMetric === 'revenue'
+        ? records.map(r => Math.round(r.totalRevenue / 10000)) // 만 원
+        : records.map(r => r.totalVisitors);
+
+      const dataTarget = currentChartMetric === 'revenue'
+        ? records.map(r => Math.round(r.targetRevenue / 10000)) // 만 원
+        : records.map(r => r.targetVisitors);
+
+      if (chartInstance) chartInstance.destroy();
+
+      chartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: currentChartMetric === 'revenue' ? '실제 매출액 (만 원)' : '실제 방문객 (명)',
+              data: dataActual,
+              borderColor: '#10b981',
+              backgroundColor: 'rgba(16, 185, 129, 0.15)',
+              borderWidth: 3,
+              tension: 0.25,
+              fill: true,
+              pointRadius: 4,
+              pointBackgroundColor: '#10b981'
+            },
+            {
+              label: currentChartMetric === 'revenue' ? '목표 매출선 (만 원)' : '목표 방문객 (명)',
+              data: dataTarget,
+              borderColor: '#f59e0b',
+              borderWidth: 2,
+              borderDash: [4, 4],
+              pointRadius: 0,
+              fill: false
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'top',
+              labels: {
+                color: '#cbd5e1',
+                font: { family: 'Noto Sans KR', size: 12, weight: 'bold' }
+              }
+            },
+            tooltip: {
+              callbacks: {
+                label: function(ctx) {
+                  return currentChartMetric === 'revenue'
+                    ? `${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()}만 원`
+                    : `${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()}명`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: 'rgba(255, 255, 255, 0.05)' },
+              ticks: { color: '#94a3b8', font: { family: 'JetBrains Mono', size: 11 } }
+            },
+            y: {
+              grid: { color: 'rgba(255, 255, 255, 0.05)' },
+              ticks: {
+                color: '#94a3b8',
+                font: { family: 'JetBrains Mono', size: 11 },
+                callback: function(val) {
+                  return currentChartMetric === 'revenue' ? val + '만' : val + '명';
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    // -----------------------------------------------------------------
+    // EVENT LISTENERS
+    // -----------------------------------------------------------------
+    function initEvents() {
+      const openModal = () => {
+        document.getElementById('inputEntryDate').value = getTodayStr();
+        updateModalPreview();
+        document.getElementById('entryModal').classList.remove('hidden');
+      };
+      document.getElementById('btnOpenEntryModal')?.addEventListener('click', openModal);
+      document.getElementById('btnEmptyTrigger')?.addEventListener('click', openModal);
+
+      document.getElementById('btnCloseEntryModal')?.addEventListener('click', () => {
+        document.getElementById('entryModal').classList.add('hidden');
+      });
+      document.getElementById('btnCancelEntry')?.addEventListener('click', () => {
+        document.getElementById('entryModal').classList.add('hidden');
+      });
+      document.getElementById('btnCloseFloatBox')?.addEventListener('click', () => {
+        document.getElementById('chartEmptyFloatBox')?.classList.add('hidden');
+      });
+
+      // Op Mode Buttons
+      document.querySelectorAll('.btn-opmode').forEach(b => {
+        b.addEventListener('click', () => {
+          selectedOpMode = b.getAttribute('data-opmode');
+          document.querySelectorAll('.btn-opmode').forEach(el => {
+            el.className = 'btn-opmode touch-btn p-2.5 rounded-xl border border-slate-700 bg-slate-950 text-slate-400 text-xs font-bold text-center';
+          });
+          b.className = 'btn-opmode touch-btn p-2.5 rounded-xl border border-blue-500 bg-blue-500/20 text-blue-400 text-xs font-extrabold text-center';
+          updateModalPreview();
+        });
+      });
+
+      // Touch Increments (Counts)
+      document.querySelectorAll('.btn-inc').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const targetId = btn.getAttribute('data-target');
+          const addVal = Number(btn.getAttribute('data-val'));
+          const el = document.getElementById(targetId);
+          if (el) {
+            let curr = Number(el.value) || 0;
+            curr = Math.max(0, curr + addVal);
+            el.value = curr;
+            updateModalPreview();
+          }
+        });
+      });
+
+      // Touch Increments (Cash Extra Revenue)
+      document.querySelectorAll('.btn-inc-cash').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const targetId = btn.getAttribute('data-target');
+          const addVal = Number(btn.getAttribute('data-val'));
+          const el = document.getElementById(targetId);
+          if (el) {
+            let curr = Number(el.value) || 0;
+            curr = Math.max(0, curr + addVal);
+            el.value = curr;
+            updateModalPreview();
+          }
+        });
+      });
+
+      ['cntChild', 'cntAdult', 'cntGroup', 'cntExtraRev'].forEach(id => {
+        document.getElementById(id)?.addEventListener('input', updateModalPreview);
+      });
+
+      // Save Daily Entry
+      document.getElementById('btnSaveDailyEntry')?.addEventListener('click', () => {
+        const dateVal = document.getElementById('inputEntryDate').value || getTodayStr();
+        const child = Number(document.getElementById('cntChild').value) || 0;
+        const adult = Number(document.getElementById('cntAdult').value) || 0;
+        const group = Number(document.getElementById('cntGroup').value) || 0;
+        const extra = Number(document.getElementById('cntExtraRev').value) || 0;
+        const memo = document.getElementById('inputEntryMemo').value || '';
+        const isSafe = document.getElementById('chkEntrySafe').checked;
+
+        const targetRev = selectedOpMode === 'weekend'
+          ? TARGET_REV_WEEKEND
+          : selectedOpMode === 'festival'
+            ? TARGET_REV_FESTIVAL
+            : TARGET_REV_WEEKDAY;
+
+        const targetVis = selectedOpMode === 'weekend'
+          ? TARGET_VIS_WEEKEND
+          : selectedOpMode === 'festival'
+            ? TARGET_VIS_FESTIVAL
+            : TARGET_VIS_WEEKDAY;
+
+        const CH_IDS = {
+          eduGroup:'chEduGroup', kinder:'chKinder', momcafe:'chMomcafe',
+          online:'chOnline', festival:'chFestival', voucher:'chVoucher',
+          revisit:'chRevisit', walkin:'chWalkin', etc:'chEtc'
+        };
+        const channels = {};
+        Object.keys(CH_IDS).forEach(k => {
+          channels[k] = Number(document.getElementById(CH_IDS[k])?.value) || 0;
+        });
+
+        const totalVisitors = child + adult + group;
+        const ticketRevenue = (child * PRICE_CHILD) + (adult * PRICE_ADULT) + (group * PRICE_GROUP);
+        const totalRevenue = ticketRevenue + extra;
+
+        const existIdx = records.findIndex(r => r.date === dateVal);
+        const newRecord = {
+          date: dateVal,
+          opMode: selectedOpMode,
+          targetRevenue: targetRev,
+          targetVisitors: targetVis,
+          child: child,
+          adult: adult,
+          group: group,
+          ticketRevenue: ticketRevenue,
+          extraRevenue: extra,
+          totalVisitors: totalVisitors,
+          totalRevenue: totalRevenue,
+          isSafe: isSafe,
+          memo: memo,
+          channels: channels,
+          dataSource: 'manual'   // 수기 입력. 게이트 자동 카운트 연동 시 'gate'로 기록
+        };
+
+        if (existIdx >= 0) {
+          records[existIdx] = newRecord;
+        } else {
+          records.push(newRecord);
+        }
+
+        saveRealRecords();
+        syncToMasterDashboard();
+        // 클라우드 DB 동기화 (실패해도 로컬 저장은 이미 완료됨)
+        if (window.BongplaySync) {
+          BongplaySync.upsert('sales_records', {
+            id: newRecord.date,
+            date: newRecord.date,
+            op_mode: newRecord.opMode,
+            target_revenue: newRecord.targetRevenue,
+            target_visitors: newRecord.targetVisitors,
+            child: newRecord.child,
+            adult: newRecord.adult,
+            group: newRecord.group,
+            ticket_revenue: newRecord.ticketRevenue,
+            extra_revenue: newRecord.extraRevenue,
+            total_visitors: newRecord.totalVisitors,
+            total_revenue: newRecord.totalRevenue,
+            is_safe: newRecord.isSafe,
+            memo: newRecord.memo,
+            channels: newRecord.channels,
+            data_source: newRecord.dataSource
+          });
+        }
+        renderAll();
+
+        document.getElementById('entryModal').classList.add('hidden');
+
+        // Reset inputs
+        document.getElementById('cntChild').value = 0;
+        document.getElementById('cntAdult').value = 0;
+        document.getElementById('cntGroup').value = 0;
+        document.getElementById('cntExtraRev').value = 0;
+        document.getElementById('inputEntryMemo').value = '';
+      });
+
+      // Chart Toggle
+      document.getElementById('btnChartRev')?.addEventListener('click', () => {
+        currentChartMetric = 'revenue';
+        document.getElementById('btnChartRev').className = 'touch-btn px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-600 text-white shadow';
+        document.getElementById('btnChartVis').className = 'touch-btn px-2.5 py-1 text-xs font-bold rounded-lg text-slate-400 hover:text-white';
+        renderRevenueChart();
+      });
+
+      document.getElementById('btnChartVis')?.addEventListener('click', () => {
+        currentChartMetric = 'visitors';
+        document.getElementById('btnChartVis').className = 'touch-btn px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-600 text-white shadow';
+        document.getElementById('btnChartRev').className = 'touch-btn px-2.5 py-1 text-xs font-bold rounded-lg text-slate-400 hover:text-white';
+        renderRevenueChart();
+      });
+
+      // Fullscreen
+      document.getElementById('btnToggleFullscreen')?.addEventListener('click', () => {
+        if (!document.fullscreenElement && !document.webkitFullscreenElement && !document.msFullscreenElement) {
+          if (document.documentElement.requestFullscreen) {
+            document.documentElement.requestFullscreen().catch(err => console.warn(err));
+          } else if (document.documentElement.webkitRequestFullscreen) {
+            document.documentElement.webkitRequestFullscreen();
+          } else if (document.documentElement.msRequestFullscreen) {
+            document.documentElement.msRequestFullscreen();
+          }
+        } else {
+          if (document.exitFullscreen) {
+            document.exitFullscreen().catch(() => {});
+          } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+          } else if (document.msExitFullscreen) {
+            document.msExitFullscreen();
+          }
+        }
+      });
+
+      // Settings Modal
+      document.getElementById('btnOpenSettings')?.addEventListener('click', () => {
+        document.getElementById('settingsModal').classList.remove('hidden');
+      });
+      document.getElementById('btnCloseSettings')?.addEventListener('click', () => {
+        document.getElementById('settingsModal').classList.add('hidden');
+      });
+      document.getElementById('btnDoneSettings')?.addEventListener('click', () => {
+        document.getElementById('settingsModal').classList.add('hidden');
+      });
+
+      // Export / Clear
+      document.getElementById('btnExportCsv')?.addEventListener('click', exportCsv);
+      document.getElementById('btnQuickExport')?.addEventListener('click', exportCsv);
+      document.getElementById('btnExportJson')?.addEventListener('click', exportJson);
+      
+      document.getElementById('btnClearAllRecords')?.addEventListener('click', () => {
+        if (confirm('정말로 모든 실적 기록을 초기화하시겠습니까? (복구 불가)')) {
+          records = [];
+          saveRealRecords();
+          renderAll();
+          document.getElementById('settingsModal').classList.add('hidden');
+        }
+      });
+    }
+
+    function updateModalPreview() {
+      const child = Number(document.getElementById('cntChild').value) || 0;
+      const adult = Number(document.getElementById('cntAdult').value) || 0;
+      const group = Number(document.getElementById('cntGroup').value) || 0;
+      const extra = Number(document.getElementById('cntExtraRev').value) || 0;
+
+      const totalV = child + adult + group;
+      const ticketRev = (child * PRICE_CHILD) + (adult * PRICE_ADULT) + (group * PRICE_GROUP);
+      const totalR = ticketRev + extra;
+      const avgT = totalV > 0 ? Math.round(totalR / totalV) : 0;
+
+      document.getElementById('previewRevenue').textContent = `${totalR.toLocaleString()} 원`;
+      document.getElementById('previewVisitors').textContent = `${totalV.toLocaleString()}명`;
+      document.getElementById('previewAvgTicket').textContent = `환산 객단가 ${avgT.toLocaleString()}원`;
+    }
+
+    function exportCsv() {
+      if (records.length === 0) {
+        alert('저장된 실적 데이터가 없습니다.');
+        return;
+      }
+      const headers = ['날짜', '운영구분', '목표매출', '입장매출', '부가매출', '총매출액', '총방문객', '평균객단가', '무사고여부', '운영메모'];
+      const rows = records.map(r => {
+        const avg = r.totalVisitors > 0 ? Math.round(r.totalRevenue / r.totalVisitors) : 0;
+        return [
+          r.date,
+          r.opMode,
+          r.targetRevenue,
+          r.ticketRevenue,
+          r.extraRevenue,
+          r.totalRevenue,
+          r.totalVisitors,
+          avg,
+          r.isSafe ? '무사고' : '사고발생',
+          `"${(r.memo || '').replace(/"/g, '""')}"`
+        ];
+      });
+
+      const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `봉플레이_매출실적마감_${getTodayStr()}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function exportJson() {
+      const blob = new Blob([JSON.stringify(records, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `봉플레이_매출백업_${getTodayStr()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  
+    // =================================================================
+    // P0-1 ITEM-LEVEL POS & ORDER CONTROLLER
+    // =================================================================
+    let posCart = {}; // { productId: count }
+    let isPosForDailyClose = false;
+    let currentPosCategory = 'all';
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
+    }
+
+    function openPosModal(fromDailyClose = false) {
+      isPosForDailyClose = !!fromDailyClose;
+      document.getElementById('posModal').classList.remove('hidden');
+      populatePosVisits();
+      renderPosProducts();
+      updatePosSummary();
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function closePosModal() {
+      document.getElementById('posModal').classList.add('hidden');
+    }
+
+    function populatePosVisits() {
+      const select = document.getElementById('posVisitSelect');
+      if (!select) return;
+      select.innerHTML = '<option value="">- 워크인 / 일반 현장 결제 -</option>';
+      try {
+        const raw = localStorage.getItem('bongplay_safety_consents') || localStorage.getItem('bongtteurak_consents_v1');
+        if (raw) {
+          const consents = JSON.parse(raw);
+          consents.filter(c => c.isIssued || c.issued).forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.visit_id || c.id;
+            opt.textContent = `[${c.passCode || '고객'}] ${c.guardianName || c.name || '방문객'} (${c.residence || '일반'})`;
+            select.appendChild(opt);
+          });
+        }
+      } catch (e) { console.warn(e); }
+    }
+
+    function filterPosCategory(category) {
+      currentPosCategory = category;
+      document.querySelectorAll('#posCategoryTabs button').forEach(btn => {
+        const match = btn.getAttribute('data-cat') === category;
+        btn.className = match
+          ? 'pos-tab px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-600 text-white'
+          : 'pos-tab px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 text-slate-300 hover:text-white';
+      });
+      renderPosProducts();
+    }
+
+    function renderPosProducts() {
+      const container = document.getElementById('posProductsContainer');
+      if (!container) return;
+      const products = (window.BongplayID && BongplayID.PRODUCTS) ? BongplayID.PRODUCTS : [];
+      const filtered = currentPosCategory === 'all'
+        ? products
+        : products.filter(p => p.category === currentPosCategory);
+
+      container.innerHTML = filtered.map(prod => {
+        const qty = posCart[prod.id] || 0;
+        return `
+          <div class="bg-slate-950/70 p-3 rounded-2xl border border-slate-800 flex items-center justify-between transition hover:border-slate-700">
+            <div>
+              <div class="font-extrabold text-xs sm:text-sm text-white flex items-center gap-1.5">
+                <span>${escapeHtml(prod.name)}</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono font-normal uppercase">${prod.category}</span>
+              </div>
+              <div class="text-xs font-mono font-bold text-amber-400 mt-0.5">${prod.price.toLocaleString()}원</div>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button type="button" onclick="adjustPosItem('${prod.id}', -1)" class="touch-btn w-8 h-8 rounded-lg bg-slate-800 text-slate-300 font-bold text-sm flex items-center justify-center hover:bg-slate-700">-</button>
+              <span class="w-9 text-center font-mono font-bold text-sm ${qty > 0 ? 'text-amber-300 font-black' : 'text-slate-500'}">${qty}</span>
+              <button type="button" onclick="adjustPosItem('${prod.id}', 1)" class="touch-btn w-8 h-8 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-sm flex items-center justify-center">+</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function adjustPosItem(productId, delta) {
+      const current = posCart[productId] || 0;
+      const next = Math.max(0, current + delta);
+      if (next === 0) {
+        delete posCart[productId];
+      } else {
+        posCart[productId] = next;
+      }
+      renderPosProducts();
+      updatePosSummary();
+    }
+
+    function clearPosCart() {
+      posCart = {};
+      renderPosProducts();
+      updatePosSummary();
+    }
+
+    function updatePosSummary() {
+      const products = (window.BongplayID && BongplayID.PRODUCTS) ? BongplayID.PRODUCTS : [];
+      let totalCount = 0;
+      let totalAmount = 0;
+      const itemNames = [];
+
+      Object.entries(posCart).forEach(([prodId, qty]) => {
+        const prod = products.find(p => p.id === prodId);
+        if (prod && qty > 0) {
+          totalCount += qty;
+          totalAmount += prod.price * qty;
+          itemNames.push(`${prod.name}×${qty}`);
+        }
+      });
+
+      const summaryEl = document.getElementById('posCartSummary');
+      const amountEl = document.getElementById('posTotalAmount');
+      if (summaryEl) {
+        summaryEl.textContent = totalCount > 0 ? itemNames.join(', ') : '선택된 품목 없음 (0건)';
+      }
+      if (amountEl) {
+        amountEl.textContent = totalAmount.toLocaleString() + ' 원';
+      }
+    }
+
+    function submitPosOrder() {
+      const products = (window.BongplayID && BongplayID.PRODUCTS) ? BongplayID.PRODUCTS : [];
+      const items = [];
+      let extraRevenueTotal = 0;
+
+      Object.entries(posCart).forEach(([prodId, qty]) => {
+        const prod = products.find(p => p.id === prodId);
+        if (prod && qty > 0) {
+          items.push({
+            product_id: prod.id,
+            product_name: prod.name,
+            product_category: prod.category,
+            quantity: qty,
+            list_price: prod.price,
+            discount_amount: 0,
+            paid_amount: prod.price * qty
+          });
+          if (prod.category !== 'admission') {
+            extraRevenueTotal += prod.price * qty;
+          }
+        }
+      });
+
+      if (items.length === 0) {
+        alert('주문할 품목을 1개 이상 선택해 주세요.');
+        return;
+      }
+
+      const visitSelect = document.getElementById('posVisitSelect');
+      const visitId = visitSelect ? visitSelect.value : null;
+      const paymentMethod = document.getElementById('posPaymentMethod')?.value || 'card';
+
+      if (window.BongplayID && BongplayID.createOrder) {
+        const order = BongplayID.createOrder({
+          visit_id: visitId || undefined,
+          sales_channel: 'pos_kiosk',
+          payment_method: paymentMethod,
+          staff_id: 'op_staff_main',
+          items: items
+        });
+
+        // If called from Daily Close modal, add extra revenue to cntExtraRev
+        if (isPosForDailyClose || document.getElementById('entryModal')?.classList.contains('flex')) {
+          const extraRevInput = document.getElementById('cntExtraRev');
+          if (extraRevInput) {
+            const curVal = Number(extraRevInput.value) || 0;
+            extraRevInput.value = curVal + extraRevenueTotal;
+            if (typeof calcPreview === 'function') calcPreview();
+          }
+        }
+
+        alert(`✅ 주문(${order.order_id})이 성공적으로 기록되었습니다!\n총 ${items.length}개 품목 / ${order.total_paid.toLocaleString()}원`);
+        clearPosCart();
+        closePosModal();
+      } else {
+        alert('BongplayID 모듈이 로드되지 않았습니다.');
+      }
+    }
+
+    // =================================================================
+    // P0-3, P0-4, P0-5 FIELD AI OPS & TELEMETRY CONTROLLER
+    // =================================================================
+    let selectedFacilityP03 = 'silver_coaster';
+    let selectedTelemetryStatus = 'moderate';
+
+    function openAiOpsModal() {
+      document.getElementById('aiOpsModal').classList.remove('hidden');
+      updateP03CountBadge();
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function closeAiOpsModal() {
+      document.getElementById('aiOpsModal').classList.add('hidden');
+    }
+
+    function switchAiOpsTab(tabName) {
+      const tabs = ['events', 'telemetry', 'actions'];
+      tabs.forEach(t => {
+        const btn = document.getElementById(`tabBtn${t.charAt(0).toUpperCase() + t.slice(1)}`);
+        const content = document.getElementById(`aiTab${t.charAt(0).toUpperCase() + t.slice(1)}`);
+        const isActive = t === tabName;
+        if (btn) {
+          btn.className = isActive
+            ? 'flex-1 py-2 rounded-xl text-xs font-bold bg-cyan-600 text-white flex items-center justify-center gap-1.5 transition'
+            : 'flex-1 py-2 rounded-xl text-xs font-bold bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center gap-1.5 transition';
+        }
+        if (content) {
+          content.classList.toggle('hidden', !isActive);
+        }
+      });
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function selectFacilityP03(facId) {
+      selectedFacilityP03 = facId;
+      document.querySelectorAll('#facilitySelectorP03 .fac-btn-p03').forEach(btn => {
+        const isMatch = btn.getAttribute('data-fac') === facId;
+        btn.className = isMatch
+          ? 'fac-btn-p03 p-2 rounded-xl border border-cyan-500 bg-cyan-950/40 text-cyan-300 text-xs font-bold text-center'
+          : 'fac-btn-p03 p-2 rounded-xl border border-slate-700 bg-slate-900 text-slate-400 text-xs font-bold text-center';
+      });
+    }
+
+    function logFacilityEvent(result, stopReason = null) {
+      if (!window.BongplayID || !BongplayID.recordFacilityEvent) {
+        alert('BongplayID 엔진이 로드되지 않았습니다.');
+        return;
+      }
+      const event = BongplayID.recordFacilityEvent({
+        facility_id: selectedFacilityP03,
+        result: result,
+        stop_reason: stopReason,
+        operator_staff_id: 'op_staff_field'
+      });
+
+      // P0-7: Automatically increment wear/usage on associated equipment
+      if ((result === 'completed' || result === 're_ride') && BongplayID.incrementFacilityEquipmentUsage) {
+        BongplayID.incrementFacilityEquipmentUsage(selectedFacilityP03, 1);
+      }
+
+      updateP03CountBadge();
+      const facNames = {
+        silver_coaster: '짚코스터',
+        all_season_sled: '사계절 썰매',
+        indoor_trampoline: '실내 트램펄린',
+        central_net: '그물놀이터'
+      };
+      const fname = facNames[selectedFacilityP03] || selectedFacilityP03;
+      alert(`[${fname}] ${result} 기록 완료 (AI 이벤트 원장 반영)`);
+    }
+
+    function updateP03CountBadge() {
+      const el = document.getElementById('p03RecentCount');
+      if (!el) return;
+      try {
+        const raw = localStorage.getItem('bongplay_facility_usage_events');
+        const list = raw ? JSON.parse(raw) : [];
+        el.textContent = `오늘 ${list.length}건 기록`;
+      } catch (e) { el.textContent = '오늘 0건 기록'; }
+    }
+
+    function adjustTelemetryQueue(delta) {
+      const inp = document.getElementById('telemetryQueue');
+      if (inp) inp.value = Math.max(0, (Number(inp.value) || 0) + delta);
+    }
+
+    function adjustTelemetryWait(delta) {
+      const inp = document.getElementById('telemetryWait');
+      if (inp) inp.value = Math.max(0, (Number(inp.value) || 0) + delta);
+    }
+
+    function selectTelemetryStatus(status) {
+      selectedTelemetryStatus = status;
+      document.querySelectorAll('#telemetryStatusGroup .status-btn').forEach(btn => {
+        const isMatch = btn.getAttribute('data-status') === status;
+        btn.className = isMatch
+          ? 'status-btn p-2 rounded-xl border border-amber-500 bg-amber-950/40 text-amber-300 text-xs font-bold text-center'
+          : 'status-btn p-2 rounded-xl border border-slate-700 bg-slate-900 text-slate-400 text-xs font-bold text-center';
+      });
+    }
+
+    function submitTelemetrySnapshot() {
+      if (!window.BongplayID || !BongplayID.recordCongestionTelemetry) {
+        alert('BongplayID 엔진이 로드되지 않았습니다.');
+        return;
+      }
+      const facilityId = document.getElementById('telemetryFacility')?.value || 'silver_coaster';
+      const queueCount = Number(document.getElementById('telemetryQueue')?.value) || 0;
+      const waitMinutes = Number(document.getElementById('telemetryWait')?.value) || 0;
+
+      const telem = BongplayID.recordCongestionTelemetry({
+        facility_id: facilityId,
+        queue_count: queueCount,
+        estimated_wait_minutes: waitMinutes,
+        status: selectedTelemetryStatus
+      });
+
+      alert(`📡 [${facilityId}] 대기 ${queueCount}명 / ${waitMinutes}분 텔레메트리가 성공적으로 전송되었습니다!`);
+    }
+
+    function submitOperatorAction() {
+      if (!window.BongplayID || !BongplayID.recordOperatorAction) {
+        alert('BongplayID 엔진이 로드되지 않았습니다.');
+        return;
+      }
+      const facilityId = document.getElementById('actionTargetFacility')?.value || 'silver_coaster';
+      const actionType = document.getElementById('actionTypeSelect')?.value || 'staff_reallocation';
+      const reasonCode = document.getElementById('actionReasonCode')?.value || 'queue_overflow';
+      const expectedEffect = document.getElementById('actionExpectedEffect')?.value || '대기시간 단축';
+
+      const act = BongplayID.recordOperatorAction({
+        action_type: actionType,
+        target_facility_id: facilityId,
+        reason_code: reasonCode,
+        decided_by: '운영관리자',
+        expected_effect: expectedEffect
+      });
+
+      alert(`⚡ 운영 개입 조치(${act.action_id})가 강화학습 원장에 기록되었습니다!`);
+    }
+
+    // ── 유입채널 합계 검증 ──
+    // 채널 합계가 실제 방문객 수와 어긋나면 인과 기록의 신뢰가 깨진다.
+    function syncChannelSum() {
+      const ids = ['chEduGroup','chKinder','chMomcafe','chOnline','chFestival','chVoucher','chRevisit','chWalkin','chEtc'];
+      let sum = 0;
+      ids.forEach(id => { sum += Number(document.getElementById(id)?.value) || 0; });
+
+      const child = Number(document.getElementById('cntChild')?.value) || 0;
+      const adult = Number(document.getElementById('cntAdult')?.value) || 0;
+      const group = Number(document.getElementById('cntGroup')?.value) || 0;
+      const total = child + adult + group;
+
+      const badge = document.getElementById('chSumBadge');
+      const warn = document.getElementById('chWarn');
+      if (!badge) return;
+
+      badge.textContent = '합계 ' + sum.toLocaleString() + '명';
+
+      if (sum === 0) {
+        badge.className = 'text-[10px] px-2 py-1 rounded-lg bg-slate-800 text-slate-400 font-bold shrink-0';
+        warn.classList.add('hidden');
+      } else if (sum === total) {
+        badge.className = 'text-[10px] px-2 py-1 rounded-lg bg-emerald-900/40 text-emerald-300 font-bold shrink-0';
+        warn.classList.add('hidden');
+      } else {
+        badge.className = 'text-[10px] px-2 py-1 rounded-lg bg-amber-900/40 text-amber-300 font-bold shrink-0';
+        warn.textContent = '⚠ 채널 합계(' + sum.toLocaleString() + '명)와 방문객 수(' + total.toLocaleString() + '명)가 ' +
+                           Math.abs(sum - total).toLocaleString() + '명 차이납니다.';
+        warn.classList.remove('hidden');
+      }
+    }
+
+    // -----------------------------------------------------------------
+    // P1-5 & P1-6 STAFF MANAGEMENT & TASK DURATION LOGGING
+    // -----------------------------------------------------------------
+    const ZONE_LABELS = {
+      indoor_net: '실내놀이동(네트/트램펄린)',
+      outdoor_coaster: '야외 짚코스터/짚라인',
+      ticket_gate: '매표소 및 게이트',
+      fnb_lounge: '카페테리아 & 쉼터'
+    };
+
+    function openStaffModal() {
+      const shifts = window.BongplayID ? BongplayID.getStaffShifts() : [];
+      const container = document.getElementById('staffShiftListContainer');
+      const select = document.getElementById('reassignStaffSelect');
+      if (container) {
+        container.innerHTML = shifts.map(s => `
+          <div class="bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-6 h-6 rounded-full bg-indigo-900/60 text-indigo-300 font-black text-xs flex items-center justify-center">${s.staff_name[0]}</span>
+              <div>
+                <span class="text-xs font-bold text-white">${s.staff_name}</span>
+                <span class="text-[10px] text-slate-400 ml-1">(${s.role})</span>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                ${ZONE_LABELS[s.assigned_zone] || s.assigned_zone}
+              </span>
+              <span class="text-[10px] text-slate-500 font-mono">${s.start_scheduled}~${s.end_scheduled}</span>
+            </div>
+          </div>
+        `).join('');
+      }
+      if (select) {
+        select.innerHTML = shifts.map(s => `<option value="${s.staff_id}" data-zone="${s.assigned_zone}" data-name="${s.staff_name}">${s.staff_name} (${s.role})</option>`).join('');
+        onStaffSelectChange();
+      }
+      document.getElementById('modalStaffAssignment').classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    function closeStaffModal() {
+      document.getElementById('modalStaffAssignment').classList.add('hidden');
+    }
+
+    function onStaffSelectChange() {
+      const select = document.getElementById('reassignStaffSelect');
+      if (!select || !select.options.length) return;
+      const opt = select.options[select.selectedIndex];
+      if (opt) {
+        const zone = opt.getAttribute('data-zone');
+        document.getElementById('reassignFromZone').value = ZONE_LABELS[zone] || zone;
+      }
+    }
+
+    function submitStaffReassignment(e) {
+      e.preventDefault();
+      const select = document.getElementById('reassignStaffSelect');
+      const opt = select.options[select.selectedIndex];
+      if (!opt) return;
+
+      const staffId = opt.value;
+      const staffName = opt.getAttribute('data-name');
+      const fromZone = opt.getAttribute('data-zone');
+      const toZone = document.getElementById('reassignToZone').value;
+      const reason = document.getElementById('reassignReason').value;
+
+      if (window.BongplayID) {
+        const ev = BongplayID.recordStaffAssignmentEvent({
+          staff_id: staffId,
+          staff_name: staffName,
+          from_zone: fromZone,
+          to_zone: toZone,
+          reason: reason
+        });
+
+        // Update active staff assigned zone in shifts
+        const shifts = BongplayID.getStaffShifts();
+        const staff = shifts.find(s => s.staff_id === staffId);
+        if (staff) {
+          staff.assigned_zone = toZone;
+          BongplayID.saveStaffShifts(shifts);
+        }
+
+        if (window.BongplaySync && ev) {
+          BongplaySync.upsert('staff_assignment_events', {
+            event_id: ev.event_id,
+            site_id: ev.site_id,
+            staff_id: ev.staff_id,
+            staff_name: ev.staff_name,
+            from_zone: ev.from_zone,
+            to_zone: ev.to_zone,
+            started_at: ev.started_at,
+            reason: ev.reason
+          });
+        }
+      }
+
+      openStaffModal(); // re-render list
+      alert(`✅ [재배치 완료] ${staffName} 님이 [${ZONE_LABELS[toZone] || toZone}] 구역으로 재배치되었습니다.`);
+    }
+
+    function openTaskModal() {
+      const shifts = window.BongplayID ? BongplayID.getStaffShifts() : [];
+      const select = document.getElementById('taskStaffSelect');
+      if (select) {
+        select.innerHTML = shifts.map(s => `<option value="${s.staff_id}">${s.staff_name} (${s.role})</option>`).join('');
+      }
+      renderRecentTaskLogs();
+      document.getElementById('modalStaffTask').classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    function closeTaskModal() {
+      document.getElementById('modalStaffTask').classList.add('hidden');
+    }
+
+    function addDurationMinutes(min) {
+      const input = document.getElementById('taskDurationInput');
+      const curr = parseInt(input.value) || 0;
+      input.value = Math.max(1, curr + min);
+    }
+
+    function submitStaffTask(e) {
+      e.preventDefault();
+      const taskType = document.getElementById('taskTypeSelect').value;
+      const facilityId = document.getElementById('taskFacilitySelect').value;
+      const staffId = document.getElementById('taskStaffSelect').value;
+      const duration = parseInt(document.getElementById('taskDurationInput').value) || 15;
+      const result = document.getElementById('taskResultSelect').value;
+      const memo = document.getElementById('taskMemoInput').value.trim();
+
+      const startedAt = new Date(Date.now() - duration * 60000).toISOString();
+      const completedAt = new Date().toISOString();
+
+      if (window.BongplayID) {
+        const log = BongplayID.recordStaffTaskLog({
+          task_type: taskType,
+          facility_id: facilityId,
+          staff_id: staffId,
+          started_at: startedAt,
+          completed_at: completedAt,
+          duration_minutes: duration,
+          result: result,
+          memo: memo
+        });
+
+        if (window.BongplaySync && log) {
+          BongplaySync.upsert('staff_task_logs', {
+            task_log_id: log.task_log_id,
+            site_id: log.site_id,
+            task_type: log.task_type,
+            facility_id: log.facility_id,
+            staff_id: log.staff_id,
+            started_at: log.started_at,
+            completed_at: log.completed_at,
+            duration_minutes: log.duration_minutes,
+            result: log.result,
+            memo: log.memo
+          });
+        }
+      }
+
+      document.getElementById('taskMemoInput').value = '';
+      renderRecentTaskLogs();
+      alert(`⏱️ [작업 기록 완료] ${duration}분 소요 작업 로그가 정상 기록되었습니다.`);
+    }
+
+    function renderRecentTaskLogs() {
+      const container = document.getElementById('recentTaskLogsContainer');
+      if (!container) return;
+      const logs = window.BongplayID ? BongplayID.getStaffTaskLogs() : [];
+      if (!logs.length) {
+        container.innerHTML = '<div class="text-slate-500 text-center py-2">기록된 작업 내역이 없습니다.</div>';
+        return;
+      }
+      const recent = [...logs].reverse().slice(0, 5);
+      container.innerHTML = recent.map(l => `
+        <div class="flex items-center justify-between p-1.5 rounded-lg bg-slate-900 border border-slate-800">
+          <div class="flex items-center gap-1.5">
+            <span class="px-1.5 py-0.2 rounded text-[10px] font-bold ${l.result === 'pass' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}">${l.result === 'pass' ? '통과' : '재작업'}</span>
+            <span class="font-bold text-white">${l.task_type}</span>
+            <span class="text-slate-400">(${l.facility_id})</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-rose-300 font-bold">${l.duration_minutes}분</span>
+            <span class="text-slate-500">${new Date(l.completed_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    /* ---------- SECTION 6: WEATHER MICRO-TELEMETRY & GUST INTERVENTION ---------- */
+    let weatherCheckInterval = null;
+
+    function openWeatherModal() {
+      renderWeatherTelemetry();
+      document.getElementById('modalWeatherTelemetry').classList.remove('hidden');
+      if (window.lucide && typeof lucide.createIcons === 'function') lucide.createIcons();
+    }
+
+    function closeWeatherModal() {
+      document.getElementById('modalWeatherTelemetry').classList.add('hidden');
+    }
+
+    function renderWeatherTelemetry() {
+      if (!window.BongplayID) return;
+      const latest = BongplayID.getLatestWeather();
+      const evalResult = BongplayID.evaluateCoasterWeatherIntervention(latest);
+
+      // Update HUD values
+      const elTemp = document.getElementById('wtrCardTemp');
+      const elHum = document.getElementById('wtrCardHum');
+      const elWind = document.getElementById('wtrCardWind');
+      const elWindStatus = document.getElementById('wtrCardWindStatus');
+      const elRain = document.getElementById('wtrCardRain');
+      const hdrSummary = document.getElementById('hdrWeatherSummary');
+
+      if (elTemp) elTemp.innerText = `${latest.temperature}℃ / ${latest.indoor_temperature || 22.8}℃`;
+      if (elHum) elHum.innerText = `${latest.humidity}% / ${latest.indoor_humidity || 48}%`;
+      if (elWind) elWind.innerText = `${latest.wind_speed} / ${latest.wind_gust} m/s`;
+      if (hdrSummary) hdrSummary.innerText = `${latest.temperature}℃ · 돌풍 ${latest.wind_gust}m/s`;
+
+      if (elWindStatus) {
+        if (latest.wind_gust >= 12.0) {
+          elWindStatus.innerText = '위험 (≥12.0m/s 중단)';
+          elWindStatus.className = 'text-[9px] text-rose-400 font-bold';
+        } else if (latest.wind_gust >= 8.5) {
+          elWindStatus.innerText = '주의 (8.5~11.9m/s 감속)';
+          elWindStatus.className = 'text-[9px] text-amber-400 font-bold';
+        } else {
+          elWindStatus.innerText = '안전 (< 8.5m/s)';
+          elWindStatus.className = 'text-[9px] text-emerald-400 font-bold';
+        }
+      }
+
+      if (elRain) {
+        const warnText = latest.weather_warning !== 'none' ? '특보발효' : '정상';
+        elRain.innerText = `${latest.rainfall} mm / ${warnText}`;
+      }
+
+      // Update Evaluation Box
+      const box = document.getElementById('wtrEvalBox');
+      const icon = document.getElementById('wtrEvalIcon');
+      const title = document.getElementById('wtrEvalTitle');
+      const desc = document.getElementById('wtrEvalDesc');
+      const btnAction = document.getElementById('btnWtrActionTrigger');
+
+      if (box && title && desc) {
+        if (evalResult.alertLevel === 'critical') {
+          box.className = 'p-3.5 rounded-2xl border flex items-center justify-between gap-3 bg-rose-950/50 border-rose-500/60';
+          if (icon) icon.innerText = '🚨';
+          title.className = 'text-xs font-black text-rose-300';
+          title.innerText = '실버 짚코스터 즉시 안전 중단 권고';
+          desc.className = 'text-[11px] text-rose-200/90 mt-0.5';
+          desc.innerText = `${evalResult.reason} — ${evalResult.suggestedAction}`;
+          if (btnAction) {
+            btnAction.innerText = '짚코스터 중단 적용';
+            btnAction.className = 'touch-btn px-3 py-1.5 rounded-xl text-xs font-black bg-rose-600 hover:bg-rose-500 text-white shrink-0 shadow';
+            btnAction.onclick = () => autoTriggerWeatherPause();
+          }
+        } else if (evalResult.alertLevel === 'warning') {
+          box.className = 'p-3.5 rounded-2xl border flex items-center justify-between gap-3 bg-amber-950/50 border-amber-500/60';
+          if (icon) icon.innerText = '⚠️';
+          title.className = 'text-xs font-black text-amber-300';
+          title.innerText = '돌풍 주의 (운영 감속 및 안전 주시)';
+          desc.className = 'text-[11px] text-amber-200/90 mt-0.5';
+          desc.innerText = `${evalResult.reason} — ${evalResult.suggestedAction}`;
+          if (btnAction) {
+            btnAction.innerText = '주의 확인';
+            btnAction.className = 'touch-btn px-3 py-1.5 rounded-xl text-xs font-black bg-amber-600 hover:bg-amber-500 text-white shrink-0 shadow';
+            btnAction.onclick = () => closeWeatherModal();
+          }
+        } else {
+          box.className = 'p-3.5 rounded-2xl border flex items-center justify-between gap-3 bg-emerald-950/40 border-emerald-500/50';
+          if (icon) icon.innerText = '✅';
+          title.className = 'text-xs font-black text-emerald-300';
+          title.innerText = '실버 짚코스터 정상 운행 가능';
+          desc.className = 'text-[11px] text-emerald-200/80 mt-0.5';
+          desc.innerText = `${evalResult.reason} — ${evalResult.suggestedAction}`;
+          if (btnAction) {
+            btnAction.innerText = '정상 확인';
+            btnAction.className = 'touch-btn px-3 py-1.5 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-500 text-white shrink-0 shadow';
+            btnAction.onclick = () => closeWeatherModal();
+          }
+        }
+      }
+
+      // Render Recent Telemetry Table
+      const tableContainer = document.getElementById('wtrTelemetryTableContainer');
+      if (tableContainer) {
+        const list = BongplayID.getWeatherTelemetry(6);
+        tableContainer.innerHTML = `
+          <table class="w-full text-left font-mono">
+            <thead>
+              <tr class="text-slate-400 border-b border-slate-800 text-[10px]">
+                <th class="py-1">관측시각</th>
+                <th>기온</th>
+                <th>습도</th>
+                <th>풍속</th>
+                <th>돌풍(Gust)</th>
+                <th>강수</th>
+                <th>상태</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${list.map(r => `
+                <tr class="border-b border-slate-800/40 text-slate-300">
+                  <td class="py-1 text-slate-400">${new Date(r.observed_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</td>
+                  <td>${r.temperature}℃</td>
+                  <td>${r.humidity}%</td>
+                  <td>${r.wind_speed}m/s</td>
+                  <td class="font-bold ${r.wind_gust >= 12.0 ? 'text-rose-400' : (r.wind_gust >= 8.5 ? 'text-amber-400' : 'text-emerald-400')}">${r.wind_gust}m/s</td>
+                  <td>${r.rainfall}mm</td>
+                  <td><span class="px-1.5 py-0.2 rounded text-[9px] font-bold ${r.wind_gust >= 12.0 ? 'bg-rose-950 text-rose-300 border border-rose-800' : 'bg-slate-800 text-slate-300'}">${r.wind_gust >= 12.0 ? '중단' : '정상'}</span></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+      }
+
+      // Check for safety banner display
+      checkWeatherSafetyBanner(latest, evalResult);
+    }
+
+    function checkWeatherSafetyBanner(latest, evalResult) {
+      const banner = document.getElementById('weatherSafetyBanner');
+      const title = document.getElementById('weatherAlertTitle');
+      const desc = document.getElementById('weatherAlertDesc');
+      if (!banner) return;
+
+      if (evalResult.alertLevel === 'critical') {
+        banner.className = 'bg-rose-950/90 border border-rose-500/80 rounded-2xl p-3 flex flex-col sm:flex-row items-center justify-between gap-2 shadow-lg flex-none transition-all';
+        if (title) title.innerText = '🚨 짚코스터 안전 중단 권고 (악천후/돌풍)';
+        if (desc) desc.innerText = `${evalResult.reason} — ${evalResult.suggestedAction}`;
+        banner.classList.remove('hidden');
+      } else if (evalResult.alertLevel === 'warning') {
+        banner.className = 'bg-amber-950/90 border border-amber-500/80 rounded-2xl p-3 flex flex-col sm:flex-row items-center justify-between gap-2 shadow-lg flex-none transition-all';
+        if (title) title.innerText = '⚠️ 돌풍 주의보 감지 (안전 주시)';
+        if (desc) desc.innerText = `${evalResult.reason} — 안전요원 추가 배치 요망`;
+        banner.classList.remove('hidden');
+      } else {
+        banner.classList.add('hidden');
+      }
+    }
+
+    function dismissWeatherAlert() {
+      const banner = document.getElementById('weatherSafetyBanner');
+      if (banner) banner.classList.add('hidden');
+    }
+
+    function autoTriggerWeatherPause() {
+      if (!window.BongplayID) return;
+      const latest = BongplayID.getLatestWeather();
+      BongplayID.changeFacilityOperatingStatus('silver_coaster', 'PAUSED_WEATHER', `순간최대풍속 ${latest.wind_gust} m/s 초과 안전중단`, '김주성');
+      BongplayID.recordOperatorAction({
+        action_type: 'weather_pause',
+        target_facility: 'silver_coaster',
+        parameter_change: `순간풍속 ${latest.wind_gust}m/s 감지 즉시 중단`,
+        operator_name: '김주성 매니저',
+        reason: '강풍 안전 기준치 초과'
+      });
+
+      // Discord #운영 채널 실시간 통보
+      if (window.BongplayNotify && typeof BongplayNotify.sendOperationsAlert === 'function') {
+        BongplayNotify.sendOperationsAlert({
+          type: 'weather_pause',
+          title: '짚코스터 기상악화(돌풍) 일시중단 발동',
+          level: 'critical',
+          message: `순간최대돌풍 **${latest.wind_gust} m/s** 감지로 실버 짚코스터 운행을 안전 중단했습니다.`,
+          fields: [
+            { name: '대상 시설', value: '실버 짚코스터', inline: true },
+            { name: '실측 돌풍', value: `${latest.wind_gust} m/s (기준 12.0m/s 초과)`, inline: true },
+            { name: '조치자', value: '김주성 매니저', inline: true }
+          ]
+        });
+      }
+
+      dismissWeatherAlert();
+      closeWeatherModal();
+      alert(`⚠️ [시설 중단 조치 완료] 실버 짚코스터가 'PAUSED_WEATHER (기상악화 일시중단)'으로 전환되었습니다.`);
+    }
+
+    function submitWeatherTelemetryForm(e) {
+      if (e) e.preventDefault();
+      if (!window.BongplayID) return;
+      const temp = parseFloat(document.getElementById('inputWtrTemp').value) || 21.5;
+      const hum = parseInt(document.getElementById('inputWtrHum').value, 10) || 55;
+      const wind = parseFloat(document.getElementById('inputWtrWindSpeed').value) || 3.2;
+      const gust = parseFloat(document.getElementById('inputWtrWindGust').value) || 4.8;
+      const rain = parseFloat(document.getElementById('inputWtrRain').value) || 0.0;
+      const dir = document.getElementById('inputWtrDir').value || 'NW';
+      const warn = document.getElementById('inputWtrWarning').value || 'none';
+
+      BongplayID.recordWeatherTelemetry({
+        observed_at: new Date().toISOString(),
+        temperature: temp,
+        humidity: hum,
+        wind_speed: wind,
+        wind_gust: gust,
+        rainfall: rain,
+        wind_direction: dir,
+        weather_warning: warn
+      });
+
+      renderWeatherTelemetry();
+      alert(`🌤️ [기상 텔레메트리 저장] 10분 마이크로 관측값(돌풍 ${gust}m/s)이 정상 기록되었습니다.`);
+    }
+
+    function simulateGustSpike(gustValue) {
+      document.getElementById('inputWtrWindGust').value = gustValue;
+      if (gustValue >= 12.0) {
+        document.getElementById('inputWtrWindSpeed').value = +(gustValue * 0.7).toFixed(1);
+        document.getElementById('inputWtrWarning').value = 'strong_wind_watch';
+      } else {
+        document.getElementById('inputWtrWindSpeed').value = 3.0;
+        document.getElementById('inputWtrWarning').value = 'none';
+      }
+      submitWeatherTelemetryForm(null);
+    }
+
+    function initWeatherMonitor() {
+      renderWeatherTelemetry();
+      if (weatherCheckInterval) clearInterval(weatherCheckInterval);
+      weatherCheckInterval = setInterval(() => {
+        renderWeatherTelemetry();
+      }, 30000);
+    }
+
+    /* ================= Section 10: Visit 360° Journey Modal ================= */
+    function openOpJourneyModal() {
+      const modal = document.getElementById('modalOpJourney');
+      if (!modal) return;
+      modal.classList.remove('hidden');
+
+      // Populate select options
+      const visitList = (window.BongplayID && BongplayID.getAllVisitsSummary) ? BongplayID.getAllVisitsSummary(20) : [];
+      const sel = document.getElementById('opJourneyVisitSelect');
+      if (sel) {
+        sel.innerHTML = '<option value="">최근 방문 선택...</option>' + visitList.map(v => `
+          <option value="${v.visit_id}">${v.visit_id} - ${v.guardian_name} (${v.date})</option>
+        `).join('');
+      }
+
+      const defaultVId = visitList.length > 0 ? visitList[0].visit_id : null;
+      if (defaultVId) {
+        loadOpJourney(defaultVId);
+      } else {
+        const box = document.getElementById('opJourneyTimelineBox');
+        if (box) {
+          box.innerHTML = '<div class="text-center py-6 text-slate-500 text-xs">등록된 방문 여정이 없습니다. 아래 [1회 여정 시뮬레이션 생성]을 클릭하세요.</div>';
+        }
+      }
+      lucide.createIcons();
+    }
+
+    function closeOpJourneyModal() {
+      const modal = document.getElementById('modalOpJourney');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function searchOpJourney() {
+      const inp = document.getElementById('opJourneySearchInput');
+      if (!inp) return;
+      const q = inp.value.trim();
+      if (!q) { alert('검색할 방문 ID 또는 보호자명을 입력하세요.'); return; }
+      loadOpJourney(q);
+    }
+
+    function loadOpJourney(targetId) {
+      if (!window.BongplayID || typeof window.BongplayID.getVisitFullJourney !== 'function') return;
+      const journey = BongplayID.getVisitFullJourney(targetId);
+      if (!journey || !journey.success) {
+        alert('해당 방문 여정을 찾을 수 없습니다.');
+        return;
+      }
+      const sm = journey.summary;
+
+      document.getElementById('opJStayTime').textContent = `${sm.stay_duration_minutes}분`;
+      document.getElementById('opJSpend').textContent = `${sm.total_spend.toLocaleString()}원`;
+      document.getElementById('opJRides').textContent = `${sm.total_rides}회`;
+      document.getElementById('opJNps').textContent = sm.nps_score !== null ? `+${sm.nps_score}점` : '미작성';
+
+      const box = document.getElementById('opJourneyTimelineBox');
+      if (box) {
+        box.innerHTML = journey.timeline.map(node => {
+          const time = (node.timestamp || '').slice(11, 16) || '10:00';
+          return `
+            <div class="flex items-start gap-2.5 p-2 rounded-xl bg-slate-900 border border-slate-800 text-xs">
+              <span class="px-2 py-0.5 rounded-md bg-slate-950 font-mono text-[10px] text-slate-400 font-bold shrink-0">${time}</span>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between gap-1">
+                  <strong class="text-white text-xs">${escapeHtml(node.stage_label)}: ${escapeHtml(node.title)}</strong>
+                  <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800 shrink-0">${escapeHtml(node.badge)}</span>
+                </div>
+                <p class="text-[11px] text-slate-400 mt-0.5 truncate">${escapeHtml(node.description)}</p>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+      lucide.createIcons();
+    }
+
+    function createOpSimulatedJourney() {
+      if (!window.BongplayID || typeof window.BongplayID.createSimulatedFullJourney !== 'function') return;
+      const vId = BongplayID.createSimulatedFullJourney();
+      alert(`표준 1회 여정 데이터가 생성되었습니다: ${vId}`);
+      openOpJourneyModal();
+      loadOpJourney(vId);
+    }
+
+    // XSS 방어 유틸리티 (management.html과 동일 구현)
+    function escapeHtml(s) {
+      if (s === null || s === undefined) return '';
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
+
+    // ================= 클라우드 DB 연동 & 기기 위치 (사무실 설정) =================
+    function openDbModal() {
+      if (!window.BongplaySync) return;
+      const cfg = BongplaySync.getConfig();
+      if (cfg) {
+        const urlEl = document.getElementById('dbUrlInput');
+        const keyEl = document.getElementById('dbKeyInput');
+        if (urlEl) urlEl.value = cfg.url || '';
+        if (keyEl) keyEl.value = cfg.key || '';
+      }
+      const curLabel = BongplaySync.getDeviceLabel();
+      const labelEl = document.getElementById('deviceLabelInput');
+      if (labelEl) {
+        labelEl.value = (curLabel && curLabel !== '미지정') ? curLabel : '사무실';
+      }
+      const qEl = document.getElementById('dbQueueCount');
+      if (qEl) qEl.textContent = BongplaySync.getQueue().length;
+      const tEl = document.getElementById('dbTestResult');
+      if (tEl) tEl.classList.add('hidden');
+      const mEl = document.getElementById('dbModal');
+      if (mEl) mEl.classList.remove('hidden');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function closeDbModal() {
+      const mEl = document.getElementById('dbModal');
+      if (mEl) mEl.classList.add('hidden');
+    }
+
+    function saveDbConfig() {
+      if (!window.BongplaySync) return;
+      const url = document.getElementById('dbUrlInput').value.trim();
+      const key = document.getElementById('dbKeyInput').value.trim();
+      const label = document.getElementById('deviceLabelInput').value;
+      BongplaySync.setDeviceLabel(label);
+      if (!url || !key) {
+        BongplaySync.setConfig(null, null);
+        showToast(`기기 위치 [${label}] 저장 완료 (로컬 모드)`);
+      } else {
+        BongplaySync.setConfig(url, key);
+        showToast(`기기 위치 [${label}] 및 DB 설정 저장 완료`);
+        BongplaySync.flushQueue();
+      }
+      updateDbBadge();
+      closeDbModal();
+    }
+
+    async function testDbConnection() {
+      if (!window.BongplaySync) return;
+      const url = document.getElementById('dbUrlInput').value.trim();
+      const key = document.getElementById('dbKeyInput').value.trim();
+      if (!url || !key) { alert('URL과 key를 모두 입력하십시오.'); return; }
+      BongplaySync.setConfig(url, key);
+      const box = document.getElementById('dbTestResult');
+      box.className = 'rounded-xl p-3 text-[11px] font-bold bg-slate-800 text-slate-300';
+      box.textContent = '연결 확인 중...';
+      box.classList.remove('hidden');
+      const r = await BongplaySync.testConnection();
+      if (r.ok) {
+        box.className = 'rounded-xl p-3 text-[11px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30';
+        box.textContent = '✓ ' + r.msg;
+      } else {
+        box.className = 'rounded-xl p-3 text-[11px] font-bold bg-rose-500/15 text-rose-300 border border-rose-500/30';
+        box.textContent = '✗ ' + r.msg;
+      }
+    }
+
+    function updateDbBadge() {
+      const el = document.getElementById('dbSyncText');
+      const btn = document.getElementById('dbSyncBtn');
+      const dot = document.getElementById('dbSyncDot');
+      if (!btn || !window.BongplaySync) return;
+      const st = BongplaySync.getStatus();
+      const devLabel = BongplaySync.getDeviceLabel();
+      const labelText = (devLabel && devLabel !== '미지정') ? devLabel : '사무실';
+
+      let text = '사무실';
+      let dotCls = 'bg-slate-500';
+      let btnCls = 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700';
+
+      if (!st.configured) {
+        text = 'DB 미연동 · ' + labelText;
+        dotCls = 'bg-slate-500';
+        btnCls = 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700';
+      } else if (!st.online) {
+        text = '오프라인 (' + st.pending + ') · ' + labelText;
+        dotCls = 'bg-amber-400 animate-ping';
+        btnCls = 'bg-amber-900/40 hover:bg-amber-900/60 text-amber-300 border-amber-600/50 animate-pulse';
+      } else if (st.pending > 0) {
+        text = '대기 ' + st.pending + ' · ' + labelText;
+        dotCls = 'bg-amber-400';
+        btnCls = 'bg-amber-900/40 hover:bg-amber-900/60 text-amber-300 border-amber-600/50';
+      } else {
+        text = '동기화 정상 · ' + labelText;
+        dotCls = 'bg-emerald-400';
+        btnCls = 'bg-emerald-900/40 hover:bg-emerald-900/60 text-emerald-300 border-emerald-600/50';
+      }
+
+      if (el) el.textContent = text;
+      if (dot) dot.className = 'w-1.5 h-1.5 rounded-full sm:hidden ' + dotCls;
+      btn.className = 'touch-btn px-2 sm:px-2.5 py-1.5 border font-bold text-xs rounded-xl shadow flex items-center gap-1 shrink-0 transition ' + btnCls;
+    }
+
+    function showToast(msg) {
+      const toast = document.createElement('div');
+      toast.className = 'fixed bottom-6 right-6 z-[70] bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-2xl border border-emerald-500/50 text-xs font-bold flex items-center space-x-2 transition-all duration-300';
+      toast.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-emerald-400"></i><span>${escapeHtml(msg)}</span>`;
+      document.body.appendChild(toast);
+      if (window.lucide) lucide.createIcons();
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-2');
+        setTimeout(() => toast.remove(), 300);
+      }, 2500);
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      window.scrollTo(0, 0);
+      document.body.scrollLeft = 0;
+      document.documentElement.scrollLeft = 0;
+      initWeatherMonitor();
+      ['chEduGroup','chKinder','chMomcafe','chOnline','chFestival','chVoucher','chRevisit','chWalkin','chEtc',
+       'cntChild','cntAdult','cntGroup'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', syncChannelSum);
+      });
+      syncChannelSum();
+
+      if (window.BongplaySync) {
+        if (BongplaySync.getDeviceLabel() === '미지정') {
+          BongplaySync.setDeviceLabel('사무실');
+        }
+        BongplaySync.onStatusChange(updateDbBadge);
+        updateDbBadge();
+
+        // Initial background pull
+        BongplaySync.pullAll().then(() => {
+          loadRealRecords();
+          renderAll();
+        }).catch(() => {});
+
+        // Realtime event bus listener from other tabs / devices
+        BongplaySync.onDataChange((payload) => {
+          loadRealRecords();
+          renderAll();
+        });
+      }
+
+      // Storage event listener for same-device cross-tab sync
+      window.addEventListener('storage', (e) => {
+        if (!e.key || e.key.startsWith('bongplay_') || e.key.startsWith('bongtteurak_')) {
+          loadRealRecords();
+          renderAll();
+        }
+      });
+    });
+
+</script>
+<a href="../index.html" style="position:fixed;left:12px;bottom:12px;z-index:9999;display:flex;align-items:center;gap:6px;padding:9px 14px;border-radius:14px;background:rgba(15,23,42,.94);border:1px solid #334155;color:#cbd5e1;font-size:11px;font-weight:700;text-decoration:none;box-shadow:0 4px 16px rgba(0,0,0,.4);backdrop-filter:blur(8px)">&#8592; 메인</a>
+<button onclick="window.print()" class="no-print" style="position:fixed;right:12px;bottom:12px;z-index:9999;display:inline-flex;align-items:center;gap:6px;padding:9px 14px;border-radius:14px;background:#1e293b;border:1px solid #475569;color:#cbd5e1;font-size:11px;font-weight:700;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.4);font-family:inherit">&#128424; 인쇄 / PDF</button>
+</body>
+</html>

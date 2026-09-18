@@ -1,0 +1,1067 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>봉플레이 교대근무 및 시설 마감 정산 보드</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800;900&display=swap');
+    
+    html, body {
+      max-width: 100vw;
+      overflow-x: hidden !important;
+      width: 100%;
+    }
+
+    * {
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      box-sizing: border-box;
+    }
+
+    @media screen {
+      .print-only {
+        display: none !important;
+      }
+    }
+
+    @media print {
+      @page {
+        size: A4 portrait;
+        margin: 10mm 12mm 10mm 12mm;
+      }
+      body {
+        background: white !important;
+        color: #000 !important;
+        font-size: 8.5pt !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+      .print-only {
+        display: block !important;
+      }
+      table, th, td {
+        border: 1px solid #222 !important;
+        border-collapse: collapse !important;
+        padding: 4px 6px !important;
+      }
+      th {
+        background-color: #f3f4f6 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+    }
+  </style>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../assets/config.js"></script>
+  <script src="../assets/bongplay-sync.js"></script>
+  <script src="../assets/bongplay-notify.js"></script>
+  <link rel="stylesheet" href="../assets/print.css">
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen w-full max-w-full overflow-x-hidden">
+
+  <!-- ========================================== -->
+  <!-- 1. SCREEN UI (모바일 / 태블릿 반응형 인터랙티브) -->
+  <!-- ========================================== -->
+  <div class="no-print pb-20 w-full max-w-full overflow-x-hidden">
+
+    <!-- Top Global Header -->
+    <header class="sticky top-0 z-40 bg-slate-950/95 backdrop-blur border-b border-slate-800 shadow-xl w-full max-w-full overflow-hidden">
+      <div class="max-w-6xl mx-auto px-3 sm:px-4 py-2.5 sm:py-3 flex items-center justify-between gap-2">
+        <div class="flex items-center space-x-2.5 sm:space-x-3 shrink-0">
+          <div class="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-amber-500 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-amber-500/30 shrink-0">
+            <i data-lucide="clipboard-check" class="w-5 h-5 sm:w-6 sm:h-6"></i>
+          </div>
+          <div>
+            <div class="flex items-center space-x-1.5 sm:space-x-2">
+              <span class="font-extrabold text-xs sm:text-base tracking-tight text-white whitespace-nowrap">리틀포레스트 봉플레이</span>
+              <span class="text-[9px] sm:text-[11px] bg-amber-500/20 text-amber-400 font-bold px-1.5 sm:px-2 py-0.5 rounded-full border border-amber-500/30 whitespace-nowrap">
+                마감 & 인수인계
+              </span>
+            </div>
+            <p class="text-[10px] text-slate-400 hidden md:block">직원 교대근무 · 시재금 정산 · 퇴근 전 시설 마감 보드</p>
+          </div>
+        </div>
+
+        <div class="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
+          <!-- DB Sync Status & Device Role Button -->
+          <button onclick="openDbModal()" id="dbSyncBtn" class="flex items-center space-x-1 px-2 sm:px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg text-xs font-bold transition shadow-sm whitespace-nowrap" title="클라우드 DB 동기화 &amp; 기기 위치">
+            <i data-lucide="database" class="w-3.5 h-3.5 text-emerald-400 shrink-0"></i>
+            <span id="dbSyncDot" class="w-1.5 h-1.5 rounded-full bg-slate-500 sm:hidden"></span>
+            <span id="dbSyncText" class="hidden sm:inline text-[11px] whitespace-nowrap">DB 미연동</span>
+          </button>
+          <button onclick="copyKakaoClosingReport()" class="flex items-center space-x-1 px-2.5 sm:px-3 py-1.5 bg-yellow-400 hover:bg-yellow-300 text-slate-950 font-black text-xs rounded-lg shadow transition whitespace-nowrap">
+            <i data-lucide="message-circle" class="w-3.5 h-3.5 sm:w-4 sm:h-4"></i>
+            <span class="hidden sm:inline">카톡 마감보고</span><span>복사</span>
+          </button>
+          <button onclick="printClosingSheet()" class="flex items-center space-x-1 px-2 sm:px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition whitespace-nowrap">
+            <i data-lucide="printer" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-400"></i>
+            <span class="hidden sm:inline">A4 정산표</span><span>인쇄</span>
+          </button>
+          <!-- Fullscreen Toggle -->
+          <button onclick="toggleFullScreen()" class="flex items-center p-1.5 sm:px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg text-xs font-bold transition shadow-sm whitespace-nowrap" title="전체화면 전환">
+            <i data-lucide="maximize" class="w-3.5 h-3.5 shrink-0"></i>
+            <span class="hidden sm:inline text-[11px]">전체화면</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="max-w-6xl mx-auto px-4 py-6 space-y-6">
+
+      <!-- Today's Operational Meta Banner -->
+      <div class="bg-slate-950 border border-slate-800 rounded-3xl p-5 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div class="flex items-center space-x-2 text-xs">
+            <span class="px-2.5 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-full font-bold border border-emerald-500/30">
+              ● 운영 당일 마감 관리
+            </span>
+            <span class="text-slate-400">봉화군 봉화읍 유록길 22 │ 총괄: 홍성현 (010-5931-4144)</span>
+          </div>
+          <h1 class="text-xl font-black text-white mt-1">오늘의 현장 마감 & 인수인계 보드</h1>
+          <p class="text-xs text-slate-400 mt-0.5">퇴근 전 시재금 정산, 구역별 안전 소등/잠금, 익일 근무 인수인계 사항을 기록합니다.</p>
+        </div>
+
+        <div class="flex items-center space-x-3 text-xs bg-slate-900 p-3 rounded-2xl border border-slate-800">
+          <div>
+            <span class="text-slate-500 block text-[10px]">정산일자</span>
+            <input type="date" id="closingDate" class="bg-transparent text-white font-bold text-xs outline-none cursor-pointer">
+          </div>
+          <div class="h-6 w-px bg-slate-800"></div>
+          <div>
+            <span class="text-slate-500 block text-[10px]">마감책임자</span>
+            <select id="closingManager" class="bg-slate-900 text-white font-bold text-xs outline-none border border-slate-800 rounded px-1.5 py-0.5 mt-0.5">
+              <option value="홍성현">홍성현 대표</option>
+              <option value="김지연">김지연 매니저</option>
+              <option value="김주성">김주성 매니저</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Grid: 3 Main Modules (Shift Board, Cash Register, Closing Checklist) -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        <!-- Left Column: Staff Shift & Cash Reconciliation (lg:col-span-7) -->
+        <div class="lg:col-span-7 space-y-6">
+
+          <!-- Module 1: 당일 근무조 편성 및 출근 현황 -->
+          <div class="bg-slate-950 rounded-3xl p-5 border border-slate-800 shadow-xl">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+              <div class="flex items-center space-x-2">
+                <i data-lucide="users" class="w-4 h-4 text-emerald-400"></i>
+                <h2 class="text-sm font-extrabold text-white">1. 당일 근무 편성 및 교대 현황</h2>
+              </div>
+              <button onclick="addStaffRow()" class="text-xs text-emerald-400 hover:text-emerald-300 font-bold flex items-center space-x-1">
+                <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i>
+                <span>근무자 추가</span>
+              </button>
+            </div>
+
+            <div class="overflow-x-auto">
+              <table class="w-full text-xs text-left">
+                <thead>
+                  <tr class="text-slate-400 border-b border-slate-800/80">
+                    <th class="pb-2 font-semibold">이름</th>
+                    <th class="pb-2 font-semibold">역할/구역</th>
+                    <th class="pb-2 font-semibold">근무조</th>
+                    <th class="pb-2 font-semibold">출근상태</th>
+                    <th class="pb-2 font-semibold text-center">삭제</th>
+                  </tr>
+                </thead>
+                <tbody id="staffTableBody" class="divide-y divide-slate-800/50 text-slate-200">
+                  <!-- Default Rows populated via JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Module 2: 유료 체험 및 매표 시재금(현금) 마감 정산기 -->
+          <div class="bg-slate-950 rounded-3xl p-5 border border-slate-800 shadow-xl">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+              <div class="flex items-center space-x-2">
+                <i data-lucide="coins" class="w-4 h-4 text-amber-400"></i>
+                <h2 class="text-sm font-extrabold text-white">2. 매표·체험·매점 일일 현금 시재금 정산기</h2>
+              </div>
+              <span class="text-[11px] bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded font-bold border border-amber-500/20">
+                실물 현금 실사
+              </span>
+            </div>
+
+            <!-- Revenue Summary Row -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3 mb-5 text-xs">
+              <div class="bg-slate-900 p-3 rounded-2xl border border-slate-800">
+                <span class="text-slate-400 block text-[11px]">기초 준비금 (시재)</span>
+                <input type="number" id="baseCash" value="0" placeholder="0" step="10000" oninput="calculateCashBalance()" class="w-full bg-transparent text-white font-mono font-bold text-sm outline-none mt-0.5">
+                <span class="text-[10px] text-slate-500">개장 전 거스름돈</span>
+              </div>
+              <div class="bg-slate-900 p-3 rounded-2xl border border-slate-800">
+                <span class="text-slate-400 block text-[11px]">당일 현금 매출 합계</span>
+                <input type="number" id="cashSales" value="0" placeholder="0" step="10000" oninput="calculateCashBalance()" class="w-full bg-transparent text-emerald-400 font-mono font-bold text-sm outline-none mt-0.5">
+                <span class="text-[10px] text-slate-500">입장+짚라인+매점</span>
+              </div>
+              <div class="bg-slate-900 p-3 rounded-2xl border border-slate-800">
+                <span class="text-slate-400 block text-[11px]">현장 현금 지출 (영수증)</span>
+                <input type="number" id="cashExpenses" value="0" placeholder="0" step="5000" oninput="calculateCashBalance()" class="w-full bg-transparent text-rose-400 font-mono font-bold text-sm outline-none mt-0.5">
+                <span class="text-[10px] text-slate-500">쓰레기봉투/소모품</span>
+              </div>
+            </div>
+
+            <!-- Denomination Calculator (권종별 수량 계산기) -->
+            <div class="bg-slate-900/80 rounded-2xl p-4 border border-slate-800/80 mb-4">
+              <div class="flex items-center justify-between mb-3 text-xs">
+                <span class="font-extrabold text-slate-200">금고 내 실제 보유 현금 카운트 (장수 입력)</span>
+                <span class="text-[11px] text-slate-400">자동 계산</span>
+              </div>
+
+              <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
+                <!-- 50,000원 -->
+                <div class="flex items-center justify-between bg-slate-950 p-2 rounded-xl border border-slate-800">
+                  <span class="font-bold text-amber-300">5만 원권</span>
+                  <div class="flex items-center space-x-1">
+                    <input type="number" id="count50k" value="0" placeholder="0" min="0" oninput="calculateCashBalance()" class="w-12 bg-slate-900 text-center font-bold rounded py-0.5 text-white outline-none">
+                    <span class="text-slate-400 text-[10px]">장</span>
+                  </div>
+                </div>
+
+                <!-- 10,000원 -->
+                <div class="flex items-center justify-between bg-slate-950 p-2 rounded-xl border border-slate-800">
+                  <span class="font-bold text-emerald-300">1만 원권</span>
+                  <div class="flex items-center space-x-1">
+                    <input type="number" id="count10k" value="0" placeholder="0" min="0" oninput="calculateCashBalance()" class="w-12 bg-slate-900 text-center font-bold rounded py-0.5 text-white outline-none">
+                    <span class="text-slate-400 text-[10px]">장</span>
+                  </div>
+                </div>
+
+                <!-- 5,000원 -->
+                <div class="flex items-center justify-between bg-slate-950 p-2 rounded-xl border border-slate-800">
+                  <span class="font-bold text-orange-300">5천 원권</span>
+                  <div class="flex items-center space-x-1">
+                    <input type="number" id="count5k" value="0" placeholder="0" min="0" oninput="calculateCashBalance()" class="w-12 bg-slate-900 text-center font-bold rounded py-0.5 text-white outline-none">
+                    <span class="text-slate-400 text-[10px]">장</span>
+                  </div>
+                </div>
+
+                <!-- 1,000원 -->
+                <div class="flex items-center justify-between bg-slate-950 p-2 rounded-xl border border-slate-800">
+                  <span class="font-bold text-blue-300">1천 원권</span>
+                  <div class="flex items-center space-x-1">
+                    <input type="number" id="count1k" value="0" placeholder="0" min="0" oninput="calculateCashBalance()" class="w-12 bg-slate-900 text-center font-bold rounded py-0.5 text-white outline-none">
+                    <span class="text-slate-400 text-[10px]">장</span>
+                  </div>
+                </div>
+
+                <!-- 동전/기타 -->
+                <div class="flex items-center justify-between bg-slate-950 p-2 rounded-xl border border-slate-800 col-span-2 sm:col-span-2">
+                  <span class="font-bold text-slate-300">동전 및 기타</span>
+                  <div class="flex items-center space-x-1">
+                    <input type="number" id="countCoin" value="0" placeholder="0" min="0" step="500" oninput="calculateCashBalance()" class="w-24 bg-slate-900 text-right pr-1 font-bold rounded py-0.5 text-white outline-none">
+                    <span class="text-slate-400 text-[10px]">원</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Balance Result Indicator -->
+            <div class="p-4 rounded-2xl border flex items-center justify-between" id="balanceCard">
+              <div>
+                <span class="text-xs font-semibold block text-slate-400">장부상 마감 잔액: <b id="bookBalanceText" class="text-white font-mono">620,000원</b></span>
+                <span class="text-xs font-semibold block text-slate-400">실제 금고 보유액: <b id="actualCashText" class="text-white font-mono">620,000원</b></span>
+              </div>
+              <div class="text-right">
+                <span class="text-[10px] text-slate-400 uppercase tracking-wider block">시재 과부족 상태</span>
+                <span id="diffStatusText" class="text-base font-black text-emerald-400">
+                  일치 (±0원)
+                </span>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Module 4: 교대 및 익일 인수인계 특이사항 메모 -->
+          <div class="bg-slate-950 rounded-3xl p-5 border border-slate-800 shadow-xl">
+            <div class="flex items-center space-x-2 border-b border-slate-800 pb-3 mb-3">
+              <i data-lucide="message-square" class="w-4 h-4 text-purple-400"></i>
+              <h2 class="text-sm font-extrabold text-white">3. 인수인계 특이사항 & 분실물 보관 메모</h2>
+            </div>
+            <textarea id="handoverNotes" rows="3" placeholder="예: [분실물] 유아용 핑크색 크록스 신발 1켤레 매표소 보관 중. / [시설] 짚라인 3번 하네스 세탁 건조대에 거치 완료. 내일 오전 10시 영주 OO초등학교 단체 35명 방문 예정." class="w-full bg-slate-900 border border-slate-800 rounded-2xl p-3 text-xs text-slate-200 outline-none focus:border-amber-400 leading-relaxed"></textarea>
+          </div>
+
+        </div>
+
+        <!-- Right Column: 18:30 Facility Closing Checklist (lg:col-span-5) -->
+        <div class="lg:col-span-5 space-y-6">
+
+          <div class="bg-slate-950 rounded-3xl p-5 border border-slate-800 shadow-xl">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+              <div class="flex items-center space-x-2">
+                <i data-lucide="lock" class="w-4 h-4 text-rose-400"></i>
+                <h2 class="text-sm font-extrabold text-white">4. 18:30 퇴근 전 완벽 마감 점검표</h2>
+              </div>
+              <button onclick="checkAllClosing()" class="text-xs text-emerald-400 hover:text-emerald-300 font-bold">
+                전체 완료
+              </button>
+            </div>
+
+            <!-- Progress -->
+            <div class="mb-4">
+              <div class="flex justify-between text-xs text-slate-400 mb-1">
+                <span>마감 완료율:</span>
+                <span id="closeProgressText" class="font-bold text-emerald-400">0 / 14 (0%)</span>
+              </div>
+              <div class="w-full h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+                <div id="closeProgressBar" class="h-full bg-emerald-500 rounded-full transition-all duration-300" style="width: 0%;"></div>
+              </div>
+            </div>
+
+            <!-- Grouped Checkboxes -->
+            <div class="space-y-4 text-xs" id="closingChecklistContainer">
+
+              <!-- Group A: 실내 놀이동 -->
+              <div>
+                <div class="text-[11px] font-bold text-blue-400 mb-1.5 flex items-center space-x-1">
+                  <i data-lucide="home" class="w-3 h-3"></i>
+                  <span>실내 놀이동 마감</span>
+                </div>
+                <div class="space-y-1.5 bg-slate-900/60 p-2.5 rounded-xl border border-slate-800/80">
+                  <label class="flex items-center space-x-2 cursor-pointer">
+                    <input type="checkbox" onchange="updateClosingProgress()" class="closing-item rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0">
+                    <span class="text-slate-300">정글짐/트램펄린 조명 및 환기 공조기 OFF</span>
+                  </label>
+                  <label class="flex items-center space-x-2 cursor-pointer">
+                    <input type="checkbox" onchange="updateClosingProgress()" class="closing-item rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0">
+                    <span class="text-slate-300">볼풀장 및 편백존 살균 소독기 예약 가동</span>
+                  </label>
+                  <label class="flex items-center space-x-2 cursor-pointer">
+                    <input type="checkbox" onchange="updateClosingProgress()" class="closing-item rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0">
+                    <span class="text-slate-300">화장실 온수기 전원 및 세면대 수도꼭지 잠금</span>
+                  </label>
+                  <label class="flex items-center space-x-2 cursor-pointer">
+                    <input type="checkbox" onchange="updateClosingProgress()" class="closing-item rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0">
+                    <span class="text-slate-300">놀이동 비상구 2개소 및 메인 출입문 잠금</span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Group B: 야외 어드벤처 & 플레이존 -->
+              <div>
+                <div class="text-[11px] font-bold text-emerald-400 mb-1.5 flex items-center space-x-1">
+                  <i data-lucide="compass" class="w-3 h-3"></i>
+                  <span>야외 짚라인 & 플레이존 마감</span>
+                </div>
+                <div class="space-y-1.5 bg-slate-900/60 p-2.5 rounded-xl border border-slate-800/80">
+                  <label class="flex items-center space-x-2 cursor-pointer">
+                    <input type="checkbox" onchange="updateClosingProgress()" class="closing-item rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0">
+                    <span class="text-slate-300">짚라인 트롤리 전량 회수 및 장비고 시건</span>
+                  </label>
+                  <label class="flex items-center space-x-2 cursor-pointer">
+                    <input type="checkbox" onchange="updateClosingProgress()" class="closing-item rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0">
+                    <span class="text-slate-300">하네스 및 헬멧 소독 후 건조대 거치 정렬</span>
+                  </label>
+                  <label class="flex items-center space-x-2 cursor-pointer">
+                    <input type="checkbox" onchange="updateClosingProgress()" class="closing-item rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0">
+                    <span class="text-slate-300">모래놀이터 방수 차광막 덮개 결속 (야생동물 방지)</span>
+                  </label>
+                  <label class="flex items-center space-x-2 cursor-pointer">
+                    <input type="checkbox" onchange="updateClosingProgress()" class="closing-item rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0">
+                    <span class="text-slate-300">야외 썰매 회수 및 수로 배수 밸브 차단</span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Group C: 기반시설 & 보안 -->
+              <div>
+                <div class="text-[11px] font-bold text-amber-400 mb-1.5 flex items-center space-x-1">
+                  <i data-lucide="shield" class="w-3 h-3"></i>
+                  <span>기반시설 & 보안 방범</span>
+                </div>
+                <div class="space-y-1.5 bg-slate-900/60 p-2.5 rounded-xl border border-slate-800/80">
+                  <label class="flex items-center space-x-2 cursor-pointer">
+                    <input type="checkbox" onchange="updateClosingProgress()" class="closing-item rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0">
+                    <span class="text-slate-300">지하수 관정 전원 스위치 OFF 및 밀폐 덮개 잠금</span>
+                  </label>
+                  <label class="flex items-center space-x-2 cursor-pointer">
+                    <input type="checkbox" onchange="updateClosingProgress()" class="closing-item rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0">
+                    <span class="text-slate-300">매표소 금고 시건 및 포스기 일일 마감 승인</span>
+                  </label>
+                  <label class="flex items-center space-x-2 cursor-pointer">
+                    <input type="checkbox" onchange="updateClosingProgress()" class="closing-item rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0">
+                    <span class="text-slate-300">분말소화기 전면 장애물 적치 금지 확인</span>
+                  </label>
+                  <label class="flex items-center space-x-2 cursor-pointer">
+                    <input type="checkbox" onchange="updateClosingProgress()" class="closing-item rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0">
+                    <span class="text-slate-300">CCTV 16채널 녹화 표시등 정상 확인</span>
+                  </label>
+                  <label class="flex items-center space-x-2 cursor-pointer">
+                    <input type="checkbox" onchange="updateClosingProgress()" class="closing-item rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0">
+                    <span class="text-slate-300">쓰레기 분리수거 및 음식물 종량제 밀봉</span>
+                  </label>
+                  <label class="flex items-center space-x-2 cursor-pointer">
+                    <input type="checkbox" onchange="updateClosingProgress()" class="closing-item rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0">
+                    <span class="text-slate-300">사무동 전등 소등 및 야간 방범 시스템 경비 세팅</span>
+                  </label>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Save Action Button -->
+            <button onclick="saveClosingData()" class="mt-5 w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl shadow-lg transition flex items-center justify-center space-x-2">
+              <i data-lucide="save" class="w-4 h-4"></i>
+              <span>마감 정산 및 점검 일지 저장</span>
+            </button>
+          </div>
+
+        </div>
+
+      </div>
+
+    </main>
+
+  </div>
+
+  <!-- ========================================== -->
+  <!-- 2. OFFICIAL PRINT VIEW: A4 일일 마감 정산 보고서 서식 -->
+  <!-- ========================================== -->
+  <div id="printClosingDoc" class="print-only p-4">
+    <!-- Header -->
+    <div style="border-bottom: 2px solid #000; padding-bottom: 6px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: flex-end;">
+      <div>
+        <h1 style="font-size: 15pt; font-weight: 900; margin: 0; text-decoration: underline;">
+          리틀포레스트 봉플레이 일일 마감 및 시재금 정산서
+        </h1>
+        <p style="font-size: 7.5pt; color: #555; margin: 2px 0 0 0;">
+          소재지: 경상북도 봉화군 봉화읍 유록길 22 │ 총괄관리자: 홍성현 (010-5931-4144)
+        </p>
+      </div>
+      <div style="text-align: right; font-size: 7.5pt; color: #666;">
+        정산일자: <b id="prtDate" style="color: #000;">2026-09-09</b><br>
+        마감책임자: <b id="prtManager" style="color: #000;">홍성현</b>
+      </div>
+    </div>
+
+    <!-- 1. Cash Reconciliation Table -->
+    <div style="font-weight: bold; font-size: 8.5pt; margin-bottom: 4px;">1. 일일 현금 시재금 정산 내역</div>
+    <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 8pt;">
+      <tr>
+        <th style="width: 25%; text-align: center;">기초 준비금 (시재)</th>
+        <th style="width: 25%; text-align: center;">당일 현금 매출</th>
+        <th style="width: 25%; text-align: center;">현장 현금 지출</th>
+        <th style="width: 25%; text-align: center;">장부상 마감 잔액</th>
+      </tr>
+      <tr>
+        <td style="text-align: right; font-family: monospace;" id="prtBaseCash">0원</td>
+        <td style="text-align: right; font-family: monospace; font-weight: bold;" id="prtCashSales">0원</td>
+        <td style="text-align: right; font-family: monospace; color: #b91c1c;" id="prtCashExp">0원</td>
+        <td style="text-align: right; font-family: monospace; font-weight: 900;" id="prtBookBal">0원</td>
+      </tr>
+      <tr>
+        <th colspan="2" style="text-align: center;">금고 실제 보유액 (실사)</th>
+        <th colspan="2" style="text-align: center;">시재 과부족 (차액)</th>
+      </tr>
+      <tr>
+        <td colspan="2" style="text-align: center; font-family: monospace; font-weight: bold; font-size: 9pt;" id="prtActualCash">0원</td>
+        <td colspan="2" style="text-align: center; font-weight: 900; font-size: 9pt;" id="prtDiff">정산 대기</td>
+      </tr>
+    </table>
+
+    <!-- 2. Staff Shift Summary -->
+    <div style="font-weight: bold; font-size: 8.5pt; margin-bottom: 4px;">2. 당일 근무 편성 현황</div>
+    <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 7.5pt;">
+      <thead>
+        <tr>
+          <th style="width: 20%; text-align: center;">성 명</th>
+          <th style="width: 30%; text-align: center;">담당 구역 및 직무</th>
+          <th style="width: 25%; text-align: center;">근무 조 (시간)</th>
+          <th style="width: 25%; text-align: center;">출근 / 근무 상태</th>
+        </tr>
+      </thead>
+      <tbody id="prtStaffTable">
+        <!-- populated via JS -->
+      </tbody>
+    </table>
+
+    <!-- 3. Closing Checklist Status -->
+    <div style="font-weight: bold; font-size: 8.5pt; margin-bottom: 4px;">3. 18:30 퇴근 전 보안/안전 마감 점검 결과</div>
+    <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 7.5pt;">
+      <tr>
+        <th style="width: 33%; text-align: center;">실내 놀이동 마감</th>
+        <th style="width: 33%; text-align: center;">야외 짚라인 & 플레이존 마감</th>
+        <th style="width: 34%; text-align: center;">기반시설 & 야간 방범</th>
+      </tr>
+      <tr>
+        <td style="vertical-align: top; line-height: 1.4;">
+          - 정글짐/트램펄린 조명 소등 [완료]<br>
+          - 볼풀/편백 살균기 예약 [완료]<br>
+          - 화장실 온수/수도 차단 [완료]<br>
+          - 비상구 및 출입문 시건 [완료]
+        </td>
+        <td style="vertical-align: top; line-height: 1.4;">
+          - 짚라인 트롤리 전량 회수 [완료]<br>
+          - 하네스/헬멧 건조대 정렬 [완료]<br>
+          - 모래놀이터 덮개 결속 [완료]<br>
+          - 썰매 회수 및 수로 차단 [완료]
+        </td>
+        <td style="vertical-align: top; line-height: 1.4;">
+          - 관정 전원 OFF & 덮개 시건 [완료]<br>
+          - 포스기 마감 & 금고 시건 [완료]<br>
+          - CCTV 녹화 상태 확인 [완료]<br>
+          - 사무동 소등 & 방범 세팅 [완료]
+        </td>
+      </tr>
+      <tr>
+        <td colspan="3" style="text-align: center; font-weight: bold; background-color: #f8fafc;" id="prtCheckResult">
+          마감 점검 14개 전 항목 100% 정상 완료 확인
+        </td>
+      </tr>
+    </table>
+
+    <!-- 4. Handover Notes -->
+    <div style="border: 1px solid #222; padding: 6px 8px; margin-bottom: 15px; font-size: 7.5pt;">
+      <div style="font-weight: bold; margin-bottom: 3px;">[특이사항 및 익일 인수인계 사항]</div>
+      <div id="prtNotes" style="min-height: 35px; white-space: pre-wrap; line-height: 1.35;">
+        특이사항 없음. 전 구역 안전 마감 및 시재금 정산 이상 없음.
+      </div>
+    </div>
+
+    <!-- Sign Footer -->
+    <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #444; padding-top: 8px; font-size: 8pt;">
+      <span>리틀포레스트 봉플레이 운영팀</span>
+      <span>
+        마감책임자 확인 서명: <b id="prtSignName">홍성현</b> &nbsp;&nbsp; (서명 / 인)
+      </span>
+    </div>
+  </div>
+
+  <!-- ===== 클라우드 DB 연동 및 기기 위치 설정 모달 ===== -->
+  <div id="dbModal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-lg p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-9 h-9 rounded-xl bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center">
+            <i data-lucide="database" class="w-4 h-4 text-emerald-400"></i>
+          </div>
+          <div>
+            <h3 class="font-black text-base text-white">클라우드 DB 연동 &amp; 기기 설정</h3>
+            <p class="text-[11px] text-slate-400">3개 기기 실시간 동기화 (사무실 / 매표소 / 현장)</p>
+          </div>
+        </div>
+        <button onclick="closeDbModal()" class="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 hover:bg-slate-700">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs text-slate-300">
+        <div class="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 text-[11px] text-emerald-300 leading-relaxed">
+          <b>🏢 마감 정산 기기 위치 설정</b><br>
+          이 기기를 <b>[사무실]</b>로 지정하면 매표소와 현장의 실적 데이터가 클라우드를 통해 정산 보드와 안전하게 동기화됩니다.
+        </div>
+
+        <div>
+          <label class="block text-slate-400 font-bold mb-1">이 기기의 위치 (역할)</label>
+          <select id="deviceLabelInput" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-white text-xs font-bold outline-none focus:border-emerald-500">
+            <option value="사무실" selected>사무실 (관제/마감/정산 PC)</option>
+            <option value="매표소">매표소 (발권/예약 PC·태블릿)</option>
+            <option value="현장">현장 (야외 안전점검 스마트폰)</option>
+            <option value="대표">대표 개인기기</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-slate-400 font-bold mb-1">Supabase Project URL</label>
+          <input type="text" id="dbUrlInput" placeholder="https://xxxxx.supabase.co" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white font-mono text-xs outline-none focus:border-emerald-500">
+        </div>
+
+        <div>
+          <label class="block text-slate-400 font-bold mb-1">anon public key</label>
+          <input type="password" id="dbKeyInput" placeholder="eyJhbGci..." class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white font-mono text-xs outline-none focus:border-emerald-500">
+        </div>
+
+        <div id="dbTestResult" class="hidden rounded-xl p-3 text-[11px] font-bold"></div>
+
+        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1.5 text-[11px] text-slate-400">
+          <p>• 네트워크 오프라인 시에도 시재금 정산 및 마감 저장은 브라우저에 1차 보관됩니다.</p>
+          <p>• 대기 중인 동기화 항목: <b id="dbQueueCount" class="text-white font-mono">0</b>건</p>
+        </div>
+      </div>
+
+      <div class="pt-3 border-t border-slate-800 flex items-center justify-end gap-2">
+        <button onclick="testDbConnection()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold transition">연결 테스트</button>
+        <button onclick="saveDbConfig()" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black shadow-lg transition">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Initial staff data
+    let staffList = [
+      { id: 1, name: '홍성현', role: '총괄 대표 / 현장총괄', shift: '종일조 (09:00~19:00)', status: '근무완료' },
+      { id: 2, name: '김지연', role: '운영매니저 / 매표·정산·실내존', shift: '종일조 (09:00~19:00)', status: '근무완료' },
+      { id: 3, name: '김주성', role: '안전매니저 / 야외 짚라인·네트', shift: '종일조 (09:00~19:00)', status: '근무완료' },
+      { id: 4, name: '안전코치(알바)', role: '짚라인 출발·도착 안전보조', shift: '오후조 (13:30~19:00)', status: '근무완료' }
+    ];
+
+    const STORAGE_KEY = 'bongplay_closing_board_data';
+
+    document.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+      initDate();
+      renderStaffTable();
+      calculateCashBalance();
+      updateClosingProgress();
+      loadSavedData();
+
+      if (window.BongplaySync) {
+        if (BongplaySync.getDeviceLabel() === '미지정') {
+          BongplaySync.setDeviceLabel('사무실');
+        }
+        BongplaySync.onStatusChange(updateDbBadge);
+        updateDbBadge();
+
+        if (BongplaySync.onDataChange) {
+          BongplaySync.onDataChange((detail) => {
+            if (!detail || !detail.table || detail.table === 'closing_records') {
+              loadSavedData();
+            }
+          });
+        }
+      }
+    });
+
+    function initDate() {
+      const now = new Date();
+      const yyyy = now.getFullYear();
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const dd = String(now.getDate()).padStart(2, '0');
+      document.getElementById('closingDate').value = `${yyyy}-${mm}-${dd}`;
+    }
+
+    function renderStaffTable() {
+      const tbody = document.getElementById('staffTableBody');
+      tbody.innerHTML = '';
+
+      staffList.forEach((s, idx) => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-900/60 transition';
+        tr.innerHTML = `
+          <td class="py-2.5 font-bold text-white">
+            <input type="text" value="${s.name}" onchange="updateStaff(${idx}, 'name', this.value)" class="bg-transparent outline-none w-20">
+          </td>
+          <td class="py-2.5 text-slate-300">
+            <input type="text" value="${s.role}" onchange="updateStaff(${idx}, 'role', this.value)" class="bg-transparent outline-none w-32">
+          </td>
+          <td class="py-2.5 text-slate-400">
+            <select onchange="updateStaff(${idx}, 'shift', this.value)" class="bg-slate-900 text-slate-200 rounded px-1.5 py-0.5 border border-slate-800 outline-none">
+              <option ${s.shift.includes('종일조') ? 'selected' : ''}>종일조 (09:00~19:00)</option>
+              <option ${s.shift.includes('오전조') ? 'selected' : ''}>오전조 (09:00~14:30)</option>
+              <option ${s.shift.includes('오후조') ? 'selected' : ''}>오후조 (13:30~19:00)</option>
+            </select>
+          </td>
+          <td class="py-2.5">
+            <select onchange="updateStaff(${idx}, 'status', this.value)" class="bg-slate-900 font-bold rounded px-2 py-0.5 border border-slate-800 outline-none ${s.status === '근무완료' ? 'text-emerald-400' : 'text-slate-300'}">
+              <option ${s.status === '출근완료' ? 'selected' : ''}>출근완료</option>
+              <option ${s.status === '근무중' ? 'selected' : ''}>근무중</option>
+              <option ${s.status === '근무완료' ? 'selected' : ''}>근무완료</option>
+              <option ${s.status === '퇴근완료' ? 'selected' : ''}>퇴근완료</option>
+              <option ${s.status === '결근/휴무' ? 'selected' : ''}>결근/휴무</option>
+            </select>
+          </td>
+          <td class="py-2.5 text-center">
+            <button onclick="removeStaff(${idx})" class="p-1 text-slate-500 hover:text-rose-500 rounded">
+              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+            </button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+      lucide.createIcons();
+    }
+
+    function addStaffRow() {
+      staffList.push({
+        id: Date.now(),
+        name: '직원명',
+        role: '담당구역',
+        shift: '오후조 (13:30~19:00)',
+        status: '근무중'
+      });
+      renderStaffTable();
+    }
+
+    function removeStaff(idx) {
+      if (staffList.length <= 1) return;
+      staffList.splice(idx, 1);
+      renderStaffTable();
+    }
+
+    function updateStaff(idx, field, value) {
+      staffList[idx][field] = value;
+    }
+
+    // Cash Calculation Logic
+    function calculateCashBalance() {
+      const base = Number(document.getElementById('baseCash').value) || 0;
+      const sales = Number(document.getElementById('cashSales').value) || 0;
+      const exp = Number(document.getElementById('cashExpenses').value) || 0;
+
+      // Book Balance
+      const bookBalance = base + sales - exp;
+
+      // Actual Cash Count
+      const c50k = (Number(document.getElementById('count50k').value) || 0) * 50000;
+      const c10k = (Number(document.getElementById('count10k').value) || 0) * 10000;
+      const c5k = (Number(document.getElementById('count5k').value) || 0) * 5000;
+      const c1k = (Number(document.getElementById('count1k').value) || 0) * 1000;
+      const cCoin = Number(document.getElementById('countCoin').value) || 0;
+
+      const actualCash = c50k + c10k + c5k + c1k + cCoin;
+      const diff = actualCash - bookBalance;
+
+      document.getElementById('bookBalanceText').innerText = bookBalance.toLocaleString() + '원';
+      document.getElementById('actualCashText').innerText = actualCash.toLocaleString() + '원';
+
+      const diffEl = document.getElementById('diffStatusText');
+      const cardEl = document.getElementById('balanceCard');
+
+      if (diff === 0) {
+        diffEl.innerText = '일치 (±0원)';
+        diffEl.className = 'text-base font-black text-emerald-400';
+        cardEl.className = 'p-4 rounded-2xl border border-emerald-500/30 bg-emerald-950/20 flex items-center justify-between';
+      } else if (diff > 0) {
+        diffEl.innerText = `+${diff.toLocaleString()}원 (시재 과잉)`;
+        diffEl.className = 'text-base font-black text-amber-400';
+        cardEl.className = 'p-4 rounded-2xl border border-amber-500/30 bg-amber-950/20 flex items-center justify-between';
+      } else {
+        diffEl.innerText = `${diff.toLocaleString()}원 (시재 부족!)`;
+        diffEl.className = 'text-base font-black text-rose-400';
+        cardEl.className = 'p-4 rounded-2xl border border-rose-500/30 bg-rose-950/20 flex items-center justify-between';
+      }
+    }
+
+    // Closing Checklist Progress
+    function updateClosingProgress() {
+      const items = document.querySelectorAll('.closing-item');
+      let checked = 0;
+      items.forEach(cb => {
+        if (cb.checked) checked++;
+      });
+
+      const total = items.length;
+      const pct = Math.round((checked / total) * 100);
+
+      document.getElementById('closeProgressText').innerText = `${checked} / ${total} (${pct}%)`;
+      document.getElementById('closeProgressBar').style.width = pct + '%';
+    }
+
+    function checkAllClosing() {
+      document.querySelectorAll('.closing-item').forEach(cb => cb.checked = true);
+      updateClosingProgress();
+      showToast('14개 전 마감 항목이 완료 체크되었습니다.');
+    }
+
+    // Save & Load
+    function saveClosingData() {
+      const data = {
+        date: document.getElementById('closingDate').value,
+        manager: document.getElementById('closingManager').value,
+        staff: staffList,
+        cash: {
+          base: document.getElementById('baseCash').value,
+          sales: document.getElementById('cashSales').value,
+          exp: document.getElementById('cashExpenses').value,
+          c50k: document.getElementById('count50k').value,
+          c10k: document.getElementById('count10k').value,
+          c5k: document.getElementById('count5k').value,
+          c1k: document.getElementById('count1k').value,
+          cCoin: document.getElementById('countCoin').value
+        },
+        notes: document.getElementById('handoverNotes').value,
+        savedAt: new Date().toISOString()
+      };
+
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+      if (window.BongplaySync) {
+        BongplaySync.upsert('closing_records', {
+          id: data.date,
+          date: data.date,
+          manager: data.manager,
+          staff: data.staff,
+          cash: data.cash,
+          actual_cash: Number(data.cash && data.cash.sales) || 0,
+          notes: data.notes
+        });
+      }
+
+      // Discord #마감 채널 일일 결산 리포트 자동 발송
+      if (window.BongplayNotify && typeof BongplayNotify.sendClosingReport === 'function') {
+        const cashSales = Number(data.cash && data.cash.sales) || 0;
+        let todaySales = cashSales;
+        let todayVisitors = 0;
+        try {
+          const actuals = JSON.parse(localStorage.getItem('bongtteurak_actual_records_v4') || '[]');
+          const rec = actuals.find(a => a.date === data.date);
+          if (rec) {
+            todaySales = Number(rec.total_sales || rec.totalSales || todaySales);
+            todayVisitors = Number(rec.visitors || todayVisitors);
+          }
+        } catch(e) {}
+
+        BongplayNotify.sendClosingReport({
+          date: data.date,
+          total_revenue: todaySales,
+          total_visitors: todayVisitors,
+          ticket_revenue: Math.round(todaySales * 0.75),
+          fnb_revenue: Math.round(todaySales * 0.25)
+        });
+      }
+
+      showToast('금일 마감 및 정산 일지가 저장되었습니다.');
+    }
+
+    function loadSavedData() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      try {
+        const data = JSON.parse(raw);
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const todayYmd = `${yyyy}-${mm}-${dd}`;
+
+        // 오늘 날짜로 이미 저장된 마감 일지가 있는 경우에만 복원
+        if (data && data.date === todayYmd) {
+          if (data.manager) document.getElementById('closingManager').value = data.manager;
+          if (data.notes) document.getElementById('handoverNotes').value = data.notes;
+          if (data.cash) {
+            document.getElementById('baseCash').value = data.cash.base || 200000;
+            document.getElementById('cashSales').value = data.cash.sales || 0;
+            document.getElementById('cashExpenses').value = data.cash.exp || 0;
+            document.getElementById('count50k').value = data.cash.c50k || 0;
+            document.getElementById('count10k').value = data.cash.c10k || 0;
+            document.getElementById('count5k').value = data.cash.c5k || 0;
+            document.getElementById('count1k').value = data.cash.c1k || 0;
+            document.getElementById('countCoin').value = data.cash.cCoin || 0;
+            calculateCashBalance();
+          }
+        }
+      } catch (e) {}
+    }
+
+    // KakaoTalk Report Generator
+    function copyKakaoClosingReport() {
+      const dt = document.getElementById('closingDate').value;
+      const mgr = document.getElementById('closingManager').value;
+      const book = document.getElementById('bookBalanceText').innerText;
+      const act = document.getElementById('actualCashText').innerText;
+      const diff = document.getElementById('diffStatusText').innerText;
+      const notes = document.getElementById('handoverNotes').value.trim() || '특이사항 없음.';
+      
+      const items = document.querySelectorAll('.closing-item');
+      let checkedCount = 0;
+      items.forEach(cb => { if (cb.checked) checkedCount++; });
+
+      const text = `[리틀포레스트 봉플레이 마감 보고]\n` +
+        `■ 일자: ${dt}\n` +
+        `■ 마감자: ${mgr} (010-5931-4144)\n` +
+        `────────────────────\n` +
+        `■ 현금 시재 정산:\n` +
+        ` • 장부 마감액: ${book}\n` +
+        ` • 금고 실사액: ${act}\n` +
+        ` • 과부족 상태: ${diff}\n` +
+        `────────────────────\n` +
+        `■ 시설/보안 마감 점검:\n` +
+        ` • 점검 완료율: ${checkedCount}/${items.length}개 완료 (${Math.round(checkedCount/items.length*100)}%)\n` +
+        ` • 관정/짚라인/소등/금고 시건 완료\n` +
+        `────────────────────\n` +
+        `■ 인수인계 및 특이사항:\n${notes}\n` +
+        `────────────────────\n` +
+        `※ 전 구역 야간 방범 세팅 후 퇴근 완료했습니다.`;
+
+      navigator.clipboard.writeText(text).then(() => {
+        showToast('카카오톡 마감 보고 양식이 클립보드에 복사되었습니다! (붙여넣기 하세요)');
+      }).catch(() => {
+        alert('복사 실패: 직접 복사해주세요.\n\n' + text);
+      });
+    }
+
+    // Print A4 Sheet
+    function printClosingSheet() {
+      document.getElementById('prtDate').innerText = document.getElementById('closingDate').value;
+      document.getElementById('prtManager').innerText = document.getElementById('closingManager').value;
+      document.getElementById('prtSignName').innerText = document.getElementById('closingManager').value;
+
+      document.getElementById('prtBaseCash').innerText = Number(document.getElementById('baseCash').value).toLocaleString() + '원';
+      document.getElementById('prtCashSales').innerText = '+' + Number(document.getElementById('cashSales').value).toLocaleString() + '원';
+      document.getElementById('prtCashExp').innerText = '-' + Number(document.getElementById('cashExpenses').value).toLocaleString() + '원';
+      document.getElementById('prtBookBal').innerText = document.getElementById('bookBalanceText').innerText;
+      document.getElementById('prtActualCash').innerText = document.getElementById('actualCashText').innerText;
+      document.getElementById('prtDiff').innerText = document.getElementById('diffStatusText').innerText;
+
+      // Staff Table for print
+      const pStaffTbody = document.getElementById('prtStaffTable');
+      pStaffTbody.innerHTML = '';
+      staffList.forEach(s => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td style="text-align: center; font-weight: bold;">${s.name}</td>
+          <td>${s.role}</td>
+          <td style="text-align: center;">${s.shift}</td>
+          <td style="text-align: center; font-weight: bold;">${s.status}</td>
+        `;
+        pStaffTbody.appendChild(tr);
+      });
+
+      // Notes
+      const notes = document.getElementById('handoverNotes').value.trim();
+      document.getElementById('prtNotes').innerText = notes || '특이사항 없음. 전 구역 시설 마감 및 시재금 정산 완료.';
+
+      window.print();
+    }
+
+    function showToast(msg) {
+      const toast = document.createElement('div');
+      toast.className = 'fixed bottom-6 right-6 z-50 bg-slate-950 text-white px-5 py-3 rounded-2xl shadow-2xl border border-amber-500/50 text-xs font-bold flex items-center space-x-2 transition-all duration-300';
+      toast.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-amber-400"></i><span>${msg}</span>`;
+      document.body.appendChild(toast);
+      lucide.createIcons();
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-2');
+        setTimeout(() => toast.remove(), 300);
+      }, 2500);
+    }
+
+    // ================= 클라우드 DB 연동 & 기기 위치 (사무실 설정) =================
+    function openDbModal() {
+      if (!window.BongplaySync) return;
+      const cfg = BongplaySync.getConfig();
+      if (cfg) {
+        const urlEl = document.getElementById('dbUrlInput');
+        const keyEl = document.getElementById('dbKeyInput');
+        if (urlEl) urlEl.value = cfg.url || '';
+        if (keyEl) keyEl.value = cfg.key || '';
+      }
+      const curLabel = BongplaySync.getDeviceLabel();
+      const labelEl = document.getElementById('deviceLabelInput');
+      if (labelEl) {
+        labelEl.value = (curLabel && curLabel !== '미지정') ? curLabel : '사무실';
+      }
+      const qEl = document.getElementById('dbQueueCount');
+      if (qEl) qEl.textContent = BongplaySync.getQueue().length;
+      const tEl = document.getElementById('dbTestResult');
+      if (tEl) tEl.classList.add('hidden');
+      const mEl = document.getElementById('dbModal');
+      if (mEl) mEl.classList.remove('hidden');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function closeDbModal() {
+      const mEl = document.getElementById('dbModal');
+      if (mEl) mEl.classList.add('hidden');
+    }
+
+    function saveDbConfig() {
+      if (!window.BongplaySync) return;
+      const url = document.getElementById('dbUrlInput').value.trim();
+      const key = document.getElementById('dbKeyInput').value.trim();
+      const label = document.getElementById('deviceLabelInput').value;
+      BongplaySync.setDeviceLabel(label);
+      if (!url || !key) {
+        BongplaySync.setConfig(null, null);
+        showToast(`기기 위치 [${label}] 저장 완료 (로컬 모드)`);
+      } else {
+        BongplaySync.setConfig(url, key);
+        showToast(`기기 위치 [${label}] 및 DB 설정 저장 완료`);
+        BongplaySync.flushQueue();
+      }
+      updateDbBadge();
+      closeDbModal();
+    }
+
+    async function testDbConnection() {
+      if (!window.BongplaySync) return;
+      const url = document.getElementById('dbUrlInput').value.trim();
+      const key = document.getElementById('dbKeyInput').value.trim();
+      if (!url || !key) { alert('URL과 key를 모두 입력하십시오.'); return; }
+      BongplaySync.setConfig(url, key);
+      const box = document.getElementById('dbTestResult');
+      box.className = 'rounded-xl p-3 text-[11px] font-bold bg-slate-800 text-slate-300';
+      box.textContent = '연결 확인 중...';
+      box.classList.remove('hidden');
+      const r = await BongplaySync.testConnection();
+      if (r.ok) {
+        box.className = 'rounded-xl p-3 text-[11px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30';
+        box.textContent = '✓ ' + r.msg;
+      } else {
+        box.className = 'rounded-xl p-3 text-[11px] font-bold bg-rose-500/15 text-rose-300 border border-rose-500/30';
+        box.textContent = '✗ ' + r.msg;
+      }
+    }
+
+    function updateDbBadge() {
+      const el = document.getElementById('dbSyncText');
+      const btn = document.getElementById('dbSyncBtn');
+      const dot = document.getElementById('dbSyncDot');
+      if (!btn || !window.BongplaySync) return;
+      const st = BongplaySync.getStatus();
+      const devLabel = BongplaySync.getDeviceLabel();
+      const labelText = (devLabel && devLabel !== '미지정') ? devLabel : '사무실';
+
+      let text = '사무실';
+      let dotCls = 'bg-slate-500';
+      let btnCls = 'bg-slate-800 hover:bg-slate-700 text-slate-400 border-slate-700';
+
+      if (!st.configured) {
+        text = 'DB 미연동 · ' + labelText;
+        dotCls = 'bg-slate-500';
+        btnCls = 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700';
+      } else if (!st.online) {
+        text = '오프라인 (' + st.pending + ') · ' + labelText;
+        dotCls = 'bg-amber-400 animate-ping';
+        btnCls = 'bg-amber-900/40 hover:bg-amber-900/60 text-amber-300 border-amber-600/50 animate-pulse';
+      } else if (st.pending > 0) {
+        text = '대기 ' + st.pending + ' · ' + labelText;
+        dotCls = 'bg-amber-400';
+        btnCls = 'bg-amber-900/40 hover:bg-amber-900/60 text-amber-300 border-amber-600/50';
+      } else {
+        text = '동기화 정상 · ' + labelText;
+        dotCls = 'bg-emerald-400';
+        btnCls = 'bg-emerald-900/40 hover:bg-emerald-900/60 text-emerald-300 border-emerald-600/50';
+      }
+
+      if (el) el.textContent = text;
+      if (dot) dot.className = 'w-1.5 h-1.5 rounded-full sm:hidden ' + dotCls;
+      btn.className = 'flex items-center space-x-1 px-2 sm:px-2.5 py-1.5 border rounded-lg text-xs font-bold transition shadow-sm whitespace-nowrap ' + btnCls;
+    }
+
+    function toggleFullScreen() {
+      if (!document.fullscreenElement && !document.webkitFullscreenElement && !document.msFullscreenElement) {
+        if (document.documentElement.requestFullscreen) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        } else if (document.documentElement.webkitRequestFullscreen) {
+          document.documentElement.webkitRequestFullscreen();
+        } else if (document.documentElement.msRequestFullscreen) {
+          document.documentElement.msRequestFullscreen();
+        }
+      } else {
+        if (document.exitFullscreen) {
+          document.exitFullscreen().catch(() => {});
+        } else if (document.webkitExitFullscreen) {
+          document.webkitExitFullscreen();
+        } else if (document.msExitFullscreen) {
+          document.msExitFullscreen();
+        }
+      }
+    }
+  </script>
+<a href="../index.html" class="no-print" style="position:fixed;left:12px;bottom:12px;z-index:9999;display:flex;align-items:center;gap:6px;padding:9px 14px;border-radius:14px;background:rgba(15,23,42,.94);border:1px solid #334155;color:#cbd5e1;font-size:11px;font-weight:700;text-decoration:none;box-shadow:0 4px 16px rgba(0,0,0,.4);backdrop-filter:blur(8px)">&#8592; 메인</a>
+</body>
+</html>

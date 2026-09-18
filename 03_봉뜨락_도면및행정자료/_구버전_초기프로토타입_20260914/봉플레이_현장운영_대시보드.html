@@ -1,0 +1,1422 @@
+<!DOCTYPE html>
+<html lang="ko" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>리틀포레스트 봉플레이 | 매출 &amp; 손익분기(BEP) 실시간 관제 대시보드</title>
+  
+  <!-- Fonts: Noto Sans KR & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800;900&family=Noto+Sans+KR:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Noto Sans KR', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace']
+          },
+          colors: {
+            brand: {
+              50: '#ecfdf5',
+              500: '#10b981',
+              600: '#059669',
+              700: '#047857'
+            }
+          }
+        }
+      }
+    };
+  </script>
+
+  <style>
+    * {
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    input, textarea {
+      user-select: text;
+    }
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.2);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(100, 116, 139, 0.4);
+      border-radius: 9999px;
+    }
+    .touch-btn {
+      touch-action: manipulation;
+      transition: transform 0.08s ease, background-color 0.15s ease, border-color 0.15s ease;
+    }
+    .touch-btn:active {
+      transform: scale(0.97);
+    }
+    /* Glow highlights for goal achievement */
+    .glow-success {
+      border-color: rgba(16, 185, 129, 0.5) !important;
+      box-shadow: 0 0 25px -4px rgba(16, 185, 129, 0.25);
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-[#070b12] text-slate-100 flex flex-col font-sans antialiased overflow-y-auto lg:overflow-hidden">
+
+  <!-- ================================================================= -->
+  <!-- TOP KIOSK HEADER: LIVE STATUS & WALL CONTROLS                     -->
+  <!-- ================================================================= -->
+  <header class="bg-[#0e1626]/95 backdrop-blur border-b border-slate-800/80 px-4 sm:px-6 py-2.5 flex-none flex items-center justify-between z-20">
+    
+    <!-- Left: Branding & Operating Context -->
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-xl shadow-lg shadow-emerald-500/20 font-black shrink-0">
+        🌲
+      </div>
+      <div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <h1 class="text-sm sm:text-lg font-black tracking-tight text-white whitespace-nowrap">리틀포레스트 봉플레이</h1>
+          <span class="px-2 py-0.5 text-[10px] font-extrabold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 rounded-md whitespace-nowrap">
+            매출·BEP 관제실
+          </span>
+          <span id="hdrOpModeBadge" class="px-2 py-0.5 text-[10px] font-extrabold bg-blue-500/15 text-blue-400 border border-blue-500/30 rounded-md whitespace-nowrap">
+            평일 (목표 36만 원)
+          </span>
+        </div>
+        <p class="text-[11px] text-slate-400 font-medium hidden sm:block">손익분기 매출액(2.36억) 실시간 추적 시스템</p>
+      </div>
+    </div>
+
+    <!-- Center: Safe Operations Counter -->
+    <div class="hidden md:flex items-center gap-2.5 bg-slate-950/70 px-3.5 py-1.5 rounded-xl border border-slate-800">
+      <div class="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center text-sm font-bold shrink-0">
+        🛡️
+      </div>
+      <div class="flex items-baseline gap-1.5 whitespace-nowrap">
+        <span class="text-[10px] uppercase font-bold text-slate-400">무사고 운용</span>
+        <span id="hdrSafeDays" class="text-lg font-black font-mono text-amber-400 tabular-nums">0</span>
+        <span class="text-xs text-slate-400 font-bold">일째</span>
+        <span class="text-[10px] text-emerald-400 bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-800/40">3년 연속 도전 중</span>
+      </div>
+    </div>
+
+    <!-- Right: Live Clock & Main Action Buttons -->
+    <div class="flex items-center gap-2 sm:gap-3">
+      <div class="text-right hidden lg:block mr-1 whitespace-nowrap">
+        <div id="hdrLiveDate" class="text-[11px] font-medium text-slate-400">2026년 9월 9일 (수)</div>
+        <div id="hdrLiveTime" class="text-base font-black font-mono text-emerald-400 tabular-nums leading-tight">10:45:00</div>
+      </div>
+
+      <!-- Main Action: Record Daily Performance Button -->
+      <button id="btnOpenEntryModal" class="touch-btn px-4 sm:px-5 py-2 sm:py-2.5 bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-600 hover:from-emerald-500 text-white font-black text-xs sm:text-sm rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-1.5 whitespace-nowrap">
+        <i data-lucide="plus-circle" class="w-4 h-4"></i>
+        <span>오늘 실적 입력</span>
+      </button>
+
+      <!-- Fullscreen Toggle -->
+      <button id="btnToggleFullscreen" title="전체화면" class="touch-btn p-2 sm:p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 shrink-0">
+        <i data-lucide="maximize" class="w-4 h-4"></i>
+      </button>
+
+      <!-- Settings / Backup -->
+      <button id="btnOpenSettings" title="데이터 관리 & 백업" class="touch-btn p-2 sm:p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 shrink-0">
+        <i data-lucide="settings" class="w-4 h-4"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- ================================================================= -->
+  <!-- MAIN DISPLAY: 4 TARGET TIERS (ZERO COLLISION HIERARCHY)           -->
+  <!-- ================================================================= -->
+  <main class="flex-1 p-3 sm:p-4 flex flex-col gap-3 sm:gap-4 overflow-y-auto lg:overflow-hidden">
+
+    <!-- 4 GRAND TARGET CARDS: FLAWLESS HIERARCHICAL LAYOUT -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-3.5 flex-none">
+
+      <!-- 1. DAILY REVENUE TARGET CARD -->
+      <div id="cardDaily" class="bg-[#0e1626]/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between transition-all duration-300 shadow-sm min-h-[145px]">
+        <!-- Top Label & Status Pill -->
+        <div class="flex items-center justify-between pb-1">
+          <span class="flex items-center gap-1.5 text-xs font-extrabold text-blue-400 uppercase tracking-wide">
+            <i data-lucide="sun" class="w-3.5 h-3.5"></i>
+            일일 매출 (TODAY)
+          </span>
+          <span id="badgeDailyStatus" class="px-2 py-0.5 text-[10px] font-black rounded-md bg-slate-800 text-slate-400 font-mono">
+            기록 대기
+          </span>
+        </div>
+
+        <!-- Center: Hero Rate & Clean Sub-metrics (VERTICAL STACK TO PREVENT OVERLAP) -->
+        <div class="my-1.5 space-y-1">
+          <div class="flex items-baseline justify-between">
+            <div class="flex items-baseline gap-1">
+              <span id="valDailyRate" class="text-3xl sm:text-4xl font-black font-mono text-white tabular-nums tracking-tight">0.0%</span>
+              <span class="text-[10px] text-slate-400 font-bold uppercase">달성</span>
+            </div>
+            <span id="badgeDailyGapPill" class="text-[11px] font-bold font-mono text-slate-400">목표 36만 원</span>
+          </div>
+
+          <div class="flex items-center justify-between text-xs font-mono pt-0.5 border-t border-slate-800/60">
+            <div class="flex items-baseline gap-1">
+              <span class="text-[10px] text-slate-400">당일 실적:</span>
+              <strong id="valDailyActualRev" class="text-blue-400 font-bold text-sm">0 원</strong>
+            </div>
+            <div class="text-[11px] text-slate-400">
+              목표: <span id="valDailyTargetRev" class="text-slate-300">36만 원</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom: Progress Bar & Sub-stats -->
+        <div class="space-y-1">
+          <div class="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
+            <div id="barDaily" class="bg-gradient-to-r from-blue-600 to-cyan-400 h-full rounded-full transition-all duration-700" style="width: 0%;"></div>
+          </div>
+          <div class="flex items-center justify-between text-[10px] text-slate-400">
+            <span id="subDailyVisitors">방문객: 0명 (목표 30명)</span>
+            <span id="subDailyGap" class="font-medium text-slate-400">목표까지 360,000원</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. WEEKLY REVENUE TARGET CARD -->
+      <div id="cardWeekly" class="bg-[#0e1626]/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between transition-all duration-300 shadow-sm min-h-[145px]">
+        <div class="flex items-center justify-between pb-1">
+          <span class="flex items-center gap-1.5 text-xs font-extrabold text-emerald-400 uppercase tracking-wide">
+            <i data-lucide="calendar-range" class="w-3.5 h-3.5"></i>
+            이번 주 매출 (WEEK)
+          </span>
+          <span class="px-2 py-0.5 text-[10px] font-extrabold rounded-md bg-emerald-950/60 text-emerald-400 border border-emerald-800/50 font-mono">
+            월~일 누적
+          </span>
+        </div>
+
+        <div class="my-1.5 space-y-1">
+          <div class="flex items-baseline justify-between">
+            <div class="flex items-baseline gap-1">
+              <span id="valWeeklyRate" class="text-3xl sm:text-4xl font-black font-mono text-white tabular-nums tracking-tight">0.0%</span>
+              <span class="text-[10px] text-slate-400 font-bold uppercase">달성</span>
+            </div>
+            <span id="badgeWeeklyGapPill" class="text-[11px] font-bold font-mono text-slate-400">목표 536만 원</span>
+          </div>
+
+          <div class="flex items-center justify-between text-xs font-mono pt-0.5 border-t border-slate-800/60">
+            <div class="flex items-baseline gap-1">
+              <span class="text-[10px] text-slate-400">주간 누적:</span>
+              <strong id="valWeeklyActualRev" class="text-emerald-400 font-bold text-sm">0 원</strong>
+            </div>
+            <div class="text-[11px] text-slate-400">
+              목표: <span id="valWeeklyTargetRev" class="text-slate-300">536만 원</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="space-y-1">
+          <div class="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
+            <div id="barWeekly" class="bg-gradient-to-r from-emerald-600 to-teal-400 h-full rounded-full transition-all duration-700" style="width: 0%;"></div>
+          </div>
+          <div class="flex items-center justify-between text-[10px] text-slate-400">
+            <span id="subWeeklyVisitors">누적: 0명 (목표 446명)</span>
+            <span id="subWeeklyGap" class="font-medium text-slate-400">목표까지 5,360,000원</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. MONTHLY REVENUE TARGET CARD -->
+      <div id="cardMonthly" class="bg-[#0e1626]/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between transition-all duration-300 shadow-sm min-h-[145px]">
+        <div class="flex items-center justify-between pb-1">
+          <span class="flex items-center gap-1.5 text-xs font-extrabold text-amber-400 uppercase tracking-wide">
+            <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
+            이달 매출 (MONTH)
+          </span>
+          <span id="badgeMonthName" class="px-2 py-0.5 text-[10px] font-extrabold rounded-md bg-amber-950/60 text-amber-400 border border-amber-800/50 font-mono">
+            9월 목표
+          </span>
+        </div>
+
+        <div class="my-1.5 space-y-1">
+          <div class="flex items-baseline justify-between">
+            <div class="flex items-baseline gap-1">
+              <span id="valMonthlyRate" class="text-3xl sm:text-4xl font-black font-mono text-white tabular-nums tracking-tight">0.0%</span>
+              <span class="text-[10px] text-slate-400 font-bold uppercase">달성</span>
+            </div>
+            <span id="badgeMonthlyGapPill" class="text-[11px] font-bold font-mono text-slate-400">목표 2,216만</span>
+          </div>
+
+          <div class="flex items-center justify-between text-xs font-mono pt-0.5 border-t border-slate-800/60">
+            <div class="flex items-baseline gap-1">
+              <span class="text-[10px] text-slate-400">월 누적:</span>
+              <strong id="valMonthlyActualRev" class="text-amber-400 font-bold text-sm">0 원</strong>
+            </div>
+            <div class="text-[11px] text-slate-400">
+              목표: <span id="valMonthlyTargetRev" class="text-slate-300">2,216만 원</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="space-y-1">
+          <div class="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
+            <div id="barMonthly" class="bg-gradient-to-r from-amber-500 to-orange-400 h-full rounded-full transition-all duration-700" style="width: 0%;"></div>
+          </div>
+          <div class="flex items-center justify-between text-[10px] text-slate-400">
+            <span id="subMonthlyDays">잔여 21일</span>
+            <span id="subMonthlyNeedDaily" class="font-medium text-slate-400">일평균 105만 원 필요</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. ANNUAL BEP REVENUE CARD -->
+      <div id="cardAnnual" class="bg-[#0e1626]/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between transition-all duration-300 shadow-sm min-h-[145px]">
+        <div class="flex items-center justify-between pb-1">
+          <span class="flex items-center gap-1.5 text-xs font-extrabold text-indigo-400 uppercase tracking-wide">
+            <i data-lucide="award" class="w-3.5 h-3.5"></i>
+            연간 BEP (ANNUAL)
+          </span>
+          <span class="px-2 py-0.5 text-[10px] font-black rounded-md bg-indigo-950 text-indigo-300 border border-indigo-800/70 font-mono">
+            BEP 2.36억
+          </span>
+        </div>
+
+        <div class="my-1.5 space-y-1">
+          <div class="flex items-baseline justify-between">
+            <div class="flex items-baseline gap-1">
+              <span id="valAnnualRate" class="text-3xl sm:text-4xl font-black font-mono text-white tabular-nums tracking-tight">0.0%</span>
+              <span class="text-[10px] text-slate-400 font-bold uppercase">돌파율</span>
+            </div>
+            <span id="badgeAnnualGapPill" class="text-[11px] font-bold font-mono text-indigo-300">BEP 2억 3,600만</span>
+          </div>
+
+          <div class="flex items-center justify-between text-xs font-mono pt-0.5 border-t border-slate-800/60">
+            <div class="flex items-baseline gap-1">
+              <span class="text-[10px] text-slate-400">연간 누적:</span>
+              <strong id="valAnnualActualRev" class="text-indigo-400 font-bold text-sm">0 원</strong>
+            </div>
+            <div class="text-[11px] text-slate-400">
+              분기점: <span class="text-slate-300">2억 3,600만</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="space-y-1">
+          <div class="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
+            <div id="barAnnual" class="bg-gradient-to-r from-indigo-600 via-purple-500 to-pink-500 h-full rounded-full transition-all duration-700" style="width: 0%;"></div>
+          </div>
+          <div class="flex items-center justify-between text-[10px] text-slate-400">
+            <span>인센티브 풀: <strong id="valIncentivePool" class="text-indigo-300 font-mono font-bold">0 원</strong></span>
+            <span id="subAnnualGap" class="font-medium text-slate-400">BEP까지 2.36억</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ROW 2: CHART & LOG TABLE (GUARANTEED GENEROUS HEIGHTS) -->
+    <div class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4 min-h-[360px] lg:min-h-0">
+
+      <!-- Left 8 Cols: Revenue Trend Chart -->
+      <div class="lg:col-span-8 bg-[#0e1626]/90 border border-slate-800/90 rounded-2xl p-3.5 sm:p-4 flex flex-col overflow-hidden shadow-sm">
+        <div class="flex items-center justify-between pb-2.5 border-b border-slate-800 flex-none">
+          <div class="flex items-center gap-2">
+            <i data-lucide="trending-up" class="w-4 h-4 text-emerald-400"></i>
+            <h2 class="text-xs sm:text-sm font-extrabold text-white">매출 실적 및 BEP 진척도 추이</h2>
+            <span class="text-[11px] text-slate-500 font-medium hidden sm:inline">(부가매출 발생 시 조기 BEP 달성)</span>
+          </div>
+
+          <!-- Metric Toggle -->
+          <div class="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800/80">
+            <button id="btnChartRev" class="touch-btn px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-600 text-white shadow">
+              매출액 추이
+            </button>
+            <button id="btnChartVis" class="touch-btn px-2.5 py-1 text-xs font-bold rounded-lg text-slate-400 hover:text-white">
+              방문객수 추이
+            </button>
+          </div>
+        </div>
+
+        <!-- Canvas Wrapper (Fixed min-height guarantees chart never collapses!) -->
+        <div class="flex-1 relative mt-2.5 w-full min-h-[220px] sm:min-h-[260px] flex items-center justify-center">
+          <canvas id="mainTrendChart" class="w-full h-full"></canvas>
+          
+          <!-- Sleek Floating Status Box (Top Right Pill - Non Intrusive) -->
+          <div id="chartEmptyFloatBox" class="absolute top-2.5 right-2.5 z-10 bg-slate-950/90 border border-slate-700/80 rounded-xl px-3 py-1.5 shadow-xl backdrop-blur flex items-center gap-2 text-xs transition-opacity duration-300">
+            <span class="flex h-2 w-2 relative shrink-0">
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span class="text-slate-300 font-medium text-[11px] whitespace-nowrap">실적 등록 대기 중 (주간 기준 목표선 표시)</span>
+            <button id="btnEmptyTrigger" class="touch-btn px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] rounded-md shadow shrink-0">
+              + 오늘 입력
+            </button>
+            <button id="btnCloseFloatBox" class="text-slate-400 hover:text-slate-200 p-0.5 ml-0.5 shrink-0">
+              <i data-lucide="x" class="w-3 h-3"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Financial Insights Footer -->
+        <div class="pt-2.5 border-t border-slate-800 flex-none grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+          <div class="bg-slate-950/50 rounded-xl p-2 border border-slate-800/60">
+            <div class="text-[10px] text-slate-400 font-bold">평일 목표 매출</div>
+            <div class="text-xs sm:text-sm font-extrabold font-mono text-blue-400 mt-0.5">일 36만 원 (30명)</div>
+          </div>
+          <div class="bg-slate-950/50 rounded-xl p-2 border border-slate-800/60">
+            <div class="text-[10px] text-slate-400 font-bold">주말 목표 매출</div>
+            <div class="text-xs sm:text-sm font-extrabold font-mono text-emerald-400 mt-0.5">일 178만 원 (148명)</div>
+          </div>
+          <div class="bg-slate-950/50 rounded-xl p-2 border border-slate-800/60">
+            <div class="text-[10px] text-slate-400 font-bold">부가매출 레버리지</div>
+            <div class="text-xs sm:text-sm font-extrabold font-mono text-amber-400 mt-0.5">객단가 상승 → 조기 BEP</div>
+          </div>
+          <div class="bg-slate-950/50 rounded-xl p-2 border border-slate-800/60">
+            <div class="text-[10px] text-slate-400 font-bold">연간 BEP 매출 분기점</div>
+            <div class="text-xs sm:text-sm font-extrabold font-mono text-indigo-400 mt-0.5">총 2억 3,600만 원</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right 4 Cols: Real Recorded Daily Log -->
+      <div class="lg:col-span-4 bg-[#0e1626]/90 border border-slate-800/90 rounded-2xl p-3.5 sm:p-4 flex flex-col overflow-hidden shadow-sm min-h-[280px]">
+        <div class="flex items-center justify-between pb-2.5 border-b border-slate-800 flex-none">
+          <div class="flex items-center gap-2">
+            <i data-lucide="receipt" class="w-4 h-4 text-emerald-400"></i>
+            <h2 class="text-xs sm:text-sm font-extrabold text-white whitespace-nowrap">현장 매출 마감 대장</h2>
+          </div>
+          <span class="text-xs text-slate-400 font-mono whitespace-nowrap">누적 <strong id="lblTotalDays" class="text-emerald-400">0</strong>일</span>
+        </div>
+
+        <!-- Scrollable Real Entries List -->
+        <div id="logListContainer" class="flex-1 overflow-y-auto space-y-2 py-2 pr-1 min-h-[180px]">
+          <!-- Will be filled by real records only -->
+        </div>
+
+        <!-- Real Log Footer -->
+        <div class="pt-2.5 border-t border-slate-800 flex-none flex items-center justify-between text-xs">
+          <span id="lblLiveAvgTicket" class="text-slate-400 text-[11px] whitespace-nowrap">누적 평균 객단가: <strong>0원</strong></span>
+          <button id="btnQuickExport" class="touch-btn text-[11px] font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 shrink-0">
+            <i data-lucide="download" class="w-3.5 h-3.5"></i>
+            <span>엑셀 다운로드</span>
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- ================================================================= -->
+  <!-- MODAL: TOUCH ENTRY PAD                                            -->
+  <!-- ================================================================= -->
+  <div id="entryModal" class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md hidden flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+    <div class="bg-[#0e1626] border border-slate-800 rounded-3xl shadow-2xl max-w-2xl w-full max-h-[92vh] flex flex-col p-5 sm:p-6 my-auto">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between pb-3.5 border-b border-slate-800 flex-none">
+        <div>
+          <h3 class="text-base sm:text-lg font-black text-white flex items-center gap-2">
+            <span class="text-xl">📝</span>
+            일일 매출 &amp; 실적 입력 패드
+          </h3>
+          <p class="text-xs text-slate-400 mt-0.5">당일 현장 마감 데이터를 터치로 입력하여 대시보드에 누적합니다</p>
+        </div>
+        <button id="btnCloseEntryModal" class="touch-btn p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="flex-1 overflow-y-auto py-3.5 space-y-3.5 pr-1">
+        
+        <!-- Date & Operating Mode Selection -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <div>
+            <label class="text-xs font-bold text-slate-400 block mb-1">운영 날짜</label>
+            <input type="date" id="inputEntryDate" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-sm font-mono font-bold text-white focus:border-emerald-500 outline-none">
+          </div>
+          <div class="sm:col-span-2">
+            <label class="text-xs font-bold text-slate-400 block mb-1">운영 구분 (목표 매출 자동 설정)</label>
+            <div class="grid grid-cols-3 gap-1.5">
+              <button type="button" data-opmode="weekday" class="btn-opmode touch-btn p-2.5 rounded-xl border border-blue-500 bg-blue-500/20 text-blue-400 text-xs font-extrabold text-center">
+                평일 (36만)
+              </button>
+              <button type="button" data-opmode="weekend" class="btn-opmode touch-btn p-2.5 rounded-xl border border-slate-700 bg-slate-950 text-slate-400 text-xs font-bold text-center">
+                주말 (178만)
+              </button>
+              <button type="button" data-opmode="festival" class="btn-opmode touch-btn p-2.5 rounded-xl border border-slate-700 bg-slate-950 text-slate-400 text-xs font-bold text-center">
+                축제 (172만)
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Big Touch Input Grid -->
+        <div class="space-y-2.5">
+          
+          <!-- Category 1: 어린이 일반 (14,000원) -->
+          <div class="bg-slate-950/70 p-3 rounded-xl border border-slate-800 flex items-center justify-between">
+            <div>
+              <div class="font-extrabold text-xs sm:text-sm text-white">어린이 일반 (14,000원)</div>
+              <div class="text-[11px] text-slate-500">개인/가족 나들이 유아 및 초등생</div>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-slate-800 text-white font-bold text-base" data-target="cntChild" data-val="-5">-5</button>
+              <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-slate-800 text-white font-bold text-base" data-target="cntChild" data-val="-1">-1</button>
+              <input type="number" id="cntChild" value="0" min="0" class="w-14 sm:w-16 h-9 sm:h-10 bg-slate-900 border border-slate-700 rounded-lg text-center font-mono font-black text-base text-emerald-400 outline-none">
+              <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-slate-800 text-white font-bold text-base" data-target="cntChild" data-val="1">+1</button>
+              <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-emerald-600 text-white font-bold text-base" data-target="cntChild" data-val="5">+5</button>
+            </div>
+          </div>
+
+          <!-- Category 2: 보호자권 (5,000원) -->
+          <div class="bg-slate-950/70 p-3 rounded-xl border border-slate-800 flex items-center justify-between">
+            <div>
+              <div class="font-extrabold text-xs sm:text-sm text-white">보호자권 (5,000원)</div>
+              <div class="text-[11px] text-slate-500">동반 보호자 (음료 교환권 포함)</div>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-slate-800 text-white font-bold text-base" data-target="cntAdult" data-val="-5">-5</button>
+              <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-slate-800 text-white font-bold text-base" data-target="cntAdult" data-val="-1">-1</button>
+              <input type="number" id="cntAdult" value="0" min="0" class="w-14 sm:w-16 h-9 sm:h-10 bg-slate-900 border border-slate-700 rounded-lg text-center font-mono font-black text-base text-emerald-400 outline-none">
+              <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-slate-800 text-white font-bold text-base" data-target="cntAdult" data-val="1">+1</button>
+              <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-emerald-600 text-white font-bold text-base" data-target="cntAdult" data-val="5">+5</button>
+            </div>
+          </div>
+
+          <!-- Category 3: 단체 / 어린이집 (7,000원) -->
+          <div class="bg-slate-950/70 p-3 rounded-xl border border-slate-800 flex items-center justify-between">
+            <div>
+              <div class="font-extrabold text-xs sm:text-sm text-white">어린이집/유치원 단체 (7,000원)</div>
+              <div class="text-[11px] text-slate-500">평일 단체 유치 (버스 대절 방문)</div>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-slate-800 text-white font-bold text-base" data-target="cntGroup" data-val="-10">-10</button>
+              <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-slate-800 text-white font-bold text-base" data-target="cntGroup" data-val="-1">-1</button>
+              <input type="number" id="cntGroup" value="0" min="0" class="w-14 sm:w-16 h-9 sm:h-10 bg-slate-900 border border-slate-700 rounded-lg text-center font-mono font-black text-base text-emerald-400 outline-none">
+              <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-slate-800 text-white font-bold text-base" data-target="cntGroup" data-val="1">+1</button>
+              <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-emerald-600 text-white font-bold text-base" data-target="cntGroup" data-val="10">+10</button>
+            </div>
+          </div>
+
+          <!-- Category 4: 부가 매출 (카페/음료/굿즈/대관) -->
+          <div class="bg-emerald-950/30 p-3 rounded-xl border border-emerald-800/50 flex items-center justify-between">
+            <div>
+              <div class="font-extrabold text-xs sm:text-sm text-emerald-300 flex items-center gap-1">
+                <i data-lucide="coffee" class="w-3.5 h-3.5 text-emerald-400"></i>
+                부가 매출 (카페·매점·굿즈·대관)
+              </div>
+              <div class="text-[11px] text-emerald-400/80">인원 부족을 극복하는 핵심 동력</div>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button type="button" class="touch-btn btn-inc-cash px-2.5 h-9 sm:h-10 rounded-lg bg-emerald-950 border border-emerald-700 text-emerald-300 font-bold text-xs" data-target="cntExtraRev" data-val="50000">+5만</button>
+              <button type="button" class="touch-btn btn-inc-cash px-2.5 h-9 sm:h-10 rounded-lg bg-emerald-950 border border-emerald-700 text-emerald-300 font-bold text-xs" data-target="cntExtraRev" data-val="100000">+10만</button>
+              <input type="number" id="cntExtraRev" value="0" step="10000" class="w-28 sm:w-32 h-9 sm:h-10 bg-slate-900 border border-emerald-700 rounded-lg text-right px-2.5 font-mono font-black text-sm sm:text-base text-emerald-300 outline-none">
+              <span class="text-xs text-slate-400 font-bold">원</span>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Incident & Notes -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+          <div class="sm:col-span-2">
+            <label class="text-xs font-bold text-slate-400 block mb-1">운영 메모 &amp; 부가매출 특이사항</label>
+            <input type="text" id="inputEntryMemo" placeholder="예: 영주 OO어린이집 35명 단체 방문, 카페 음료 45잔 판매" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs text-white focus:border-emerald-500 outline-none">
+          </div>
+          <div>
+            <label class="text-xs font-bold text-slate-400 block mb-1">안전 운용 여부</label>
+            <label class="flex items-center gap-2 h-10 px-3 bg-slate-950 border border-slate-700 rounded-xl cursor-pointer">
+              <input type="checkbox" id="chkEntrySafe" checked class="w-4 h-4 rounded accent-emerald-500">
+              <span class="text-xs font-extrabold text-emerald-400">무사고 정상 운용</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Live Modal Preview -->
+        <div class="bg-emerald-950/50 border border-emerald-700/60 rounded-xl p-3.5 flex items-center justify-between">
+          <div>
+            <div class="text-[10px] text-emerald-300 font-bold uppercase">오늘 마감 합산 매출액</div>
+            <div class="flex items-baseline gap-2 mt-0.5">
+              <span id="previewRevenue" class="text-xl sm:text-2xl font-black font-mono text-emerald-400">0 원</span>
+            </div>
+          </div>
+          <div class="text-right">
+            <div class="text-[10px] text-slate-400 font-bold uppercase">총 방문객 / 환산 객단가</div>
+            <div class="flex items-baseline justify-end gap-1.5 mt-0.5">
+              <span id="previewVisitors" class="text-base font-bold font-mono text-white">0명</span>
+              <span class="text-xs text-slate-400">|</span>
+              <span id="previewAvgTicket" class="text-xs font-bold font-mono text-cyan-400">객단가 0원</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Action Footer -->
+      <div class="pt-3 border-t border-slate-800 flex items-center gap-3 flex-none">
+        <button type="button" id="btnCancelEntry" class="touch-btn flex-1 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs sm:text-sm">
+          취소
+        </button>
+        <button type="button" id="btnSaveDailyEntry" class="touch-btn flex-[2] py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 text-white font-extrabold text-sm sm:text-base shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2">
+          <i data-lucide="check" class="w-4 h-4"></i>
+          <span>오늘 실적 마감 저장</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- MODAL: DATA MANAGEMENT & BACKUP                                   -->
+  <!-- ================================================================= -->
+  <div id="settingsModal" class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md hidden flex items-center justify-center p-4">
+    <div class="bg-[#0e1626] border border-slate-800 rounded-3xl shadow-2xl max-w-md w-full p-5 space-y-3.5">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h3 class="font-extrabold text-sm sm:text-base text-white flex items-center gap-2">
+          <i data-lucide="database" class="w-4 h-4 text-emerald-400"></i>
+          데이터 관리 및 백업
+        </h3>
+        <button id="btnCloseSettings" class="touch-btn p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <p class="text-xs text-slate-400 leading-relaxed">
+        모든 실적 데이터는 모니터 브라우저(localStorage)에 안전하게 저장됩니다. 정기적으로 엑셀 백업을 다운로드해 두시면 안전합니다.
+      </p>
+
+      <div class="space-y-2">
+        <button id="btnExportCsv" class="touch-btn w-full py-2.5 px-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center justify-between">
+          <span class="flex items-center gap-2">
+            <i data-lucide="file-spreadsheet" class="w-4 h-4 text-emerald-400"></i>
+            전체 실적 엑셀(CSV) 다운로드
+          </span>
+          <i data-lucide="download" class="w-4 h-4 text-slate-400"></i>
+        </button>
+
+        <button id="btnExportJson" class="touch-btn w-full py-2.5 px-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center justify-between">
+          <span class="flex items-center gap-2">
+            <i data-lucide="code" class="w-4 h-4 text-blue-400"></i>
+            JSON 전체 데이터 백업
+          </span>
+          <i data-lucide="download" class="w-4 h-4 text-slate-400"></i>
+        </button>
+
+        <button id="btnClearAllRecords" class="touch-btn w-full py-2.5 px-3.5 rounded-xl bg-rose-950/40 border border-rose-800/60 hover:bg-rose-900/60 text-rose-300 text-xs font-bold flex items-center justify-between">
+          <span class="flex items-center gap-2">
+            <i data-lucide="trash-2" class="w-4 h-4 text-rose-400"></i>
+            전체 실적 데이터 완전 초기화
+          </span>
+          <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-400"></i>
+        </button>
+      </div>
+
+      <div class="pt-2 border-t border-slate-800">
+        <button id="btnDoneSettings" class="touch-btn w-full py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-xs">
+          닫기
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- JAVASCRIPT ENGINE (CLEAN & BULLETPROOF RENDERING)                 -->
+  <!-- ================================================================= -->
+  <script>
+    // -----------------------------------------------------------------
+    // BUSINESS & TARGET CONSTANTS
+    // -----------------------------------------------------------------
+    const BEP_ANNUAL_REVENUE = 236000000;  // 2억 3,600만 원 (연간 BEP 매출)
+    const BEP_ANNUAL_TARGET = 19606;       // 연간 BEP 인원 (참고치)
+    const FIXED_ANNUAL_COST = 228900000;   // 연간 총 고정비
+    const VAR_COST_PER_HEAD = 361;         // 인당 변동비
+
+    // Pricing
+    const PRICE_CHILD = 14000;
+    const PRICE_ADULT = 5000;
+    const PRICE_GROUP = 7000;
+
+    // Daily Targets
+    const TARGET_REV_WEEKDAY = 360000;     // 평일 36만 원
+    const TARGET_REV_WEEKEND = 1780000;    // 주말 178만 원
+    const TARGET_REV_FESTIVAL = 1720000;   // 축제 172만 원
+
+    const TARGET_VIS_WEEKDAY = 30;
+    const TARGET_VIS_WEEKEND = 148;
+    const TARGET_VIS_FESTIVAL = 143;
+
+    // Weekly Targets
+    const WEEKLY_TARGET_REVENUE = 5360000; // 주간 536만 원
+    const WEEKLY_TARGET_VISITORS = 446;
+
+    // Storage Key
+    const STORAGE_KEY = 'bongtteurak_actual_records_v4';
+
+    // State
+    let records = [];
+    let chartInstance = null;
+    let selectedOpMode = 'weekday';
+    let currentChartMetric = 'revenue'; // 'revenue' | 'visitors'
+
+    // -----------------------------------------------------------------
+    // INITIALIZATION & REAL-TIME CLOCK
+    // -----------------------------------------------------------------
+    document.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+      initClock();
+      loadRealRecords();
+      initEvents();
+      renderAll();
+    });
+
+    function initClock() {
+      const dateEl = document.getElementById('hdrLiveDate');
+      const timeEl = document.getElementById('hdrLiveTime');
+      const modeBadge = document.getElementById('hdrOpModeBadge');
+
+      function updateClock() {
+        const now = new Date();
+        const days = ['일', '월', '화', '수', '목', '금', '토'];
+        const yr = now.getFullYear();
+        const mo = now.getMonth() + 1;
+        const dt = now.getDate();
+        const dayName = days[now.getDay()];
+
+        const hh = String(now.getHours()).padStart(2, '0');
+        const mm = String(now.getMinutes()).padStart(2, '0');
+        const ss = String(now.getSeconds()).padStart(2, '0');
+
+        if (dateEl) dateEl.textContent = `${yr}년 ${mo}월 ${dt}일 (${dayName})`;
+        if (timeEl) timeEl.textContent = `${hh}:${mm}:${ss}`;
+
+        const isWeekend = (now.getDay() === 0 || now.getDay() === 6);
+        if (modeBadge) {
+          if (isWeekend) {
+            modeBadge.textContent = '주말 (목표 178만 원)';
+            modeBadge.className = 'px-2 py-0.5 text-[10px] font-extrabold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 rounded-md whitespace-nowrap';
+          } else {
+            modeBadge.textContent = '평일 (목표 36만 원)';
+            modeBadge.className = 'px-2 py-0.5 text-[10px] font-extrabold bg-blue-500/15 text-blue-400 border border-blue-500/30 rounded-md whitespace-nowrap';
+          }
+        }
+      }
+
+      updateClock();
+      setInterval(updateClock, 1000);
+    }
+
+    // -----------------------------------------------------------------
+    // LOAD REAL RECORDS
+    // -----------------------------------------------------------------
+    function loadRealRecords() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          records = JSON.parse(raw);
+        } else {
+          // Check if previous version had records and migrate
+          const prevRaw = localStorage.getItem('bongtteurak_actual_records_v3');
+          if (prevRaw) {
+            records = JSON.parse(prevRaw);
+            saveRealRecords();
+          } else {
+            records = [];
+          }
+        }
+      } catch (e) {
+        console.error('Error loading records:', e);
+        records = [];
+      }
+    }
+
+    function saveRealRecords() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+      } catch (e) {
+        console.error('Error saving records:', e);
+      }
+    }
+
+    function getTodayStr() {
+      return new Date().toISOString().split('T')[0];
+    }
+
+    function getMondayOfCurrentWeek() {
+      const d = new Date();
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+      const monday = new Date(d.setDate(diff));
+      return monday.toISOString().split('T')[0];
+    }
+
+    function getSundayOfCurrentWeek() {
+      const d = new Date();
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? 0 : 7);
+      const sunday = new Date(d.setDate(diff));
+      return sunday.toISOString().split('T')[0];
+    }
+
+    function getMonthCalendarTargetRevenue(year, month) {
+      const numDays = new Date(year, month, 0).getDate();
+      let totalRev = 0;
+      for (let day = 1; day <= numDays; day++) {
+        const dt = new Date(year, month - 1, day);
+        const isWeekend = (dt.getDay() === 0 || dt.getDay() === 6);
+        totalRev += isWeekend ? TARGET_REV_WEEKEND : TARGET_REV_WEEKDAY;
+      }
+      return totalRev;
+    }
+
+    function fmtMan(val) {
+      if (val >= 100000000) {
+        return (val / 100000000).toFixed(2) + '억';
+      }
+      if (val >= 10000) {
+        return Math.round(val / 10000).toLocaleString() + '만 원';
+      }
+      return val.toLocaleString() + '원';
+    }
+
+    // -----------------------------------------------------------------
+    // RENDER ALL TIERS (HIIERARCHICAL & OVERLAP-FREE)
+    // -----------------------------------------------------------------
+    function renderAll() {
+      records.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+      const now = new Date();
+      const todayStr = getTodayStr();
+      const curYear = now.getFullYear();
+      const curMonth = now.getMonth() + 1;
+      const monthPrefix = `${curYear}-${String(curMonth).padStart(2, '0')}`;
+      
+      const monStr = getMondayOfCurrentWeek();
+      const sunStr = getSundayOfCurrentWeek();
+
+      // 1. DAILY REVENUE STATS
+      const todayRecord = records.find(r => r.date === todayStr);
+      const isWeekendToday = (now.getDay() === 0 || now.getDay() === 6);
+      const dailyTargetRev = todayRecord ? todayRecord.targetRevenue : (isWeekendToday ? TARGET_REV_WEEKEND : TARGET_REV_WEEKDAY);
+      const dailyTargetVis = todayRecord ? todayRecord.targetVisitors : (isWeekendToday ? TARGET_VIS_WEEKEND : TARGET_VIS_WEEKDAY);
+
+      const dailyActualRev = todayRecord ? todayRecord.totalRevenue : 0;
+      const dailyActualVis = todayRecord ? todayRecord.totalVisitors : 0;
+
+      const dailyRate = ((dailyActualRev / dailyTargetRev) * 100).toFixed(1);
+      const dailyBarPct = Math.min(Math.round((dailyActualRev / dailyTargetRev) * 100), 100);
+
+      document.getElementById('valDailyRate').textContent = `${dailyRate}%`;
+      document.getElementById('valDailyActualRev').textContent = `${dailyActualRev.toLocaleString()}원`;
+      document.getElementById('valDailyTargetRev').textContent = fmtMan(dailyTargetRev);
+      document.getElementById('barDaily').style.width = `${dailyBarPct}%`;
+      document.getElementById('subDailyVisitors').textContent = `방문객: ${dailyActualVis}명 (목표 ${dailyTargetVis}명)`;
+
+      const dailyGapRev = dailyTargetRev - dailyActualRev;
+      const subDailyGapEl = document.getElementById('subDailyGap');
+      const badgeDailyEl = document.getElementById('badgeDailyStatus');
+      const badgeDailyGapPill = document.getElementById('badgeDailyGapPill');
+      const cardDailyEl = document.getElementById('cardDaily');
+
+      if (todayRecord) {
+        if (dailyActualRev >= dailyTargetRev) {
+          badgeDailyEl.textContent = '목표 달성!';
+          badgeDailyEl.className = 'px-2 py-0.5 text-[10px] font-black rounded-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
+          badgeDailyGapPill.textContent = `+${(dailyActualRev - dailyTargetRev).toLocaleString()}원 초과`;
+          badgeDailyGapPill.className = 'text-[11px] font-bold font-mono text-emerald-400';
+          subDailyGapEl.textContent = `목표 +${(dailyActualRev - dailyTargetRev).toLocaleString()}원 초과 달성!`;
+          subDailyGapEl.className = 'font-bold text-emerald-400';
+          cardDailyEl.classList.add('glow-success');
+        } else {
+          badgeDailyEl.textContent = '운영 중';
+          badgeDailyEl.className = 'px-2 py-0.5 text-[10px] font-black rounded-md bg-blue-500/20 text-blue-400 border border-blue-500/30';
+          badgeDailyGapPill.textContent = `목표까지 ${dailyGapRev.toLocaleString()}원`;
+          badgeDailyGapPill.className = 'text-[11px] font-bold font-mono text-slate-400';
+          subDailyGapEl.textContent = `목표까지 ${dailyGapRev.toLocaleString()}원`;
+          subDailyGapEl.className = 'font-medium text-slate-400';
+          cardDailyEl.classList.remove('glow-success');
+        }
+      } else {
+        badgeDailyEl.textContent = '기록 대기';
+        badgeDailyEl.className = 'px-2 py-0.5 text-[10px] font-black rounded-md bg-slate-800 text-slate-400';
+        badgeDailyGapPill.textContent = `목표 ${fmtMan(dailyTargetRev)}`;
+        badgeDailyGapPill.className = 'text-[11px] font-bold font-mono text-slate-400';
+        subDailyGapEl.textContent = `목표까지 ${dailyTargetRev.toLocaleString()}원`;
+        cardDailyEl.classList.remove('glow-success');
+      }
+
+      // 2. WEEKLY REVENUE STATS (Mon-Sun)
+      const weeklyRecords = records.filter(r => r.date >= monStr && r.date <= sunStr);
+      const weeklyActualRev = weeklyRecords.reduce((sum, r) => sum + r.totalRevenue, 0);
+      const weeklyActualVis = weeklyRecords.reduce((sum, r) => sum + r.totalVisitors, 0);
+      const weeklyRate = ((weeklyActualRev / WEEKLY_TARGET_REVENUE) * 100).toFixed(1);
+      const weeklyBarPct = Math.min(Math.round((weeklyActualRev / WEEKLY_TARGET_REVENUE) * 100), 100);
+
+      document.getElementById('valWeeklyRate').textContent = `${weeklyRate}%`;
+      document.getElementById('valWeeklyActualRev').textContent = fmtMan(weeklyActualRev);
+      document.getElementById('valWeeklyTargetRev').textContent = fmtMan(WEEKLY_TARGET_REVENUE);
+      document.getElementById('barWeekly').style.width = `${weeklyBarPct}%`;
+      document.getElementById('subWeeklyVisitors').textContent = `누적: ${weeklyActualVis}명 (목표 ${WEEKLY_TARGET_VISITORS}명)`;
+
+      const subWeeklyGapEl = document.getElementById('subWeeklyGap');
+      const badgeWeeklyGapPill = document.getElementById('badgeWeeklyGapPill');
+      if (weeklyActualRev >= WEEKLY_TARGET_REVENUE) {
+        badgeWeeklyGapPill.textContent = `+${fmtMan(weeklyActualRev - WEEKLY_TARGET_REVENUE)} 초과`;
+        badgeWeeklyGapPill.className = 'text-[11px] font-bold font-mono text-emerald-400';
+        subWeeklyGapEl.textContent = `주간 목표 +${fmtMan(weeklyActualRev - WEEKLY_TARGET_REVENUE)} 초과!`;
+        subWeeklyGapEl.className = 'font-bold text-emerald-400';
+        document.getElementById('cardWeekly').classList.add('glow-success');
+      } else {
+        badgeWeeklyGapPill.textContent = `목표 ${fmtMan(WEEKLY_TARGET_REVENUE)}`;
+        badgeWeeklyGapPill.className = 'text-[11px] font-bold font-mono text-slate-400';
+        subWeeklyGapEl.textContent = `목표까지 ${fmtMan(WEEKLY_TARGET_REVENUE - weeklyActualRev)}`;
+        subWeeklyGapEl.className = 'font-medium text-slate-400';
+        document.getElementById('cardWeekly').classList.remove('glow-success');
+      }
+
+      // 3. MONTHLY REVENUE STATS
+      const monthlyRecords = records.filter(r => r.date.startsWith(monthPrefix));
+      const monthlyActualRev = monthlyRecords.reduce((sum, r) => sum + r.totalRevenue, 0);
+      const monthlyTargetRev = getMonthCalendarTargetRevenue(curYear, curMonth);
+      const monthlyRate = ((monthlyActualRev / monthlyTargetRev) * 100).toFixed(1);
+      const monthlyBarPct = Math.min(Math.round((monthlyActualRev / monthlyTargetRev) * 100), 100);
+
+      document.getElementById('badgeMonthName').textContent = `${curMonth}월 목표`;
+      document.getElementById('valMonthlyRate').textContent = `${monthlyRate}%`;
+      document.getElementById('valMonthlyActualRev').textContent = fmtMan(monthlyActualRev);
+      document.getElementById('valMonthlyTargetRev').textContent = fmtMan(monthlyTargetRev);
+      document.getElementById('barMonthly').style.width = `${monthlyBarPct}%`;
+
+      const daysInMonth = new Date(curYear, curMonth, 0).getDate();
+      const remainingDays = Math.max(0, daysInMonth - now.getDate());
+      document.getElementById('subMonthlyDays').textContent = `잔여 ${remainingDays}일`;
+
+      const remainMonthlyRev = Math.max(0, monthlyTargetRev - monthlyActualRev);
+      const needPerDayRev = remainingDays > 0 ? Math.round(remainMonthlyRev / remainingDays) : 0;
+      document.getElementById('subMonthlyNeedDaily').textContent = remainingDays > 0
+        ? `일평균 ${fmtMan(needPerDayRev)} 필요`
+        : (monthlyActualRev >= monthlyTargetRev ? '이달 목표 완수!' : '이달 마감');
+
+      // 4. ANNUAL BEP REVENUE STATS (BEP 2억 3,600만 원)
+      const annualActualRev = records.reduce((sum, r) => sum + r.totalRevenue, 0);
+      const annualActualVis = records.reduce((sum, r) => sum + r.totalVisitors, 0);
+      const annualRate = ((annualActualRev / BEP_ANNUAL_REVENUE) * 100).toFixed(1);
+      const annualBarPct = Math.min(Math.round((annualActualRev / BEP_ANNUAL_REVENUE) * 100), 100);
+
+      document.getElementById('valAnnualRate').textContent = `${annualRate}%`;
+      document.getElementById('valAnnualActualRev').textContent = fmtMan(annualActualRev);
+      document.getElementById('barAnnual').style.width = `${annualBarPct}%`;
+
+      const annualGapRev = Math.max(0, BEP_ANNUAL_REVENUE - annualActualRev);
+      document.getElementById('subAnnualGap').textContent = annualGapRev > 0
+        ? `BEP까지 ${fmtMan(annualGapRev)}`
+        : '🎉 BEP 돌파 완료! 순익 구간';
+
+      // Incentive Pool
+      const totalVarCost = annualActualVis * VAR_COST_PER_HEAD;
+      const daysCount = records.length;
+      const proratedFixed = daysCount > 0 ? (FIXED_ANNUAL_COST * (daysCount / 365)) : 0;
+      const operatingProfit = annualActualRev - totalVarCost - proratedFixed;
+      let incentivePool = 0;
+      if (operatingProfit > 0) {
+        incentivePool = Math.round(operatingProfit * 0.05); // 1년차 5%
+      }
+      document.getElementById('valIncentivePool').textContent = `${incentivePool.toLocaleString()} 원`;
+
+      // 5. SAFE DAYS COUNT
+      let safeDays = 0;
+      for (let i = records.length - 1; i >= 0; i--) {
+        if (records[i].isSafe) {
+          safeDays++;
+        } else {
+          break;
+        }
+      }
+      document.getElementById('hdrSafeDays').textContent = safeDays;
+
+      // 6. LOGS & CHARTS
+      renderRealLogs(annualActualRev, annualActualVis);
+      renderRevenueChart();
+    }
+
+    // -----------------------------------------------------------------
+    // RENDER LOG TABLE (CLEAN, NO WEIRD WRAPPING)
+    // -----------------------------------------------------------------
+    function renderRealLogs(totalRev, totalVis) {
+      const container = document.getElementById('logListContainer');
+      const totalDaysEl = document.getElementById('lblTotalDays');
+      const avgTicketEl = document.getElementById('lblLiveAvgTicket');
+      if (!container) return;
+
+      container.innerHTML = '';
+      totalDaysEl.textContent = records.length;
+
+      const avgTicket = totalVis > 0 ? Math.round(totalRev / totalVis) : 0;
+      if (avgTicketEl) {
+        avgTicketEl.innerHTML = `누적 평균 객단가: <strong class="text-white font-mono">${avgTicket.toLocaleString()}원</strong>`;
+      }
+
+      if (records.length === 0) {
+        container.innerHTML = `
+          <div class="h-full min-h-[160px] flex flex-col items-center justify-center text-center p-4 text-slate-500">
+            <i data-lucide="inbox" class="w-8 h-8 mb-1.5 opacity-40"></i>
+            <p class="text-xs font-semibold">입력된 실제 매출 실적이 없습니다</p>
+            <p class="text-[11px] text-slate-600 mt-0.5">상단 [오늘 실적 입력] 버튼을 눌러 첫날의 매출을 등록해 주세요.</p>
+          </div>
+        `;
+        lucide.createIcons();
+        return;
+      }
+
+      const reversed = [...records].reverse();
+
+      reversed.forEach((rec, idx) => {
+        const item = document.createElement('div');
+        item.className = 'bg-slate-950/70 p-2.5 sm:p-3 rounded-xl border border-slate-800/80 hover:border-slate-700 flex items-center justify-between text-xs transition gap-2';
+        
+        const isMet = rec.totalRevenue >= rec.targetRevenue;
+        const rate = ((rec.totalRevenue / rec.targetRevenue) * 100).toFixed(0);
+
+        // Format short date: e.g. "09/09(수)"
+        const dtParts = rec.date.split('-');
+        const shortDate = dtParts.length === 3 ? `${dtParts[1]}.${dtParts[2]}` : rec.date;
+
+        item.innerHTML = `
+          <div class="space-y-1 min-w-0 flex-1">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <span class="font-mono font-black text-white text-xs whitespace-nowrap shrink-0">${shortDate}</span>
+              <span class="text-[10px] px-1.5 py-0.2 rounded font-semibold whitespace-nowrap shrink-0 ${rec.opMode === 'weekend' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/40' : 'bg-blue-950 text-blue-300 border border-blue-800/40'}">
+                ${rec.opMode === 'weekend' ? '주말' : rec.opMode === 'festival' ? '은어축제' : '평일'}
+              </span>
+              <span class="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold whitespace-nowrap shrink-0 ${isMet ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-800 text-slate-400'}">
+                ${rate}% 달성
+              </span>
+            </div>
+            <div class="text-[11px] text-slate-400 truncate">
+              ${rec.memo || `${rec.totalVisitors}명 정상 방문`}
+            </div>
+          </div>
+          <div class="text-right font-mono shrink-0">
+            <div class="font-black text-emerald-400 text-sm whitespace-nowrap">${rec.totalRevenue.toLocaleString()}원</div>
+            <div class="text-[10px] text-slate-500 whitespace-nowrap">입장 ${rec.ticketRevenue.toLocaleString()} · 부가 ${rec.extraRevenue.toLocaleString()}</div>
+          </div>
+        `;
+        container.appendChild(item);
+      });
+    }
+
+    // -----------------------------------------------------------------
+    // RENDER REVENUE TREND CHART (PROPER SCALE & CLEAN VIEW)
+    // -----------------------------------------------------------------
+    function renderRevenueChart() {
+      const canvas = document.getElementById('mainTrendChart');
+      const floatBox = document.getElementById('chartEmptyFloatBox');
+      if (!canvas || typeof Chart === 'undefined') return;
+
+      if (records.length === 0) {
+        if (floatBox) floatBox.classList.remove('hidden');
+        
+        // Render 7-day target baseline (월~일) so canvas is beautifully active
+        const ctx = canvas.getContext('2d');
+        const labels = ['월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일'];
+        const targets = currentChartMetric === 'revenue' 
+          ? [36, 36, 36, 36, 36, 178, 178] 
+          : [30, 30, 30, 30, 30, 148, 148];
+        const actuals = [0, 0, 0, 0, 0, 0, 0];
+
+        if (chartInstance) chartInstance.destroy();
+        chartInstance = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                label: currentChartMetric === 'revenue' ? '기준 목표 매출 (만 원)' : '기준 목표 방문객 (명)',
+                data: targets,
+                borderColor: '#f59e0b',
+                borderWidth: 2,
+                borderDash: [4, 4],
+                pointRadius: 0,
+                fill: false
+              },
+              {
+                label: currentChartMetric === 'revenue' ? '실제 매출액 (만 원)' : '실제 방문객 (명)',
+                data: actuals,
+                borderColor: '#10b981',
+                backgroundColor: 'rgba(16, 185, 129, 0.08)',
+                borderWidth: 2,
+                tension: 0.25,
+                fill: true,
+                pointRadius: 3,
+                pointBackgroundColor: '#10b981'
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: 'top',
+                labels: { color: '#cbd5e1', font: { family: 'Noto Sans KR', size: 11, weight: 'bold' } }
+              },
+              tooltip: {
+                callbacks: {
+                  label: function(ctx) {
+                    return currentChartMetric === 'revenue'
+                      ? `${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()}만 원`
+                      : `${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()}명`;
+                  }
+                }
+              }
+            },
+            scales: {
+              x: { grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#94a3b8', font: { family: 'Noto Sans KR', size: 11 } } },
+              y: {
+                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                ticks: {
+                  color: '#94a3b8',
+                  font: { family: 'JetBrains Mono', size: 11 },
+                  callback: function(val) { return currentChartMetric === 'revenue' ? val + '만' : val + '명'; }
+                }
+              }
+            }
+          }
+        });
+        return;
+      } else {
+        if (floatBox) floatBox.classList.add('hidden');
+      }
+
+      const ctx = canvas.getContext('2d');
+      const labels = records.map(r => {
+        const p = r.date.split('-');
+        return p.length === 3 ? `${p[1]}.${p[2]}` : r.date;
+      });
+      
+      const dataActual = currentChartMetric === 'revenue'
+        ? records.map(r => Math.round(r.totalRevenue / 10000)) // 만 원
+        : records.map(r => r.totalVisitors);
+
+      const dataTarget = currentChartMetric === 'revenue'
+        ? records.map(r => Math.round(r.targetRevenue / 10000)) // 만 원
+        : records.map(r => r.targetVisitors);
+
+      if (chartInstance) chartInstance.destroy();
+
+      chartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: currentChartMetric === 'revenue' ? '실제 매출액 (만 원)' : '실제 방문객 (명)',
+              data: dataActual,
+              borderColor: '#10b981',
+              backgroundColor: 'rgba(16, 185, 129, 0.15)',
+              borderWidth: 3,
+              tension: 0.25,
+              fill: true,
+              pointRadius: 4,
+              pointBackgroundColor: '#10b981'
+            },
+            {
+              label: currentChartMetric === 'revenue' ? '목표 매출선 (만 원)' : '목표 방문객 (명)',
+              data: dataTarget,
+              borderColor: '#f59e0b',
+              borderWidth: 2,
+              borderDash: [4, 4],
+              pointRadius: 0,
+              fill: false
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'top',
+              labels: {
+                color: '#cbd5e1',
+                font: { family: 'Noto Sans KR', size: 12, weight: 'bold' }
+              }
+            },
+            tooltip: {
+              callbacks: {
+                label: function(ctx) {
+                  return currentChartMetric === 'revenue'
+                    ? `${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()}만 원`
+                    : `${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()}명`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: 'rgba(255, 255, 255, 0.05)' },
+              ticks: { color: '#94a3b8', font: { family: 'JetBrains Mono', size: 11 } }
+            },
+            y: {
+              grid: { color: 'rgba(255, 255, 255, 0.05)' },
+              ticks: {
+                color: '#94a3b8',
+                font: { family: 'JetBrains Mono', size: 11 },
+                callback: function(val) {
+                  return currentChartMetric === 'revenue' ? val + '만' : val + '명';
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    // -----------------------------------------------------------------
+    // EVENT LISTENERS
+    // -----------------------------------------------------------------
+    function initEvents() {
+      const openModal = () => {
+        document.getElementById('inputEntryDate').value = getTodayStr();
+        updateModalPreview();
+        document.getElementById('entryModal').classList.remove('hidden');
+      };
+      document.getElementById('btnOpenEntryModal')?.addEventListener('click', openModal);
+      document.getElementById('btnEmptyTrigger')?.addEventListener('click', openModal);
+
+      document.getElementById('btnCloseEntryModal')?.addEventListener('click', () => {
+        document.getElementById('entryModal').classList.add('hidden');
+      });
+      document.getElementById('btnCancelEntry')?.addEventListener('click', () => {
+        document.getElementById('entryModal').classList.add('hidden');
+      });
+      document.getElementById('btnCloseFloatBox')?.addEventListener('click', () => {
+        document.getElementById('chartEmptyFloatBox')?.classList.add('hidden');
+      });
+
+      // Op Mode Buttons
+      document.querySelectorAll('.btn-opmode').forEach(b => {
+        b.addEventListener('click', () => {
+          selectedOpMode = b.getAttribute('data-opmode');
+          document.querySelectorAll('.btn-opmode').forEach(el => {
+            el.className = 'btn-opmode touch-btn p-2.5 rounded-xl border border-slate-700 bg-slate-950 text-slate-400 text-xs font-bold text-center';
+          });
+          b.className = 'btn-opmode touch-btn p-2.5 rounded-xl border border-blue-500 bg-blue-500/20 text-blue-400 text-xs font-extrabold text-center';
+          updateModalPreview();
+        });
+      });
+
+      // Touch Increments (Counts)
+      document.querySelectorAll('.btn-inc').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const targetId = btn.getAttribute('data-target');
+          const addVal = Number(btn.getAttribute('data-val'));
+          const el = document.getElementById(targetId);
+          if (el) {
+            let curr = Number(el.value) || 0;
+            curr = Math.max(0, curr + addVal);
+            el.value = curr;
+            updateModalPreview();
+          }
+        });
+      });
+
+      // Touch Increments (Cash Extra Revenue)
+      document.querySelectorAll('.btn-inc-cash').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const targetId = btn.getAttribute('data-target');
+          const addVal = Number(btn.getAttribute('data-val'));
+          const el = document.getElementById(targetId);
+          if (el) {
+            let curr = Number(el.value) || 0;
+            curr = Math.max(0, curr + addVal);
+            el.value = curr;
+            updateModalPreview();
+          }
+        });
+      });
+
+      ['cntChild', 'cntAdult', 'cntGroup', 'cntExtraRev'].forEach(id => {
+        document.getElementById(id)?.addEventListener('input', updateModalPreview);
+      });
+
+      // Save Daily Entry
+      document.getElementById('btnSaveDailyEntry')?.addEventListener('click', () => {
+        const dateVal = document.getElementById('inputEntryDate').value || getTodayStr();
+        const child = Number(document.getElementById('cntChild').value) || 0;
+        const adult = Number(document.getElementById('cntAdult').value) || 0;
+        const group = Number(document.getElementById('cntGroup').value) || 0;
+        const extra = Number(document.getElementById('cntExtraRev').value) || 0;
+        const memo = document.getElementById('inputEntryMemo').value || '';
+        const isSafe = document.getElementById('chkEntrySafe').checked;
+
+        const targetRev = selectedOpMode === 'weekend'
+          ? TARGET_REV_WEEKEND
+          : selectedOpMode === 'festival'
+            ? TARGET_REV_FESTIVAL
+            : TARGET_REV_WEEKDAY;
+
+        const targetVis = selectedOpMode === 'weekend'
+          ? TARGET_VIS_WEEKEND
+          : selectedOpMode === 'festival'
+            ? TARGET_VIS_FESTIVAL
+            : TARGET_VIS_WEEKDAY;
+
+        const totalVisitors = child + adult + group;
+        const ticketRevenue = (child * PRICE_CHILD) + (adult * PRICE_ADULT) + (group * PRICE_GROUP);
+        const totalRevenue = ticketRevenue + extra;
+
+        const existIdx = records.findIndex(r => r.date === dateVal);
+        const newRecord = {
+          date: dateVal,
+          opMode: selectedOpMode,
+          targetRevenue: targetRev,
+          targetVisitors: targetVis,
+          child: child,
+          adult: adult,
+          group: group,
+          ticketRevenue: ticketRevenue,
+          extraRevenue: extra,
+          totalVisitors: totalVisitors,
+          totalRevenue: totalRevenue,
+          isSafe: isSafe,
+          memo: memo
+        };
+
+        if (existIdx >= 0) {
+          records[existIdx] = newRecord;
+        } else {
+          records.push(newRecord);
+        }
+
+        saveRealRecords();
+        renderAll();
+
+        document.getElementById('entryModal').classList.add('hidden');
+
+        // Reset inputs
+        document.getElementById('cntChild').value = 0;
+        document.getElementById('cntAdult').value = 0;
+        document.getElementById('cntGroup').value = 0;
+        document.getElementById('cntExtraRev').value = 0;
+        document.getElementById('inputEntryMemo').value = '';
+      });
+
+      // Chart Toggle
+      document.getElementById('btnChartRev')?.addEventListener('click', () => {
+        currentChartMetric = 'revenue';
+        document.getElementById('btnChartRev').className = 'touch-btn px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-600 text-white shadow';
+        document.getElementById('btnChartVis').className = 'touch-btn px-2.5 py-1 text-xs font-bold rounded-lg text-slate-400 hover:text-white';
+        renderRevenueChart();
+      });
+
+      document.getElementById('btnChartVis')?.addEventListener('click', () => {
+        currentChartMetric = 'visitors';
+        document.getElementById('btnChartVis').className = 'touch-btn px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-600 text-white shadow';
+        document.getElementById('btnChartRev').className = 'touch-btn px-2.5 py-1 text-xs font-bold rounded-lg text-slate-400 hover:text-white';
+        renderRevenueChart();
+      });
+
+      // Fullscreen
+      document.getElementById('btnToggleFullscreen')?.addEventListener('click', () => {
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(err => console.warn(err));
+        } else {
+          if (document.exitFullscreen) document.exitFullscreen();
+        }
+      });
+
+      // Settings Modal
+      document.getElementById('btnOpenSettings')?.addEventListener('click', () => {
+        document.getElementById('settingsModal').classList.remove('hidden');
+      });
+      document.getElementById('btnCloseSettings')?.addEventListener('click', () => {
+        document.getElementById('settingsModal').classList.add('hidden');
+      });
+      document.getElementById('btnDoneSettings')?.addEventListener('click', () => {
+        document.getElementById('settingsModal').classList.add('hidden');
+      });
+
+      // Export / Clear
+      document.getElementById('btnExportCsv')?.addEventListener('click', exportCsv);
+      document.getElementById('btnQuickExport')?.addEventListener('click', exportCsv);
+      document.getElementById('btnExportJson')?.addEventListener('click', exportJson);
+      
+      document.getElementById('btnClearAllRecords')?.addEventListener('click', () => {
+        if (confirm('정말로 모든 실적 기록을 초기화하시겠습니까? (복구 불가)')) {
+          records = [];
+          saveRealRecords();
+          renderAll();
+          document.getElementById('settingsModal').classList.add('hidden');
+        }
+      });
+    }
+
+    function updateModalPreview() {
+      const child = Number(document.getElementById('cntChild').value) || 0;
+      const adult = Number(document.getElementById('cntAdult').value) || 0;
+      const group = Number(document.getElementById('cntGroup').value) || 0;
+      const extra = Number(document.getElementById('cntExtraRev').value) || 0;
+
+      const totalV = child + adult + group;
+      const ticketRev = (child * PRICE_CHILD) + (adult * PRICE_ADULT) + (group * PRICE_GROUP);
+      const totalR = ticketRev + extra;
+      const avgT = totalV > 0 ? Math.round(totalR / totalV) : 0;
+
+      document.getElementById('previewRevenue').textContent = `${totalR.toLocaleString()} 원`;
+      document.getElementById('previewVisitors').textContent = `${totalV.toLocaleString()}명`;
+      document.getElementById('previewAvgTicket').textContent = `환산 객단가 ${avgT.toLocaleString()}원`;
+    }
+
+    function exportCsv() {
+      if (records.length === 0) {
+        alert('저장된 실적 데이터가 없습니다.');
+        return;
+      }
+      const headers = ['날짜', '운영구분', '목표매출', '입장매출', '부가매출', '총매출액', '총방문객', '평균객단가', '무사고여부', '운영메모'];
+      const rows = records.map(r => {
+        const avg = r.totalVisitors > 0 ? Math.round(r.totalRevenue / r.totalVisitors) : 0;
+        return [
+          r.date,
+          r.opMode,
+          r.targetRevenue,
+          r.ticketRevenue,
+          r.extraRevenue,
+          r.totalRevenue,
+          r.totalVisitors,
+          avg,
+          r.isSafe ? '무사고' : '사고발생',
+          `"${(r.memo || '').replace(/"/g, '""')}"`
+        ];
+      });
+
+      const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `봉플레이_매출실적마감_${getTodayStr()}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function exportJson() {
+      const blob = new Blob([JSON.stringify(records, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `봉플레이_매출백업_${getTodayStr()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  </script>
+</body>
+</html>

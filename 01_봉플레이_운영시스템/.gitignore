@@ -1,0 +1,26 @@
+.DS_Store
+Thumbs.db
+node_modules/
+*.log
+
+# 배포 아카이브
+*.zip
+bongplay_deploy.zip
+.netlify/
+
+# 보안 자격증명 파일
+assets/config.js
+pages/firebase-config.js
+.env
+.env.*
+*.key
+*.pem
+
+# 대용량 미디어 및 보관소
+_보관/
+tmp/
+*.mp4
+
+# Python 캐시
+__pycache__/
+*.pyc

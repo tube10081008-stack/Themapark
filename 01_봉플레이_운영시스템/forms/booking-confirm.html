@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>단체예약확인서 — 리틀포레스트 봉플레이</title>
+<link rel="stylesheet" href="form-style.css">
+</head>
+<body>
+<div class="navlinks">
+  <a href="index.html">← 서식 목록</a>
+</div>
+
+<div class="guide">
+  <h2>쓰는 법</h2>
+  <ol>
+    <li>예약 접수 후 <b>인솔 담당자에게 발송</b>하여 일정과 인원을 확정하십시오.</li>
+    <li>요금은 <b>확정 요금표 기준</b>으로 자동 계산되지 않으니 직접 확인해 넣으십시오.</li>
+    <li>동절기(11~3월)는 실외시설이 운영되지 않으므로 반드시 사전 고지하십시오.</li>
+  </ol>
+  <div class="warn"><b>단체는 종합권 기준으로 안내하십시오.</b> 기본권 기준 단체가는 1인당 10,909원으로 손익분기 아래입니다. 짚코스터가 포함된 종합권 20% 할인(16,800원)이 기준입니다.</div>
+  <button class="btn" onclick="window.print()">인쇄 / PDF로 저장</button>
+</div>
+
+<div class="paper">
+<div class="docno">문서번호: <span class="f inline" data-ph="예) 봉플레이-예약-2026-001"></span></div>
+  <h1 class="narrow">단체예약확인서</h1>
+
+  <table>
+    <caption>1. 예약 단체</caption>
+    <tbody>
+      <tr>
+        <th>기관·단체명</th><td colspan="3"><span class="f" data-ph="예) ○○유치원"></span></td>
+      </tr>
+      <tr>
+        <th>인솔 담당자</th><td><span class="f" data-ph="성명"></span></td>
+        <th>연락처</th><td><span class="f" data-ph="010-0000-0000"></span></td>
+      </tr>
+      <tr>
+        <th>소재지</th><td colspan="3"><span class="f" data-ph="예) 경북 안동시 ○○로 00"></span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <table>
+    <caption>2. 방문 일정</caption>
+    <tbody>
+      <tr>
+        <th>방문일자</th><td><span class="f" data-ph="예) 2026. 00. 00. (○)"></span></td>
+        <th>도착 예정</th><td><span class="f" data-ph="예) 10:00"></span></td>
+      </tr>
+      <tr>
+        <th>이용 시간</th><td><span class="f" data-ph="예) 10:00 ~ 12:00 (2시간)"></span></td>
+        <th>출발 예정</th><td><span class="f" data-ph="예) 12:30"></span></td>
+      </tr>
+      <tr>
+        <th>이용 구분</th>
+        <td colspan="3">
+          <span class="chk"></span>종합이용권(실내+네트+짚코스터 1회)
+          &nbsp;<span class="chk"></span>기본이용권(실내+네트)
+          &nbsp;<span class="chk"></span>동절기 실내전용
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <table>
+    <caption>3. 인원 및 요금</caption>
+    <thead>
+      <tr><th style="width:auto">구분</th><th style="width:80px">인원</th>
+          <th style="width:110px">단가</th><th style="width:130px">금액</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>어린이 (단체 20% 할인)</td><td class="center"><span class="f"></span></td>
+          <td class="center"><span class="f" data-ph="16,800"></span></td><td class="center"><span class="f"></span></td></tr>
+      <tr><td>인솔자</td><td class="center"><span class="f"></span></td>
+          <td class="center">무료</td><td class="center">0</td></tr>
+      <tr><td>추가 인원·옵션</td><td class="center"><span class="f"></span></td>
+          <td class="center"><span class="f"></span></td><td class="center"><span class="f"></span></td></tr>
+      <tr><th style="background:#eef2f7">합계</th><td class="center"><span class="f"></span></td>
+          <td class="center">-</td><td class="center" style="font-weight:700"><span class="f"></span></td></tr>
+    </tbody>
+  </table>
+
+  <table>
+    <caption>4. 안내 사항</caption>
+    <tbody>
+      <tr><th class="wide">주차</th><td><span class="f" data-ph="예) 대형버스 주차 가능 (사전 협의)"></span></td></tr>
+      <tr><th class="wide">준비물</th><td><span class="f" data-ph="예) 편한 복장, 운동화(샌들 불가), 여벌 옷"></span></td></tr>
+      <tr><th class="wide">이용 제한</th><td><span class="f" data-ph="짚코스터 신장·체중 기준 확인 후 기재"></span></td></tr>
+      <tr><th class="wide">우천 시</th><td><span class="f" data-ph="예) 실외시설 운영 중단, 실내시설로 대체 운영"></span></td></tr>
+      <tr><th class="wide">기타 요청</th><td><span class="f" data-ph="식사 장소, 버스비 지원 요청 등"></span></td></tr>
+    </tbody>
+  </table>
+
+  <ul class="note">
+    <li>안전이용 동의서는 방문 당일 현장 또는 사전 온라인으로 작성해 주셔야 합니다.</li>
+    <li>인원 변동이 있는 경우 <b>방문 3일 전까지</b> 연락 주시기 바랍니다.</li>
+    <li>동절기(11~3월)에는 실외시설(짚코스터·네트챌린지)이 운영되지 않습니다.</li>
+  </ul>
+
+  <p class="stmt" style="font-size:14px">위와 같이 단체 예약이 접수되었음을 확인합니다.</p>
+<div class="date"><span class="f inline" style="min-width:200px" data-ph="2026년 00월 00일"></span></div>    <div class="issuer">
+    <table class="issuerbox">
+      <tr><td class="k">상호</td><td class="v">리틀포레스트 봉플레이</td></tr>
+      <tr><td class="k">사업자등록번호</td><td class="v"><span class="f inline" data-ph="000-00-00000"></span></td></tr>
+      <tr><td class="k">소재지</td><td class="v">경상북도 봉화군 봉화읍 유록길 22</td></tr>
+      <tr><td class="k">연락처</td><td class="v"><span class="f inline" style="min-width:160px" data-ph="054-000-0000"></span></td></tr>
+    </table>
+
+    <div class="rep">
+      대표 &nbsp; 홍 성 현
+      <span class="seal">(인)</span>
+    </div>
+  </div>
+
+  <div class="foot">
+    ※ 본 확인서는 예약 내용 확인용이며, 최종 요금은 현장 이용 인원 기준으로 정산됩니다.
+  </div>
+</div>
+<script src="form-script.js"></script>
+<a href="../index.html" class="no-print" style="position:fixed;left:12px;bottom:12px;z-index:9999;display:inline-flex;align-items:center;gap:6px;padding:9px 14px;border-radius:14px;background:#111;border:1px solid #333;color:#fff;font-size:11px;font-weight:700;text-decoration:none;box-shadow:0 4px 16px rgba(0,0,0,.25)">&#8592; 메인</a>
+</body>
+</html>

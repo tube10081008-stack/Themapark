@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>리틀포레스트 봉플레이 - 실시간 현장 안내 & 단체예약</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0fdf4',
+              100: '#dcfce7',
+              200: '#bbf7d0',
+              500: '#22c55e',
+              600: '#16a34a',
+              700: '#15803d',
+              800: '#166534',
+              900: '#14532d',
+              950: '#052e16'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800;900&display=swap');
+    
+    * {
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      scroll-behavior: smooth;
+    }
+
+    /* Custom subtle scrollbar */
+    ::-webkit-scrollbar {
+      width: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #090d16;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1e293b;
+      border-radius: 4px;
+    }
+
+    .pulse-green {
+      box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+      animation: pulse-green 2s infinite;
+    }
+    @keyframes pulse-green {
+      0% { transform: scale(0.98); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); }
+      100% { transform: scale(0.98); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen antialiased flex flex-col justify-between">
+
+  <!-- ================================================================= -->
+  <!-- TOP STICKY HEADER: BRAND & LIVE FACILITY STATUS                     -->
+  <!-- ================================================================= -->
+  <header class="sticky top-0 z-40 bg-slate-950/90 border-b border-slate-800/80 backdrop-blur-md px-4 py-3 flex items-center justify-between shadow-lg">
+    <a href="#" class="flex items-center gap-2.5">
+      <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-brand-600 via-emerald-500 to-teal-400 flex items-center justify-center text-white font-black text-xs shadow-md shadow-brand-600/30">
+        봉플
+      </div>
+      <div>
+        <div class="text-sm font-black tracking-tight text-white flex items-center gap-1.5 leading-none">
+          <span>리틀포레스트 봉플레이</span>
+          <span class="w-1.5 h-1.5 rounded-full bg-brand-400 animate-pulse"></span>
+        </div>
+        <p class="text-[10px] text-slate-400 font-medium mt-0.5">봉화군 숲속 익스트림 키즈 어드벤처</p>
+      </div>
+    </a>
+
+    <!-- Quick Call & Admin Gear -->
+    <div class="flex items-center gap-2">
+      <a href="tel:010-5931-4144" class="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1 transition">
+        <i data-lucide="phone-call" class="w-3.5 h-3.5 text-brand-400"></i>
+        <span class="hidden xs:inline">010-5931-4144</span>
+        <span class="xs:hidden">문의</span>
+      </a>
+      <button onclick="openAdminController()" title="현장 관리자 모드" class="p-1.5 text-slate-500 hover:text-slate-300 rounded-xl hover:bg-slate-800/80 transition">
+        <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- ================================================================= -->
+  <!-- MAIN CONTAINER (MOBILE FIRST OPTIMIZED)                            -->
+  <!-- ================================================================= -->
+  <div class="flex-1 w-full max-w-lg mx-auto pb-24 px-3 sm:px-4 space-y-4 pt-3">
+
+    <!-- 1. LIVE OPERATIONS BANNER (REAL-TIME WEATHER & CROWD STATUS) -->
+    <section class="bg-gradient-to-br from-slate-900 via-slate-900/90 to-brand-950/40 border border-brand-800/40 rounded-3xl p-4 shadow-xl relative overflow-hidden">
+      <!-- Background Ambient Glow -->
+      <div class="absolute -right-10 -bottom-10 w-36 h-36 bg-brand-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+      <!-- Top Status Indicators Row -->
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800/70">
+        <div class="flex items-center gap-1.5">
+          <span class="text-[11px] font-extrabold text-slate-400">오늘의 운영 상태</span>
+          <span id="badgeLiveDate" class="text-[10px] font-mono text-slate-500 font-bold">2026.09.09</span>
+        </div>
+        <span id="badgeUpdateNotice" class="text-[10px] text-slate-500">실시간 자동 연동</span>
+      </div>
+
+      <!-- Live Weather & Crowd Metric Boxes -->
+      <div class="grid grid-cols-2 gap-2.5 mt-3">
+        <!-- Weather / Facility Open Status -->
+        <div id="boxWeatherStatus" class="bg-slate-950/80 border border-slate-800 rounded-2xl p-3 flex flex-col justify-between">
+          <div class="text-[11px] text-slate-400 font-bold flex items-center gap-1">
+            <span id="iconWeather">☀️</span>
+            <span>시설 운영</span>
+          </div>
+          <div class="mt-2">
+            <div id="lblWeatherState" class="text-sm sm:text-base font-black text-brand-400">정상 운영 중</div>
+            <div id="lblWeatherSub" class="text-[10px] text-slate-400 mt-0.5">전 시설(짚라인·네트) 가동</div>
+          </div>
+        </div>
+
+        <!-- Crowd / Queue Meter -->
+        <div id="boxCrowdStatus" class="bg-slate-950/80 border border-slate-800 rounded-2xl p-3 flex flex-col justify-between">
+          <div class="text-[11px] text-slate-400 font-bold flex items-center gap-1">
+            <i data-lucide="users" class="w-3.5 h-3.5 text-blue-400"></i>
+            <span>현장 혼잡도</span>
+          </div>
+          <div class="mt-2">
+            <div class="flex items-center gap-1.5">
+              <span id="dotCrowdLight" class="w-2.5 h-2.5 rounded-full bg-emerald-400 pulse-green"></span>
+              <span id="lblCrowdState" class="text-sm sm:text-base font-black text-white">쾌적 (여유)</span>
+            </div>
+            <div id="lblCrowdSub" class="text-[10px] text-slate-400 mt-0.5">대기 없이 바로 체험 가능</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live Notice Ticker -->
+      <div id="liveNoticeBar" class="mt-3 bg-brand-950/40 border border-brand-800/40 rounded-xl px-3 py-2 flex items-center gap-2 text-xs text-brand-300">
+        <i data-lucide="megaphone" class="w-4 h-4 text-brand-400 shrink-0"></i>
+        <span id="txtLiveAnnouncement" class="truncate font-medium">쾌적한 이용을 위해 편안한 운동화 착용을 권장합니다!</span>
+      </div>
+
+      <!-- Fast Action Link: Safety Consent Pass -->
+      <a href="봉플레이_모바일_안전동의서_시스템.html" class="mt-3 w-full py-2.5 bg-gradient-to-r from-emerald-600 via-brand-600 to-teal-600 hover:from-emerald-500 text-white font-extrabold text-xs rounded-xl shadow-md flex items-center justify-center gap-2 transition active:scale-[0.98]">
+        <i data-lucide="qr-code" class="w-4 h-4"></i>
+        <span>입장 전 20초 [모바일 안전서약] 바로가기</span>
+        <i data-lucide="chevron-right" class="w-3.5 h-3.5 opacity-80"></i>
+      </a>
+    </section>
+
+    <!-- 2. QUICK NAVIGATION PILLS -->
+    <div class="grid grid-cols-4 gap-2 text-center text-xs font-bold">
+      <a href="#sectionAttractions" class="bg-slate-900 border border-slate-800 hover:border-brand-500/50 p-2.5 rounded-2xl flex flex-col items-center gap-1 transition">
+        <span class="text-base">🌲</span>
+        <span class="text-[11px] text-slate-300">놀이시설</span>
+      </a>
+      <a href="#sectionPricing" class="bg-slate-900 border border-slate-800 hover:border-brand-500/50 p-2.5 rounded-2xl flex flex-col items-center gap-1 transition">
+        <span class="text-base">🎟️</span>
+        <span class="text-[11px] text-slate-300">요금/할인</span>
+      </a>
+      <button onclick="openGroupBookingModal()" class="bg-slate-900 border border-brand-700/60 hover:border-brand-500 p-2.5 rounded-2xl flex flex-col items-center gap-1 transition text-brand-400">
+        <span class="text-base">🚌</span>
+        <span class="text-[11px] font-black">단체예약</span>
+      </button>
+      <a href="#sectionLocation" class="bg-slate-900 border border-slate-800 hover:border-brand-500/50 p-2.5 rounded-2xl flex flex-col items-center gap-1 transition">
+        <span class="text-base">📍</span>
+        <span class="text-[11px] text-slate-300">오시는길</span>
+      </a>
+    </div>
+
+    <!-- 3. ATTRACTIONS SHOWCASE -->
+    <section id="sectionAttractions" class="space-y-3 pt-2">
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm sm:text-base font-black text-white flex items-center gap-2">
+          <i data-lucide="compass" class="w-4 h-4 text-brand-400"></i>
+          <span>봉플레이 5대 대표 어드벤처</span>
+        </h2>
+        <span class="text-[10px] text-slate-500">KC 안전인증 완비</span>
+      </div>
+
+      <div class="space-y-2.5">
+        <!-- 1. Rollercoaster Zipline -->
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 flex items-start gap-3.5 hover:border-slate-700 transition">
+          <div class="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-xl shrink-0">
+            🎢
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between">
+              <h3 class="text-xs sm:text-sm font-black text-white truncate">곡선형 짚코스터 (롤러코스터 짚라인)</h3>
+              <span class="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold bg-amber-950 text-amber-300 border border-amber-800/50">인기 최고</span>
+            </div>
+            <p class="text-[11px] text-slate-400 mt-1 leading-snug">
+              직선 하강이 아닌 360도 숲속 커브를 질주하는 익스트림 짚코스터! 안전 하네스 착용 후 안전요원 1:1 통제 운영.
+            </p>
+            <div class="flex items-center gap-2 text-[10px] text-slate-500 mt-1.5 font-medium">
+              <span>키 110cm 이상</span> · <span>몸무게 20~90kg</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. Giant Net Adventure & Trampoline -->
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 flex items-start gap-3.5 hover:border-slate-700 transition">
+          <div class="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-xl shrink-0">
+            🕸️
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between">
+              <h3 class="text-xs sm:text-sm font-black text-white truncate">공중 네트 어드벤처 & 초대형 트램펄린</h3>
+              <span class="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-800/50">자유 놀이</span>
+            </div>
+            <p class="text-[11px] text-slate-400 mt-1 leading-snug">
+              나무와 나무 사이를 엮은 안전 이중 네트 미로와 피로 없는 충격 완화 대형 트램펄린 존!
+            </p>
+            <div class="flex items-center gap-2 text-[10px] text-slate-500 mt-1.5 font-medium">
+              <span>전 연령 가능</span> · <span>양말 착용 필수</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Forest Kids Zipline -->
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 flex items-start gap-3.5 hover:border-slate-700 transition">
+          <div class="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-xl shrink-0">
+            🦅
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between">
+              <h3 class="text-xs sm:text-sm font-black text-white truncate">어린이 전용 포레스트 짚라인</h3>
+              <span class="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold bg-blue-950 text-blue-300 border border-blue-800/50">초보 추천</span>
+            </div>
+            <p class="text-[11px] text-slate-400 mt-1 leading-snug">
+              영유아와 어린이도 무서움 없이 탈 수 있는 완만한 경사의 안전 지상 짚라인 코스.
+            </p>
+            <div class="flex items-center gap-2 text-[10px] text-slate-500 mt-1.5 font-medium">
+              <span>만 3세 이상</span> · <span>보호자 시선 보호</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. Indoor Heritage Kids Lounge -->
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 flex items-start gap-3.5 hover:border-slate-700 transition">
+          <div class="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-xl shrink-0">
+            🎠
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between">
+              <h3 class="text-xs sm:text-sm font-black text-white truncate">실내 승마 헤리티지 & 아동 북쉼터</h3>
+              <span class="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold bg-purple-950 text-purple-300 border border-purple-800/50">사계절 실내</span>
+            </div>
+            <p class="text-[11px] text-slate-400 mt-1 leading-snug">
+              옛 봉화 승마장의 역사와 말(馬) 이야기를 담은 문화 전시, 볼풀 놀이터, 숲속 그림책 쉼터.
+            </p>
+            <div class="flex items-center gap-2 text-[10px] text-slate-500 mt-1.5 font-medium">
+              <span>냉·난방 완비</span> · <span>유아 휴게실 구비</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 5. Forest Cafe & Food -->
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 flex items-start gap-3.5 hover:border-slate-700 transition">
+          <div class="w-12 h-12 rounded-xl bg-orange-500/10 border border-orange-500/30 flex items-center justify-center text-xl shrink-0">
+            ☕
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between">
+              <h3 class="text-xs sm:text-sm font-black text-white truncate">숲속 힐링 카페 & 로컬 스낵존</h3>
+              <span class="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold bg-orange-950 text-orange-300 border border-orange-800/50">보호자 쉼터</span>
+            </div>
+            <p class="text-[11px] text-slate-400 mt-1 leading-snug">
+              신선한 프리미엄 에스프레소 아메리카노, 아이들을 위한 봉화 사과주스, 건강 간식류.
+            </p>
+            <div class="flex items-center gap-2 text-[10px] text-slate-500 mt-1.5 font-medium">
+              <span>보호자 입장권에 음료 1잔 포함</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. PRICING & DISCOUNTS -->
+    <section id="sectionPricing" class="space-y-3 pt-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm sm:text-base font-black text-white flex items-center gap-2">
+          <i data-lucide="ticket" class="w-4 h-4 text-brand-400"></i>
+          <span>이용 요금 및 우대 혜택</span>
+        </h2>
+        <span class="text-[10px] text-emerald-400 font-bold font-mono">가성비 최고 패키지</span>
+      </div>
+
+      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
+        <!-- Ticket Items -->
+        <div class="divide-y divide-slate-800/80 text-xs">
+          <!-- Kid Standard -->
+          <div class="py-2.5 flex items-center justify-between">
+            <div>
+              <div class="font-extrabold text-white text-sm">어린이 일반 (종일 자유이용권)</div>
+              <div class="text-[11px] text-slate-400">짚라인, 짚코스터, 네트, 트램펄린, 실내놀이터 전체</div>
+            </div>
+            <div class="text-right font-mono">
+              <strong class="text-brand-400 text-sm font-black">14,000원</strong>
+              <div class="text-[10px] text-slate-500">24개월 이상~초등</div>
+            </div>
+          </div>
+
+          <!-- Group Special (Kindergarten / Schools) -->
+          <div class="py-2.5 flex items-center justify-between">
+            <div>
+              <div class="font-extrabold text-white text-sm flex items-center gap-1.5">
+                <span>어린이집·유치원 단체권</span>
+                <span class="text-[10px] bg-red-950 text-red-300 font-bold px-1.5 py-0.2 rounded border border-red-800/40">50% 특별할인</span>
+              </div>
+              <div class="text-[11px] text-slate-400">20인 이상 평일 단체 견학 (사전 예약 필수)</div>
+            </div>
+            <div class="text-right font-mono">
+              <strong class="text-emerald-300 text-sm font-black">7,000원</strong>
+              <div class="text-[10px] text-slate-500">인솔 교사 무료</div>
+            </div>
+          </div>
+
+          <!-- Guardian ticket + Cafe coffee -->
+          <div class="py-2.5 flex items-center justify-between">
+            <div>
+              <div class="font-extrabold text-white text-sm flex items-center gap-1.5">
+                <span>보호자 입장권</span>
+                <span class="text-[10px] bg-amber-950 text-amber-300 font-bold px-1.5 py-0.2 rounded border border-amber-800/40">커피 교환권 증정</span>
+              </div>
+              <div class="text-[11px] text-slate-400">숲속 쉼터 입장 + 아메리카노(또는 티) 1잔 무료 교환</div>
+            </div>
+            <div class="text-right font-mono">
+              <strong class="text-amber-400 text-sm font-black">5,000원</strong>
+              <div class="text-[10px] text-slate-500">음료 포함 실질 0원</div>
+            </div>
+          </div>
+
+          <!-- Adult Extreme Solo -->
+          <div class="py-2.5 flex items-center justify-between">
+            <div>
+              <div class="font-extrabold text-white text-sm">청소년·성인 액티비티권</div>
+              <div class="text-[11px] text-slate-400">중·고등학생 및 성인 짚코스터·짚라인 단독 이용</div>
+            </div>
+            <div class="text-right font-mono">
+              <strong class="text-blue-400 text-sm font-black">10,000원</strong>
+              <div class="text-[10px] text-slate-500">음료 1잔 포함</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Local Discount Notice -->
+        <div class="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
+          <span>🏛️ <strong>봉화군민 20% 우대 할인</strong> (현장 신분증 확인)</span>
+          <span>국가유공자·장애인 우대</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. GROUP VISIT CALLOUT BANNER (BUS SUBSIDY SYNERGY) -->
+    <section class="bg-gradient-to-r from-emerald-950/80 via-slate-900 to-teal-950/80 border border-emerald-700/50 rounded-3xl p-4 sm:p-5 shadow-xl relative overflow-hidden">
+      <div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-900/60 border border-emerald-700 text-emerald-300 text-[10px] font-black mb-2">
+        🚌 유치원·어린이집·초등학교 단체 견학 특별 혜택
+      </div>
+      <h3 class="text-sm sm:text-base font-black text-white leading-snug">
+        봉화군 관광버스 임차비 지원 연계!<br>
+        <span class="text-emerald-400">아이당 7,000원에 종일 숲체험 완료</span>
+      </h3>
+      <p class="text-[11px] text-slate-300 mt-1.5 leading-relaxed">
+        봉화군 단체관광 인센티브(1일 버스비 30~50만 원) 행정 서류 처리를 봉플레이에서 원스톱으로 지원해 드립니다.
+      </p>
+
+      <button onclick="openGroupBookingModal()" class="mt-3.5 w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition active:scale-[0.98]">
+        <i data-lucide="calendar-plus" class="w-4 h-4"></i>
+        <span>단체 예약 견적 & 버스비 지원 간편 문의하기</span>
+      </button>
+    </section>
+
+    <!-- 6. LOCATION & NAVIGATION DEEP-LINKS -->
+    <section id="sectionLocation" class="space-y-3 pt-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm sm:text-base font-black text-white flex items-center gap-2">
+          <i data-lucide="map-pin" class="w-4 h-4 text-brand-400"></i>
+          <span>찾아오시는 길 & 주차 안내</span>
+        </h2>
+        <span class="text-[10px] text-slate-500 font-mono">대형버스 무료 주차 완비</span>
+      </div>
+
+      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
+        <div>
+          <div class="text-[11px] text-slate-400 font-bold">도로명 주소</div>
+          <div class="text-xs sm:text-sm font-extrabold text-white mt-0.5 flex items-center justify-between">
+            <span id="txtAddress">경상북도 봉화군 봉화읍 유록길 22</span>
+            <button onclick="copyAddress()" class="text-[11px] text-brand-400 hover:underline flex items-center gap-1 font-bold">
+              <i data-lucide="copy" class="w-3 h-3"></i>
+              <span>주소 복사</span>
+            </button>
+          </div>
+          <div class="text-[11px] text-slate-400 mt-1">
+            경상북도 봉화군 봉화읍 유록길 22 (봉플레이 숲속 어드벤처)
+          </div>
+        </div>
+
+        <!-- 1-Click Navigation Buttons -->
+        <div class="pt-2 border-t border-slate-800/80">
+          <div class="text-[11px] text-slate-400 font-bold mb-2">원터치 내비게이션 바로 길찾기</div>
+          <div class="grid grid-cols-3 gap-2 text-xs font-black">
+            <!-- KakaoNavi -->
+            <a href="https://map.kakao.com/link/search/경상북도 봉화군 봉화읍 유록길 22" target="_blank"
+               class="bg-yellow-400 hover:bg-yellow-300 text-slate-950 py-2 rounded-xl flex items-center justify-center gap-1.5 transition">
+              <span>🟡 카카오맵</span>
+            </a>
+            <!-- TMap -->
+            <a href="https://map.naver.com/v5/search/경상북도 봉화군 봉화읍 유록길 22" target="_blank"
+               class="bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-xl flex items-center justify-center gap-1.5 transition">
+              <span>🔵 티맵/길찾기</span>
+            </a>
+            <!-- Naver Map -->
+            <a href="https://map.naver.com/v5/search/경상북도 봉화군 봉화읍 유록길 22" target="_blank"
+               class="bg-green-600 hover:bg-green-500 text-white py-2 rounded-xl flex items-center justify-center gap-1.5 transition">
+              <span>🟢 네이버지도</span>
+            </a>
+          </div>
+        </div>
+
+        <div class="pt-2 border-t border-slate-800/80 text-[11px] text-slate-400 space-y-1">
+          <div>🅿️ <strong>주차장</strong>: 승용차 50대 + 대형 관광버스 10대 동시 무료 주차</div>
+          <div>🕒 <strong>운영 시간</strong>: 10:00 ~ 18:00 (입장 마감 17:00 / 매주 월요일 시설 점검)</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7. FREQUENTLY ASKED QUESTIONS (FAQ) -->
+    <section class="space-y-3 pt-4">
+      <h2 class="text-sm sm:text-base font-black text-white flex items-center gap-2">
+        <i data-lucide="help-circle" class="w-4 h-4 text-brand-400"></i>
+        <span>자주 묻는 질문 (FAQ)</span>
+      </h2>
+
+      <div class="space-y-2 text-xs">
+        <details class="bg-slate-900 border border-slate-800 rounded-xl p-3 group">
+          <summary class="font-extrabold text-white cursor-pointer list-none flex items-center justify-between">
+            <span>Q. 비가 오거나 바람이 불면 시설을 운영하나요?</span>
+            <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400 group-open:rotate-180 transition"></i>
+          </summary>
+          <p class="text-slate-300 mt-2 text-[11px] leading-relaxed border-t border-slate-800/60 pt-2">
+            가벼운 이슬비나 안개 시에는 정상 운영되지만, 강풍이나 호우 특보 시에는 안전을 위해 짚라인·짚코스터 탑승이 일시 대기될 수 있습니다. 출발 전 본 페이지 상단의 [실시간 시설 운영] 상태를 확인해 주세요!
+          </p>
+        </details>
+
+        <details class="bg-slate-900 border border-slate-800 rounded-xl p-3 group">
+          <summary class="font-extrabold text-white cursor-pointer list-none flex items-center justify-between">
+            <span>Q. 아이들 복장은 어떻게 챙겨야 하나요?</span>
+            <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400 group-open:rotate-180 transition"></i>
+          </summary>
+          <p class="text-slate-300 mt-2 text-[11px] leading-relaxed border-t border-slate-800/60 pt-2">
+            짚라인 하네스 착용과 네트 어드벤처 이용을 위해 <strong>치마보다는 바지, 크록스/슬리퍼보다는 끈 있는 운동화 착용</strong>이 필수적입니다. 실내 네트존 이용 시 미끄럼 방지 양말 착용을 권장합니다.
+          </p>
+        </details>
+
+        <details class="bg-slate-900 border border-slate-800 rounded-xl p-3 group">
+          <summary class="font-extrabold text-white cursor-pointer list-none flex items-center justify-between">
+            <span>Q. 외부 음식물 반입이 가능한가요?</span>
+            <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400 group-open:rotate-180 transition"></i>
+          </summary>
+          <p class="text-slate-300 mt-2 text-[11px] leading-relaxed border-t border-slate-800/60 pt-2">
+            영유아 이유식, 과일 도시락, 간단한 물과 음료는 야외 숲속 피크닉존에 반입 가능합니다. 다만 쾌적한 환경 유지를 위해 조리 기구(버너 등) 및 배달 음식 반입은 제한됩니다.
+          </p>
+        </details>
+      </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="pt-6 border-t border-slate-800/80 text-center text-[11px] text-slate-500 space-y-1">
+      <div class="font-bold text-slate-400">리틀포레스트 봉플레이 (Little Forest BongPlay)</div>
+      <div>운영사: 리틀포레스트 봉플레이 | 대표자: 홍성현</div>
+      <div>사업장 및 소재지: 경상북도 봉화군 봉화읍 유록길 22 | 고객문의: <a href="tel:010-5931-4144" class="text-brand-400 font-bold hover:underline font-mono">010-5931-4144</a></div>
+      <div class="text-[10px] text-slate-600 pt-2">Copyright © 2026 BongPlay. All Rights Reserved.</div>
+    </footer>
+
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- FLOATING QUICK BOTTOM ACTION DOCK (MOBILE APP EXPERIENCE)          -->
+  <!-- ================================================================= -->
+  <aside class="fixed bottom-0 left-0 right-0 z-30 bg-slate-950/95 border-t border-slate-800/90 backdrop-blur-md px-4 py-2.5 flex items-center justify-between gap-2 max-w-lg mx-auto shadow-2xl">
+    <a href="tel:010-5931-4144" class="flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700/80 font-black text-xs rounded-xl flex items-center justify-center gap-1.5 transition">
+      <i data-lucide="phone" class="w-3.5 h-3.5 text-brand-400"></i>
+      <span>전화 상담</span>
+    </a>
+
+    <button onclick="openGroupBookingModal()" class="flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 text-emerald-300 border border-emerald-800 font-black text-xs rounded-xl flex items-center justify-center gap-1.5 transition">
+      <i data-lucide="users-2" class="w-3.5 h-3.5"></i>
+      <span>단체 예약</span>
+    </button>
+
+    <a href="봉플레이_모바일_안전동의서_시스템.html" class="flex-[1.5] py-2.5 bg-gradient-to-r from-brand-600 to-emerald-500 hover:from-brand-500 text-white font-black text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-lg shadow-brand-600/30 transition active:scale-[0.98]">
+      <i data-lucide="signature" class="w-3.5 h-3.5"></i>
+      <span>안전서약 작성</span>
+    </a>
+  </aside>
+
+  <!-- ================================================================= -->
+  <!-- MODAL 1: GROUP BOOKING REQUEST MODAL (단체 견학 신청 폼)            -->
+  <!-- ================================================================= -->
+  <div id="modalGroupBooking" class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md hidden flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl my-auto animate-scale-in flex flex-col">
+      
+      <!-- Header -->
+      <div class="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+        <div class="flex items-center gap-2">
+          <div class="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-sm font-bold">
+            🚌
+          </div>
+          <div>
+            <h3 class="font-black text-white text-sm">어린이집·학교 단체 견학 예약 문의</h3>
+            <p class="text-[10px] text-slate-400">50% 특별 할인(7,000원) 및 버스비 지원 연계</p>
+          </div>
+        </div>
+        <button onclick="closeGroupBookingModal()" class="p-1.5 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Form Body -->
+      <form id="groupBookingForm" onsubmit="submitGroupBooking(event)" class="p-4 space-y-3 text-xs overflow-y-auto max-h-[75vh]">
+        
+        <div>
+          <label class="block font-bold text-slate-300 mb-1">기관/학교명 <span class="text-red-400">*</span></label>
+          <input type="text" id="grpOrgName" required placeholder="예: 햇살어린이집, 봉화초등학교"
+            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500">
+        </div>
+
+        <div class="grid grid-cols-2 gap-2.5">
+          <div>
+            <label class="block font-bold text-slate-300 mb-1">인솔 교사 성명 <span class="text-red-400">*</span></label>
+            <input type="text" id="grpTeacherName" required placeholder="예: 김선생"
+              class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500">
+          </div>
+          <div>
+            <label class="block font-bold text-slate-300 mb-1">연락처 <span class="text-red-400">*</span></label>
+            <input type="tel" id="grpTeacherPhone" required placeholder="010-0000-0000"
+              class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 font-mono">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2.5">
+          <div>
+            <label class="block font-bold text-slate-300 mb-1">희망 방문일자 <span class="text-red-400">*</span></label>
+            <input type="date" id="grpVisitDate" required
+              class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500 font-mono">
+          </div>
+          <div>
+            <label class="block font-bold text-slate-300 mb-1">예상 아동 인원 <span class="text-red-400">*</span></label>
+            <input type="number" id="grpKidCount" required min="15" placeholder="최소 20명 이상"
+              class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 font-mono">
+          </div>
+        </div>
+
+        <!-- Bus Support Option -->
+        <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-3 space-y-1.5">
+          <label class="flex items-start gap-2 cursor-pointer">
+            <input type="checkbox" id="grpWantBusSubsidy" checked class="mt-0.5 w-4 h-4 accent-brand-500 rounded border-slate-700">
+            <span class="text-slate-300 text-[11px] leading-snug">
+              <strong class="text-emerald-400">[추천] 봉화군 관광버스 임차비 지원(30~50만 원) 연계 신청</strong><br>
+              봉플레이에서 관할 지자체 증빙 서류를 준비해 드립니다.
+            </span>
+          </label>
+        </div>
+
+        <!-- Memo -->
+        <div>
+          <label class="block font-bold text-slate-300 mb-1">기타 요청사항 (선택)</label>
+          <textarea id="grpMemo" rows="2" placeholder="도시락 장소 예약, 특별 체험 프로그램 등 희망 사항"
+            class="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 resize-none"></textarea>
+        </div>
+
+        <button type="submit" class="w-full py-3 bg-gradient-to-r from-emerald-600 to-brand-600 hover:from-emerald-500 text-white font-black text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-1.5 transition">
+          <i data-lucide="send" class="w-3.5 h-3.5"></i>
+          <span>단체 예약 신청서 제출</span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- MODAL 2: FIELD ADMIN CONTROLLER (현장 직원이 3초 만에 상태 변경)    -->
+  <!-- ================================================================= -->
+  <div id="modalAdminControl" class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md hidden flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl my-auto animate-scale-in flex flex-col">
+      
+      <div class="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+        <div class="flex items-center gap-2">
+          <i data-lucide="shield-alert" class="w-4 h-4 text-brand-400"></i>
+          <h3 class="font-black text-white text-xs sm:text-sm">현장 직원 원터치 상태 변경</h3>
+        </div>
+        <button onclick="closeAdminController()" class="p-1 text-slate-400 hover:text-white rounded-lg">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="p-4 space-y-4 text-xs">
+        <!-- 1. Weather & Operation Status -->
+        <div>
+          <label class="block font-bold text-slate-300 mb-1.5">1. 시설 운영 상태 변경</label>
+          <div class="grid grid-cols-3 gap-1.5 font-bold text-[11px]">
+            <button onclick="setAdminWeather('normal')" id="btnAdmNormal" class="p-2 rounded-xl border border-brand-500 bg-brand-950/60 text-brand-300">
+              ☀️ 정상운영
+            </button>
+            <button onclick="setAdminWeather('standby')" id="btnAdmStandby" class="p-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400">
+              💨 강풍대기
+            </button>
+            <button onclick="setAdminWeather('rain')" id="btnAdmRain" class="p-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400">
+              🌧️ 우천휴장
+            </button>
+          </div>
+        </div>
+
+        <!-- 2. Crowd Level -->
+        <div>
+          <label class="block font-bold text-slate-300 mb-1.5">2. 현장 혼잡도 신호등 변경</label>
+          <div class="grid grid-cols-3 gap-1.5 font-bold text-[11px]">
+            <button onclick="setAdminCrowd('calm')" id="btnAdmCalm" class="p-2 rounded-xl border border-emerald-500 bg-emerald-950/60 text-emerald-300">
+              🟢 쾌적(여유)
+            </button>
+            <button onclick="setAdminCrowd('moderate')" id="btnAdmMod" class="p-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400">
+              🟡 보통(원활)
+            </button>
+            <button onclick="setAdminCrowd('busy')" id="btnAdmBusy" class="p-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400">
+              🔴 혼잡(대기)
+            </button>
+          </div>
+        </div>
+
+        <!-- 3. Announcement Ticker -->
+        <div>
+          <label class="block font-bold text-slate-300 mb-1">3. 상단 긴급 공지 문구</label>
+          <input type="text" id="txtAdminNoticeInput" placeholder="공지 사항을 입력하세요"
+            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500">
+        </div>
+
+        <!-- Save Button -->
+        <button onclick="saveAdminSettings()" class="w-full py-2.5 bg-brand-600 hover:bg-brand-500 text-white font-black text-xs rounded-xl shadow-md transition">
+          상태 즉시 웹페이지 반영
+        </button>
+
+        <!-- View Group Bookings -->
+        <div class="pt-2 border-t border-slate-800 flex items-center justify-between text-[11px]">
+          <span class="text-slate-400">접수된 단체예약: <strong id="lblGroupBookingsCount" class="text-emerald-400 font-mono">0</strong>건</span>
+          <button onclick="exportGroupBookingsToExcel()" class="text-brand-400 font-bold hover:underline">
+            명부 엑셀 다운로드
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- JAVASCRIPT LOGIC & LOCAL PERSISTENCE                              -->
+  <!-- ================================================================= -->
+  <script>
+    const STATUS_KEY = 'bongtteurak_live_status_v1';
+    const BOOKINGS_KEY = 'bongtteurak_group_bookings_v1';
+
+    let liveState = {
+      weather: 'normal',   // 'normal', 'standby', 'rain'
+      crowd: 'calm',       // 'calm', 'moderate', 'busy'
+      notice: '쾌적한 이용을 위해 편안한 운동화 착용을 권장합니다!'
+    };
+
+    let groupBookings = [];
+
+    window.addEventListener('DOMContentLoaded', () => {
+      loadLiveStatus();
+      loadGroupBookings();
+      renderLiveStatus();
+      lucide.createIcons();
+
+      // Live Date Stamp
+      const d = new Date();
+      const yr = d.getFullYear();
+      const mo = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const days = ['일', '월', '화', '수', '목', '금', '토'];
+      document.getElementById('badgeLiveDate').textContent = `${yr}.${mo}.${day} (${days[d.getDay()]})`;
+
+      // Default Visit Date for group modal: tomorrow
+      const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+      const visitInput = document.getElementById('grpVisitDate');
+      if (visitInput) visitInput.value = tomorrow;
+    });
+
+    // -----------------------------------------------------------------
+    // RENDER LIVE STATUS
+    // -----------------------------------------------------------------
+    function renderLiveStatus() {
+      // 1. Weather
+      const iconWeather = document.getElementById('iconWeather');
+      const lblWeather = document.getElementById('lblWeatherState');
+      const subWeather = document.getElementById('lblWeatherSub');
+      const boxWeather = document.getElementById('boxWeatherStatus');
+
+      if (liveState.weather === 'normal') {
+        iconWeather.textContent = '☀️';
+        lblWeather.textContent = '정상 운영 중';
+        lblWeather.className = 'text-sm sm:text-base font-black text-brand-400';
+        subWeather.textContent = '전 시설(짚라인·네트) 가동';
+        boxWeather.className = 'bg-slate-950/80 border border-slate-800 rounded-2xl p-3 flex flex-col justify-between';
+      } else if (liveState.weather === 'standby') {
+        iconWeather.textContent = '💨';
+        lblWeather.textContent = '짚라인 일시 대기';
+        lblWeather.className = 'text-sm sm:text-base font-black text-amber-400';
+        subWeather.textContent = '강풍으로 네트/실내 위주 운영';
+        boxWeather.className = 'bg-amber-950/20 border border-amber-800/40 rounded-2xl p-3 flex flex-col justify-between';
+      } else if (liveState.weather === 'rain') {
+        iconWeather.textContent = '🌧️';
+        lblWeather.textContent = '우천 야외 휴장';
+        lblWeather.className = 'text-sm sm:text-base font-black text-blue-400';
+        subWeather.textContent = '실내 헤리티지존만 운영';
+        boxWeather.className = 'bg-blue-950/20 border border-blue-800/40 rounded-2xl p-3 flex flex-col justify-between';
+      }
+
+      // 2. Crowd
+      const dotCrowd = document.getElementById('dotCrowdLight');
+      const lblCrowd = document.getElementById('lblCrowdState');
+      const subCrowd = document.getElementById('lblCrowdSub');
+
+      if (liveState.crowd === 'calm') {
+        dotCrowd.className = 'w-2.5 h-2.5 rounded-full bg-emerald-400 pulse-green';
+        lblCrowd.textContent = '쾌적 (여유)';
+        subCrowd.textContent = '대기 없이 바로 체험 가능';
+      } else if (liveState.crowd === 'moderate') {
+        dotCrowd.className = 'w-2.5 h-2.5 rounded-full bg-amber-400';
+        lblCrowd.textContent = '원활 (적정)';
+        subCrowd.textContent = '인기 코스 10~15분 대기';
+      } else if (liveState.crowd === 'busy') {
+        dotCrowd.className = 'w-2.5 h-2.5 rounded-full bg-red-400 animate-ping';
+        lblCrowd.textContent = '혼잡 (대기 발생)';
+        subCrowd.textContent = '짚코스터 30분 이상 대기';
+      }
+
+      // 3. Notice
+      document.getElementById('txtLiveAnnouncement').textContent = liveState.notice || '안전하고 쾌적한 숲속 어드벤처에 오신 것을 환영합니다!';
+    }
+
+    // -----------------------------------------------------------------
+    // ADMIN CONTROLLER
+    // -----------------------------------------------------------------
+    function openAdminController() {
+      document.getElementById('modalAdminControl').classList.remove('hidden');
+      document.getElementById('txtAdminNoticeInput').value = liveState.notice;
+      document.getElementById('lblGroupBookingsCount').textContent = groupBookings.length;
+      updateAdminButtonStyles();
+      lucide.createIcons();
+    }
+
+    function closeAdminController() {
+      document.getElementById('modalAdminControl').classList.add('hidden');
+    }
+
+    function setAdminWeather(w) {
+      liveState.weather = w;
+      updateAdminButtonStyles();
+    }
+
+    function setAdminCrowd(c) {
+      liveState.crowd = c;
+      updateAdminButtonStyles();
+    }
+
+    function updateAdminButtonStyles() {
+      const bwNormal = document.getElementById('btnAdmNormal');
+      const bwStandby = document.getElementById('btnAdmStandby');
+      const bwRain = document.getElementById('btnAdmRain');
+
+      [bwNormal, bwStandby, bwRain].forEach(b => b.className = 'p-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400');
+      if (liveState.weather === 'normal') bwNormal.className = 'p-2 rounded-xl border border-brand-500 bg-brand-950/60 text-brand-300';
+      if (liveState.weather === 'standby') bwStandby.className = 'p-2 rounded-xl border border-amber-500 bg-amber-950/60 text-amber-300';
+      if (liveState.weather === 'rain') bwRain.className = 'p-2 rounded-xl border border-blue-500 bg-blue-950/60 text-blue-300';
+
+      const bcCalm = document.getElementById('btnAdmCalm');
+      const bcMod = document.getElementById('btnAdmMod');
+      const bcBusy = document.getElementById('btnAdmBusy');
+
+      [bcCalm, bcMod, bcBusy].forEach(b => b.className = 'p-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400');
+      if (liveState.crowd === 'calm') bcCalm.className = 'p-2 rounded-xl border border-emerald-500 bg-emerald-950/60 text-emerald-300';
+      if (liveState.crowd === 'moderate') bcMod.className = 'p-2 rounded-xl border border-amber-500 bg-amber-950/60 text-amber-300';
+      if (liveState.crowd === 'busy') bcBusy.className = 'p-2 rounded-xl border border-red-500 bg-red-950/60 text-red-300';
+    }
+
+    function saveAdminSettings() {
+      liveState.notice = document.getElementById('txtAdminNoticeInput').value.trim() || '안전하고 쾌적한 숲속 어드벤처에 오신 것을 환영합니다!';
+      saveLiveStatus();
+      renderLiveStatus();
+      closeAdminController();
+      alert('현장 실시간 상태가 성공적으로 업데이트되었습니다.');
+    }
+
+    function loadLiveStatus() {
+      try {
+        const raw = localStorage.getItem(STATUS_KEY);
+        if (raw) liveState = JSON.parse(raw);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function saveLiveStatus() {
+      try {
+        localStorage.setItem(STATUS_KEY, JSON.stringify(liveState));
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    // -----------------------------------------------------------------
+    // GROUP BOOKING REQUEST
+    // -----------------------------------------------------------------
+    function openGroupBookingModal() {
+      document.getElementById('modalGroupBooking').classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    function closeGroupBookingModal() {
+      document.getElementById('modalGroupBooking').classList.add('hidden');
+    }
+
+    function submitGroupBooking(e) {
+      e.preventDefault();
+      const orgName = document.getElementById('grpOrgName').value.trim();
+      const teacherName = document.getElementById('grpTeacherName').value.trim();
+      const teacherPhone = document.getElementById('grpTeacherPhone').value.trim();
+      const visitDate = document.getElementById('grpVisitDate').value;
+      const kidCount = parseInt(document.getElementById('grpKidCount').value, 10);
+      const wantBus = document.getElementById('grpWantBusSubsidy').checked;
+      const memo = document.getElementById('grpMemo').value.trim();
+
+      const newBooking = {
+        id: 'grp_' + Date.now(),
+        createdAt: new Date().toLocaleString('ko-KR'),
+        orgName,
+        teacherName,
+        teacherPhone,
+        visitDate,
+        kidCount,
+        wantBus,
+        memo,
+        status: '접수완료'
+      };
+
+      groupBookings.push(newBooking);
+      saveGroupBookings();
+
+      closeGroupBookingModal();
+      document.getElementById('groupBookingForm').reset();
+
+      alert(`[접수 완료] ${orgName} 단체 견학 문의가 정상 접수되었습니다!\n담당 매니저가 24시간 내 유선 연락드려 버스비 지원 서류 및 일정을 조율해 드립니다.`);
+    }
+
+    function loadGroupBookings() {
+      try {
+        const raw = localStorage.getItem(BOOKINGS_KEY);
+        groupBookings = raw ? JSON.parse(raw) : [];
+      } catch (e) {
+        groupBookings = [];
+      }
+    }
+
+    function saveGroupBookings() {
+      try {
+        localStorage.setItem(BOOKINGS_KEY, JSON.stringify(groupBookings));
+      } catch (e) {}
+    }
+
+    function exportGroupBookingsToExcel() {
+      if (groupBookings.length === 0) {
+        alert('접수된 단체 예약 내역이 없습니다.');
+        return;
+      }
+
+      let csv = "\uFEFF접수일시,기관명,인솔교사,연락처,희망방문일,예상인원,버스비지원연계,메모\n";
+      groupBookings.forEach(b => {
+        csv += `"${b.createdAt}","${b.orgName}","${b.teacherName}","${b.teacherPhone}","${b.visitDate}","${b.kidCount}명","${b.wantBus ? '신청' : '미신청'}","${(b.memo || '').replace(/"/g, '""')}"\n`;
+      });
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `봉플레이_단체예약접수부_${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    // -----------------------------------------------------------------
+    // UTILITY: ADDRESS COPY
+    // -----------------------------------------------------------------
+    function copyAddress() {
+      const addr = document.getElementById('txtAddress').textContent;
+      navigator.clipboard.writeText(addr).then(() => {
+        alert('봉플레이 주소가 클립보드에 복사되었습니다:\n' + addr);
+      }).catch(() => {
+        alert('주소: ' + addr);
+      });
+    }
+  </script>
+</body>
+</html>

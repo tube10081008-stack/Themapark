@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>봉아카이브 · 현장 미디어 5TB | 봉플레이</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800;900&display=swap');
+    
+    html, body {
+      max-width: 100vw;
+      overflow-x: hidden !important;
+      width: 100%;
+    }
+    * {
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      box-sizing: border-box;
+    }
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col selection:bg-emerald-500 selection:text-white">
+
+  <!-- ================================================================= -->
+  <!-- BONGPLAY CHAT & ARCHIVE UNIFIED TOP NAVIGATION                    -->
+  <!-- ================================================================= -->
+  <nav class="bg-slate-900/95 backdrop-blur-md border-b border-slate-800 px-4 py-2 sm:px-6 sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto flex items-center justify-between gap-3 flex-wrap">
+      <div class="flex items-center gap-1.5 sm:gap-2">
+        <a href="index.html" class="px-3 py-1.5 rounded-xl text-xs font-bold text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition flex items-center gap-1.5">
+          <span>💬</span>
+          <span>봉챗 (업무로그)</span>
+        </a>
+        <a href="archive.html" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 text-white shadow-md shadow-indigo-600/20 flex items-center gap-1.5">
+          <span>📸</span>
+          <span>봉아카이브 (사진·영상 5TB)</span>
+        </a>
+      </div>
+      <a href="https://bongplay.netlify.app" target="_blank" rel="noopener noreferrer" class="text-xs font-bold text-slate-300 hover:text-emerald-400 bg-slate-800 hover:bg-slate-700/80 border border-slate-700 px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 ml-auto" title="봉플레이 메인 운영시스템 새 창 열기">
+        <span>🏛️ 봉플레이 운영시스템 ↗</span>
+      </a>
+    </div>
+  </nav>
+
+  <!-- ================================================================= -->
+  <!-- HEADER & APP STATUS BAR                                           -->
+  <!-- ================================================================= -->
+  <header class="bg-slate-900/70 border-b border-slate-800/80 px-4 py-3 sm:px-6">
+    <div class="max-w-7xl mx-auto flex items-center justify-between gap-3 flex-wrap">
+      
+      <!-- Brand & Title -->
+      <div class="flex items-center gap-3">
+        <a href="index.html" class="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition flex items-center gap-1.5 text-xs font-bold" title="봉챗으로 이동">
+          <i data-lucide="message-square" class="w-4 h-4 text-emerald-400"></i>
+          <span class="hidden sm:inline">봉챗</span>
+        </a>
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0 shadow-md shadow-indigo-500/20">
+          <i data-lucide="images" class="w-5 h-5 text-white"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="font-black text-sm sm:text-base text-white tracking-tight">현장 미디어 아카이브</h1>
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">Google Drive 5TB</span>
+          </div>
+          <p class="text-[11px] text-slate-400 hidden sm:block">단톡방 휘발 사진·영상 영구 보존 & 시설·행사 폴더링 앨범</p>
+        </div>
+      </div>
+
+      <!-- Actions & Config Buttons -->
+      <div class="flex items-center gap-2">
+        <a href="https://drive.google.com/drive/folders/1HC24KAasHPNhTvwxtTIg5qxf7fJXQHwp" target="_blank" rel="noopener noreferrer" 
+           class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl flex items-center gap-1.5 transition border border-slate-700" title="구글 드라이브 폴더 직접 열기">
+          <i data-lucide="external-link" class="w-3.5 h-3.5 text-indigo-400"></i>
+          <span class="hidden sm:inline">구글드라이브</span>
+        </a>
+
+        <button onclick="toggleUploadPanel()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition shadow-lg shadow-indigo-600/25">
+          <i data-lucide="upload-cloud" class="w-4 h-4"></i>
+          <span class="hidden sm:inline">현장 사진 등록</span>
+          <span class="sm:hidden">업로드</span>
+        </button>
+
+        <button onclick="openConfigModal()" id="btnDriveStatus" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl flex items-center gap-1.5 transition border border-slate-700" title="구글 드라이브 연동 설정">
+          <i data-lucide="settings" class="w-3.5 h-3.5 text-slate-400"></i>
+          <span id="driveStatusText" class="text-[11px]">드라이브 설정</span>
+        </button>
+
+        <button onclick="loadMediaList()" class="p-1.5 sm:p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition border border-slate-700" title="새로고침">
+          <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+    </div>
+  </header>
+
+  <!-- ================================================================= -->
+  <!-- TOP UPLOAD PANEL (COLLAPSIBLE)                                    -->
+  <!-- ================================================================= -->
+  <div id="uploadPanel" class="bg-slate-900 border-b border-slate-800 p-4 sm:p-6 transition-all duration-300">
+    <div class="max-w-4xl mx-auto space-y-4">
+      
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <i data-lucide="camera" class="w-4 h-4 text-indigo-400"></i>
+          <span class="text-xs sm:text-sm font-bold text-white">현장 미디어 즉시 박제 (5TB 구글 드라이브 자동 저장)</span>
+        </div>
+        <button onclick="toggleUploadPanel()" class="text-slate-400 hover:text-white text-xs">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <!-- Category Selector -->
+        <div>
+          <label class="block text-[11px] font-bold text-slate-400 mb-1">📁 보관 폴더 (카테고리)</label>
+          <select id="uploadCategory" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-medium focus:outline-none focus:border-indigo-500">
+            <option value="01_시설안전_및_보수">01. 시설안전 및 보수</option>
+            <option value="02_현장스케치_및_고객">02. 현장스케치 및 고객</option>
+            <option value="03_단체행사_및_프로그램">03. 단체행사 및 프로그램</option>
+            <option value="04_사고_및_민원증빙">04. 사고 및 민원 증빙</option>
+            <option value="05_마케팅_홍보_A컷">05. 마케팅 홍보 A컷</option>
+          </select>
+        </div>
+
+        <!-- Uploader -->
+        <div>
+          <label class="block text-[11px] font-bold text-slate-400 mb-1">👤 촬영/등록자</label>
+          <input type="text" id="uploadAuthor" value="홍성현" placeholder="이름 (예: 홍성현, 주성, 지연)" 
+                 class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-medium focus:outline-none focus:border-indigo-500">
+        </div>
+
+        <!-- Memo / Context -->
+        <div>
+          <label class="block text-[11px] font-bold text-slate-400 mb-1">📝 사진 내용 / 메모</label>
+          <input type="text" id="uploadMemo" placeholder="예: 짚코스터 1번 타워 와이어 점검, 단체 탑승 모습" 
+                 class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-medium focus:outline-none focus:border-indigo-500">
+        </div>
+      </div>
+
+      <!-- File Dropzone -->
+      <div id="dropzone" onclick="document.getElementById('fileInput').click()" 
+           class="border-2 border-dashed border-slate-700 hover:border-indigo-500/80 bg-slate-950/60 rounded-2xl p-6 text-center cursor-pointer transition flex flex-col items-center justify-center gap-2">
+        <input type="file" id="fileInput" accept="image/*,video/*" multiple class="hidden" onchange="handleFileSelect(event)">
+        <div class="w-12 h-12 rounded-2xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
+          <i data-lucide="image-plus" class="w-6 h-6"></i>
+        </div>
+        <p class="text-xs sm:text-sm font-bold text-slate-200">
+          이곳을 클릭하거나 사진/동영상을 끌어다 놓으세요
+        </p>
+        <p class="text-[11px] text-slate-500">
+          스마트폰 촬영 사진(JPG, PNG, HEIC) 및 현장 영상(MP4, MOV) 복수 선택 가능
+        </p>
+        <div id="selectedFilesInfo" class="hidden text-xs text-emerald-400 font-bold mt-2"></div>
+      </div>
+
+      <!-- Upload Trigger Button -->
+      <div class="flex items-center justify-end gap-2">
+        <button onclick="clearSelectedFiles()" type="button" class="px-3 py-1.5 rounded-xl text-xs text-slate-400 hover:text-white transition">
+          선택 취소
+        </button>
+        <button onclick="startUpload()" id="btnSubmitUpload" disabled class="px-5 py-2 bg-indigo-600 disabled:opacity-40 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl flex items-center gap-2 transition shadow-md shadow-indigo-600/30">
+          <i data-lucide="cloud-upload" class="w-4 h-4"></i>
+          <span id="uploadBtnText">5TB 구글 드라이브에 영구 저장</span>
+        </button>
+      </div>
+
+      <!-- Upload Progress Bar -->
+      <div id="uploadProgressContainer" class="hidden space-y-1">
+        <div class="flex justify-between text-[11px] text-slate-400 font-bold">
+          <span id="uploadProgressStatus">업로드 중...</span>
+          <span id="uploadProgressPct">0%</span>
+        </div>
+        <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+          <div id="uploadProgressBar" class="h-full bg-gradient-to-r from-indigo-500 to-emerald-400 transition-all duration-300" style="width: 0%"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- MAIN WORKSPACE (FOLDER TREE + GALLERY)                            -->
+  <!-- ================================================================= -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 flex flex-col md:flex-row gap-6">
+    
+    <!-- LEFT SIDEBAR: FOLDER NAVIGATION & FILTERS -->
+    <aside class="w-full md:w-64 shrink-0 space-y-4">
+      
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
+        <div class="flex items-center justify-between mb-3 text-xs font-bold text-slate-400">
+          <span class="flex items-center gap-1.5">
+            <i data-lucide="folder-tree" class="w-4 h-4 text-indigo-400"></i>
+            <span>폴더 탐색기</span>
+          </span>
+          <span id="totalMediaCountBadge" class="px-2 py-0.5 rounded-full text-[10px] bg-slate-800 text-indigo-300 font-mono">0</span>
+        </div>
+
+        <nav class="space-y-1 text-xs font-medium">
+          <button onclick="setCategoryFilter('')" id="tabAll" class="w-full flex items-center justify-between px-3 py-2 rounded-xl text-white bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 transition">
+            <span class="flex items-center gap-2">
+              <i data-lucide="folder" class="w-3.5 h-3.5"></i>
+              <span>전체 사진·영상</span>
+            </span>
+            <span id="countAll" class="font-mono text-[11px] opacity-80">0</span>
+          </button>
+
+          <button onclick="setCategoryFilter('01_시설안전_및_보수')" id="tabCat1" class="w-full flex items-center justify-between px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition">
+            <span class="flex items-center gap-2 truncate">
+              <i data-lucide="shield-check" class="w-3.5 h-3.5 text-blue-400"></i>
+              <span class="truncate">01. 시설안전 및 보수</span>
+            </span>
+            <span id="countCat1" class="font-mono text-[11px] opacity-80">0</span>
+          </button>
+
+          <button onclick="setCategoryFilter('02_현장스케치_및_고객')" id="tabCat2" class="w-full flex items-center justify-between px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition">
+            <span class="flex items-center gap-2 truncate">
+              <i data-lucide="smile" class="w-3.5 h-3.5 text-emerald-400"></i>
+              <span class="truncate">02. 현장스케치 및 고객</span>
+            </span>
+            <span id="countCat2" class="font-mono text-[11px] opacity-80">0</span>
+          </button>
+
+          <button onclick="setCategoryFilter('03_단체행사_및_프로그램')" id="tabCat3" class="w-full flex items-center justify-between px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition">
+            <span class="flex items-center gap-2 truncate">
+              <i data-lucide="users" class="w-3.5 h-3.5 text-amber-400"></i>
+              <span class="truncate">03. 단체행사 및 프로그램</span>
+            </span>
+            <span id="countCat3" class="font-mono text-[11px] opacity-80">0</span>
+          </button>
+
+          <button onclick="setCategoryFilter('04_사고_및_민원증빙')" id="tabCat4" class="w-full flex items-center justify-between px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition">
+            <span class="flex items-center gap-2 truncate">
+              <i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-rose-400"></i>
+              <span class="truncate">04. 사고 및 민원 증빙</span>
+            </span>
+            <span id="countCat4" class="font-mono text-[11px] opacity-80">0</span>
+          </button>
+
+          <button onclick="setCategoryFilter('05_마케팅_홍보_A컷')" id="tabCat5" class="w-full flex items-center justify-between px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition">
+            <span class="flex items-center gap-2 truncate">
+              <i data-lucide="sparkles" class="w-3.5 h-3.5 text-purple-400"></i>
+              <span class="truncate">05. 마케팅 홍보 A컷</span>
+            </span>
+            <span id="countCat5" class="font-mono text-[11px] opacity-80">0</span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- Quick Info / Storage Tip -->
+      <div class="bg-gradient-to-br from-slate-900 to-indigo-950/30 border border-slate-800 rounded-2xl p-4 text-xs space-y-2">
+        <div class="font-bold text-slate-300 flex items-center gap-1.5">
+          <i data-lucide="hard-drive" class="w-4 h-4 text-indigo-400"></i>
+          <span>구글 5TB 보관 현황</span>
+        </div>
+        <p class="text-[11px] text-slate-400 leading-relaxed">
+          카카오톡 30일 만료 없이 영구 보존됩니다. 촬영 즉시 원본 해상도로 저장되며 폴더별로 자동 분류됩니다.
+        </p>
+      </div>
+
+    </aside>
+
+    <!-- RIGHT MAIN SECTION: SEARCH & MEDIA GALLERY -->
+    <section class="flex-1 min-w-0 space-y-4">
+      
+      <!-- Search & Sorting Bar -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
+        
+        <!-- Search Input -->
+        <div class="relative w-full sm:w-80">
+          <i data-lucide="search" class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500"></i>
+          <input type="text" id="searchInput" oninput="renderGallery()" placeholder="메모, 작성자, 파일명 검색..." 
+                 class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500">
+        </div>
+
+        <!-- Current View Indicator -->
+        <div class="flex items-center gap-2 text-xs text-slate-400 w-full sm:w-auto justify-between sm:justify-end">
+          <span id="currentFilterLabel" class="font-bold text-white">전체 사진·영상</span>
+          <span id="galleryCountLabel" class="font-mono text-indigo-400">0개 항목</span>
+        </div>
+
+      </div>
+
+      <!-- Gallery Grid -->
+      <div id="galleryGrid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+        <!-- Media Cards Populated via JavaScript -->
+      </div>
+
+      <!-- Empty State -->
+      <div id="galleryEmptyState" class="hidden bg-slate-900/60 border border-slate-800 rounded-3xl p-12 text-center text-slate-500">
+        <div class="w-14 h-14 mx-auto mb-3 rounded-2xl bg-slate-800 flex items-center justify-center text-slate-400">
+          <i data-lucide="inbox" class="w-7 h-7 opacity-60"></i>
+        </div>
+        <p class="font-bold text-sm text-slate-300">보관된 미디어가 없습니다.</p>
+        <p class="text-xs text-slate-500 mt-1">상단의 [현장 사진 등록] 버튼을 눌러 사진이나 영상을 업로드해 보세요.</p>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- ================================================================= -->
+  <!-- LIGHTBOX MODAL (HIGH-RES PHOTO / VIDEO VIEWER)                    -->
+  <!-- ================================================================= -->
+  <div id="lightboxModal" class="fixed inset-0 z-50 bg-black/90 backdrop-blur-md hidden flex items-center justify-center p-4">
+    <div class="relative max-w-5xl w-full bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
+      
+      <!-- Lightbox Header -->
+      <div class="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/80">
+        <div class="min-w-0 pr-4">
+          <h3 id="lightboxTitle" class="font-bold text-sm text-white truncate">미디어 제목</h3>
+          <p id="lightboxSubtitle" class="text-[11px] text-slate-400 truncate mt-0.5">카테고리 · 촬영일시</p>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <a id="lightboxDownloadBtn" href="#" target="_blank" class="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition text-xs font-bold flex items-center gap-1">
+            <i data-lucide="download" class="w-4 h-4"></i>
+            <span class="hidden sm:inline">다운로드</span>
+          </a>
+          <button onclick="closeLightbox()" class="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Lightbox Content (Image / Video) -->
+      <div class="flex-1 bg-black flex items-center justify-center overflow-hidden p-2 min-h-[300px]">
+        <img id="lightboxImg" src="" class="max-h-[68vh] max-w-full object-contain rounded-lg hidden" alt="고화질 원본">
+        <video id="lightboxVideo" src="" controls class="max-h-[68vh] max-w-full rounded-lg hidden"></video>
+      </div>
+
+      <!-- Lightbox Footer / Memo -->
+      <div class="p-4 border-t border-slate-800 bg-slate-950/80 flex items-center justify-between text-xs text-slate-400">
+        <div id="lightboxMemo" class="text-slate-200 font-medium">메모 내용</div>
+        <a id="lightboxDriveLink" href="#" target="_blank" class="text-indigo-400 hover:underline flex items-center gap-1 font-bold shrink-0">
+          <span>구글 드라이브에서 보기</span>
+          <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+        </a>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- CONFIG MODAL (GOOGLE APPS SCRIPT WEB APP URL SETTING)              -->
+  <!-- ================================================================= -->
+  <div id="configModal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-4">
+      
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div class="flex items-center gap-2">
+          <i data-lucide="hard-drive" class="w-5 h-5 text-indigo-400"></i>
+          <h3 class="font-bold text-base text-white">구글 드라이브 5TB 연동 설정</h3>
+        </div>
+        <button onclick="closeConfigModal()" class="text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="text-xs text-slate-300 space-y-2 leading-relaxed">
+        <p>대표님의 5TB 구글 드라이브에 배포된 <b>Google Apps Script 웹 앱 URL</b>이 기본 등록되어 있습니다.</p>
+        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1.5 text-[11px] text-slate-400">
+          <p class="font-bold text-slate-200">📌 연동 안내:</p>
+          <p>• 구글 드라이브의 <b>[봉플레이_공식아카이브]</b> 폴더로 자동 업로드됩니다.</p>
+          <p>• 단톡방 사진/영상을 올리면 5개 폴더별로 자동 정렬되어 보관됩니다.</p>
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs font-bold text-slate-400 mb-1">웹 앱 URL (Google Apps Script exec)</label>
+        <input type="url" id="inputGasUrl" placeholder="https://script.google.com/macros/s/.../exec"
+               class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono">
+      </div>
+
+      <div class="flex items-center justify-between pt-2">
+        <button onclick="testDriveConnection()" id="btnTestDrive" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl transition flex items-center gap-1.5">
+          <i data-lucide="zap" class="w-3.5 h-3.5 text-amber-400"></i>
+          <span>연결 테스트</span>
+        </button>
+        <div class="flex items-center gap-2">
+          <button onclick="closeConfigModal()" class="px-3 py-2 text-xs text-slate-400 hover:text-white transition">닫기</button>
+          <button onclick="saveDriveConfig()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition shadow-md shadow-indigo-600/30">
+            저장 완료
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- JAVASCRIPT LOGIC                                                  -->
+  <!-- ================================================================= -->
+  <script>
+    const STORAGE_KEY_GAS = 'bongplay_archive_gas_url';
+    const STORAGE_KEY_CACHE = 'bongplay_archive_cache_v1';
+    const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbwYDhfhhxqlJSCss3QfdAVb7bgcD5k9_O-hqFZ3W9Q_pZnDplOO9tmGZXNoeYAytX1-Pg/exec';
+
+    let currentCategoryFilter = '';
+    let mediaList = [];
+    let selectedFiles = [];
+
+    // Fallback Samples before user uploads first live files
+    const SAMPLE_MEDIA = [
+      {
+        id: 'sample_1',
+        name: '짚코스터_1번타워_와이어점검.jpg',
+        category: '01_시설안전_및_보수',
+        month: '2026-09',
+        description: '[작성자: 홍성현] 짚코스터 1번 타워 상단 와이어 인장력 및 결속 상태 양호 확인',
+        createdTime: '2026-09-17 11:30',
+        thumbUrl: 'https://images.unsplash.com/photo-1579783902614-a3fb3927b675?auto=format&fit=crop&w=600&q=80',
+        fullUrl: 'https://images.unsplash.com/photo-1579783902614-a3fb3927b675?auto=format&fit=crop&w=1600&q=90',
+        viewUrl: 'https://drive.google.com/drive/folders/1HC24KAasHPNhTvwxtTIg5qxf7fJXQHwp',
+        isImage: true,
+        isVideo: false,
+        size: 2450000
+      },
+      {
+        id: 'sample_2',
+        name: '하강장_바크층_25cm_두께실측.jpg',
+        category: '01_시설안전_및_보수',
+        month: '2026-09',
+        description: '[작성자: 주성] 하강장 바닥 바크층 25cm 법정 기준 두께 충족 확인 사진',
+        createdTime: '2026-09-16 09:15',
+        thumbUrl: 'https://images.unsplash.com/photo-1513836279014-a89f7a76ae86?auto=format&fit=crop&w=600&q=80',
+        fullUrl: 'https://images.unsplash.com/photo-1513836279014-a89f7a76ae86?auto=format&fit=crop&w=1600&q=90',
+        viewUrl: 'https://drive.google.com/drive/folders/1HC24KAasHPNhTvwxtTIg5qxf7fJXQHwp',
+        isImage: true,
+        isVideo: false,
+        size: 3120000
+      },
+      {
+        id: 'sample_3',
+        name: '주말_가족방문객_현장스케치.jpg',
+        category: '02_현장스케치_및_고객',
+        month: '2026-09',
+        description: '[작성자: 지연] 유아 네트어드벤처 구역 가족 단위 이용 현장 스케치',
+        createdTime: '2026-09-14 14:40',
+        thumbUrl: 'https://images.unsplash.com/photo-1472162072942-cd5147eb3902?auto=format&fit=crop&w=600&q=80',
+        fullUrl: 'https://images.unsplash.com/photo-1472162072942-cd5147eb3902?auto=format&fit=crop&w=1600&q=90',
+        viewUrl: 'https://drive.google.com/drive/folders/1HC24KAasHPNhTvwxtTIg5qxf7fJXQHwp',
+        isImage: true,
+        isVideo: false,
+        size: 4200000
+      },
+      {
+        id: 'sample_4',
+        name: '봉화_어린이집_단체방문_체험.jpg',
+        category: '03_단체행사_및_프로그램',
+        month: '2026-09',
+        description: '[작성자: 홍성현] 관내 어린이집 단체 25명 사전예약 코칭 진행 완료',
+        createdTime: '2026-09-11 10:20',
+        thumbUrl: 'https://images.unsplash.com/photo-1502086223501-7ea6ecd79368?auto=format&fit=crop&w=600&q=80',
+        fullUrl: 'https://images.unsplash.com/photo-1502086223501-7ea6ecd79368?auto=format&fit=crop&w=1600&q=90',
+        viewUrl: 'https://drive.google.com/drive/folders/1HC24KAasHPNhTvwxtTIg5qxf7fJXQHwp',
+        isImage: true,
+        isVideo: false,
+        size: 3890000
+      }
+    ];
+
+    document.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+      initDriveStatus();
+      loadMediaList();
+    });
+
+    function getGasUrl() {
+      return localStorage.getItem(STORAGE_KEY_GAS) || DEFAULT_GAS_URL;
+    }
+
+    function initDriveStatus() {
+      const url = getGasUrl();
+      const statusText = document.getElementById('driveStatusText');
+      const btn = document.getElementById('btnDriveStatus');
+
+      if (url) {
+        statusText.textContent = '드라이브 5TB 연동중';
+        btn.className = 'px-2.5 py-1.5 bg-emerald-950/80 text-emerald-300 border border-emerald-800 text-xs font-bold rounded-xl flex items-center gap-1.5 transition';
+      } else {
+        statusText.textContent = '구글 드라이브 설정';
+        btn.className = 'px-2.5 py-1.5 bg-amber-950/80 text-amber-300 border border-amber-800 text-xs font-bold rounded-xl flex items-center gap-1.5 transition';
+      }
+    }
+
+    function toggleUploadPanel() {
+      const p = document.getElementById('uploadPanel');
+      p.classList.toggle('hidden');
+    }
+
+    // =================================================================
+    // MEDIA LOADING & RENDERING
+    // =================================================================
+    async function loadMediaList() {
+      const url = getGasUrl();
+      const cached = localStorage.getItem(STORAGE_KEY_CACHE);
+
+      if (cached) {
+        try { mediaList = JSON.parse(cached); } catch(e) {}
+      }
+
+      if (!mediaList || mediaList.length === 0) {
+        mediaList = [...SAMPLE_MEDIA];
+      }
+
+      renderCategoryCounts();
+      renderGallery();
+
+      // Fetch live files from Google Drive via Google Apps Script
+      if (url) {
+        try {
+          const res = await fetch(`${url}?action=list`, { method: 'GET', mode: 'cors' });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.ok && Array.isArray(data.files)) {
+              mediaList = data.files.length > 0 ? data.files : mediaList;
+              localStorage.setItem(STORAGE_KEY_CACHE, JSON.stringify(mediaList));
+              renderCategoryCounts();
+              renderGallery();
+            }
+          }
+        } catch (e) {
+          console.warn('구글 드라이브 실시간 목록 조회 실패, 로컬 캐시 유지:', e);
+        }
+      }
+    }
+
+    function renderCategoryCounts() {
+      const total = mediaList.length;
+      document.getElementById('totalMediaCountBadge').textContent = total;
+      document.getElementById('countAll').textContent = total;
+
+      const c1 = mediaList.filter(m => m.category === '01_시설안전_및_보수').length;
+      const c2 = mediaList.filter(m => m.category === '02_현장스케치_및_고객').length;
+      const c3 = mediaList.filter(m => m.category === '03_단체행사_및_프로그램').length;
+      const c4 = mediaList.filter(m => m.category === '04_사고_및_민원증빙').length;
+      const c5 = mediaList.filter(m => m.category === '05_마케팅_홍보_A컷').length;
+
+      document.getElementById('countCat1').textContent = c1;
+      document.getElementById('countCat2').textContent = c2;
+      document.getElementById('countCat3').textContent = c3;
+      document.getElementById('countCat4').textContent = c4;
+      document.getElementById('countCat5').textContent = c5;
+    }
+
+    function setCategoryFilter(cat) {
+      currentCategoryFilter = cat;
+
+      const tabs = [
+        { id: 'tabAll', cat: '' },
+        { id: 'tabCat1', cat: '01_시설안전_및_보수' },
+        { id: 'tabCat2', cat: '02_현장스케치_및_고객' },
+        { id: 'tabCat3', cat: '03_단체행사_및_프로그램' },
+        { id: 'tabCat4', cat: '04_사고_및_민원증빙' },
+        { id: 'tabCat5', cat: '05_마케팅_홍보_A컷' }
+      ];
+
+      tabs.forEach(t => {
+        const el = document.getElementById(t.id);
+        if (t.cat === cat) {
+          el.className = 'w-full flex items-center justify-between px-3 py-2 rounded-xl text-white bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 transition';
+        } else {
+          el.className = 'w-full flex items-center justify-between px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition';
+        }
+      });
+
+      const labelEl = document.getElementById('currentFilterLabel');
+      labelEl.textContent = cat ? cat.replace(/^[0-9]+_/, '').replace(/_/g, ' ') : '전체 사진·영상';
+
+      renderGallery();
+    }
+
+    function renderGallery() {
+      const grid = document.getElementById('galleryGrid');
+      const empty = document.getElementById('galleryEmptyState');
+      const query = document.getElementById('searchInput').value.trim().toLowerCase();
+
+      grid.innerHTML = '';
+
+      let filtered = mediaList.filter(item => {
+        const matchCat = !currentCategoryFilter || item.category === currentCategoryFilter;
+        const matchQuery = !query || 
+          (item.name && item.name.toLowerCase().includes(query)) ||
+          (item.description && item.description.toLowerCase().includes(query)) ||
+          (item.month && item.month.includes(query));
+        return matchCat && matchQuery;
+      });
+
+      document.getElementById('galleryCountLabel').textContent = `${filtered.length}개 항목`;
+
+      if (filtered.length === 0) {
+        empty.classList.remove('hidden');
+        return;
+      } else {
+        empty.classList.add('hidden');
+      }
+
+      filtered.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'group relative bg-slate-900 border border-slate-800 hover:border-indigo-500/50 rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition cursor-pointer flex flex-col';
+        card.onclick = () => openLightbox(item.id);
+
+        const shortCat = (item.category || '').replace(/^[0-9]+_/, '').replace(/_/g, ' ');
+
+        card.innerHTML = `
+          <div class="relative aspect-square w-full bg-slate-950 overflow-hidden">
+            <img src="${item.thumbUrl || item.fullUrl}" 
+                 loading="lazy" 
+                 class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                 alt="${item.name}"
+                 onerror="this.src='https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=600&q=80'">
+            ${item.isVideo ? '<span class="absolute bottom-2 right-2 px-2 py-0.5 rounded-lg bg-black/70 text-white text-[10px] font-bold flex items-center gap-1">▶ 영상</span>' : ''}
+            <span class="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-slate-950/80 backdrop-blur-sm text-indigo-300 text-[10px] font-bold border border-slate-700">
+              ${shortCat}
+            </span>
+          </div>
+          <div class="p-3 flex-1 flex flex-col justify-between space-y-1">
+            <p class="text-xs font-bold text-white truncate" title="${item.name}">${item.name}</p>
+            <p class="text-[11px] text-slate-400 line-clamp-2 leading-snug" title="${item.description}">
+              ${item.description || '등록된 메모 없음'}
+            </p>
+            <div class="pt-1.5 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-500 font-mono">
+              <span>${item.createdTime ? item.createdTime.slice(0, 10) : ''}</span>
+              <span>${item.size ? Math.round(item.size / 1024 / 1024 * 10) / 10 + 'MB' : ''}</span>
+            </div>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+
+      lucide.createIcons();
+    }
+
+    // =================================================================
+    // FILE UPLOAD HANDLING (DRIVE 5TB DIRECT)
+    // =================================================================
+    function handleFileSelect(e) {
+      selectedFiles = Array.from(e.target.files);
+      updateSelectedFilesInfo();
+    }
+
+    function updateSelectedFilesInfo() {
+      const infoEl = document.getElementById('selectedFilesInfo');
+      const btn = document.getElementById('btnSubmitUpload');
+
+      if (selectedFiles.length > 0) {
+        infoEl.classList.remove('hidden');
+        infoEl.textContent = `✓ 선택된 파일: ${selectedFiles.length}개 (${selectedFiles.map(f => f.name).join(', ')})`;
+        btn.disabled = false;
+      } else {
+        infoEl.classList.add('hidden');
+        btn.disabled = true;
+      }
+    }
+
+    function clearSelectedFiles() {
+      selectedFiles = [];
+      document.getElementById('fileInput').value = '';
+      updateSelectedFilesInfo();
+    }
+
+    // Drag and Drop
+    const dropzone = document.getElementById('dropzone');
+    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('border-indigo-500', 'bg-indigo-950/20'); });
+    dropzone.addEventListener('dragleave', () => { dropzone.classList.remove('border-indigo-500', 'bg-indigo-950/20'); });
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('border-indigo-500', 'bg-indigo-950/20');
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        selectedFiles = Array.from(e.dataTransfer.files);
+        updateSelectedFilesInfo();
+      }
+    });
+
+    async function startUpload() {
+      if (selectedFiles.length === 0) return;
+
+      const url = getGasUrl();
+      const cat = document.getElementById('uploadCategory').value;
+      const author = document.getElementById('uploadAuthor').value.trim() || '현장근무자';
+      const memo = document.getElementById('uploadMemo').value.trim();
+
+      const progressBox = document.getElementById('uploadProgressContainer');
+      const progressBar = document.getElementById('uploadProgressBar');
+      const progressStatus = document.getElementById('uploadProgressStatus');
+      const progressPct = document.getElementById('uploadProgressPct');
+      const btn = document.getElementById('btnSubmitUpload');
+
+      progressBox.classList.remove('hidden');
+      btn.disabled = true;
+
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i];
+        const pct = Math.round(((i) / selectedFiles.length) * 100);
+        progressStatus.textContent = `[${i + 1}/${selectedFiles.length}] ${file.name} 전송 중...`;
+        progressBar.style.width = `${pct}%`;
+        progressPct.textContent = `${pct}%`;
+
+        try {
+          const base64Data = await readFileAsBase64(file);
+
+          if (url) {
+            // Upload to Google Apps Script
+            const payload = {
+              action: 'upload',
+              category: cat,
+              uploader: author,
+              memo: memo,
+              filename: file.name,
+              mimeType: file.type || 'image/jpeg',
+              base64Data: base64Data
+            };
+
+            const resp = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // CORS-safe text/plain
+              body: JSON.stringify(payload)
+            });
+
+            if (resp.ok) {
+              const resData = await resp.json();
+              if (resData.ok) {
+                mediaList.unshift({
+                  id: resData.fileId,
+                  name: resData.name,
+                  size: resData.size,
+                  category: resData.category,
+                  month: resData.month,
+                  description: `[작성자: ${resData.uploader}] ${resData.memo}`,
+                  thumbUrl: resData.directUrl || resData.viewUrl,
+                  fullUrl: resData.directUrl || resData.viewUrl,
+                  viewUrl: resData.viewUrl,
+                  isImage: file.type.startsWith('image/'),
+                  isVideo: file.type.startsWith('video/'),
+                  createdTime: resData.createdTime
+                });
+              }
+            }
+          } else {
+            // Local Mock entry
+            mediaList.unshift({
+              id: 'local_' + Date.now() + '_' + i,
+              name: file.name,
+              size: file.size,
+              category: cat,
+              month: new Date().toISOString().slice(0, 7),
+              description: `[작성자: ${author}] ${memo}`,
+              thumbUrl: 'data:' + file.type + ';base64,' + base64Data,
+              fullUrl: 'data:' + file.type + ';base64,' + base64Data,
+              viewUrl: '#',
+              isImage: file.type.startsWith('image/'),
+              isVideo: file.type.startsWith('video/'),
+              createdTime: new Date().toISOString().replace('T', ' ').slice(0, 16)
+            });
+          }
+        } catch (err) {
+          console.error('파일 업로드 에러:', err);
+        }
+      }
+
+      progressBar.style.width = '100%';
+      progressPct.textContent = '100%';
+      progressStatus.textContent = '업로드 완료!';
+
+      localStorage.setItem(STORAGE_KEY_CACHE, JSON.stringify(mediaList));
+
+      setTimeout(() => {
+        progressBox.classList.add('hidden');
+        clearSelectedFiles();
+        document.getElementById('uploadMemo').value = '';
+        renderCategoryCounts();
+        renderGallery();
+      }, 800);
+    }
+
+    function readFileAsBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const res = reader.result;
+          const base64 = res.split(',')[1];
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // =================================================================
+    // LIGHTBOX VIEWER
+    // =================================================================
+    function openLightbox(id) {
+      const item = mediaList.find(m => m.id === id);
+      if (!item) return;
+
+      const modal = document.getElementById('lightboxModal');
+      const title = document.getElementById('lightboxTitle');
+      const sub = document.getElementById('lightboxSubtitle');
+      const memo = document.getElementById('lightboxMemo');
+      const img = document.getElementById('lightboxImg');
+      const vid = document.getElementById('lightboxVideo');
+      const dl = document.getElementById('lightboxDownloadBtn');
+      const driveLink = document.getElementById('lightboxDriveLink');
+
+      title.textContent = item.name;
+      sub.textContent = `${item.category} · ${item.createdTime || ''}`;
+      memo.textContent = item.description || '등록된 메모 없음';
+
+      if (item.isVideo) {
+        img.classList.add('hidden');
+        vid.classList.remove('hidden');
+        vid.src = item.fullUrl;
+      } else {
+        vid.classList.add('hidden');
+        img.classList.remove('hidden');
+        img.src = item.fullUrl;
+      }
+
+      dl.href = item.fullUrl;
+      driveLink.href = item.viewUrl || '#';
+
+      modal.classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    function closeLightbox() {
+      const modal = document.getElementById('lightboxModal');
+      const vid = document.getElementById('lightboxVideo');
+      vid.pause();
+      modal.classList.add('hidden');
+    }
+
+    // =================================================================
+    // CONFIG MODAL LOGIC
+    // =================================================================
+    function openConfigModal() {
+      document.getElementById('inputGasUrl').value = getGasUrl();
+      document.getElementById('configModal').classList.remove('hidden');
+    }
+    function closeConfigModal() {
+      document.getElementById('configModal').classList.add('hidden');
+    }
+    function saveDriveConfig() {
+      const val = document.getElementById('inputGasUrl').value.trim();
+      localStorage.setItem(STORAGE_KEY_GAS, val);
+      initDriveStatus();
+      closeConfigModal();
+      loadMediaList();
+    }
+    async function testDriveConnection() {
+      const val = document.getElementById('inputGasUrl').value.trim();
+      if (!val) { alert('URL을 입력하십시오.'); return; }
+
+      const btn = document.getElementById('btnTestDrive');
+      btn.innerHTML = '<span>확인 중...</span>';
+
+      try {
+        const res = await fetch(`${val}?action=ping`, { method: 'GET', mode: 'cors' });
+        const data = await res.json();
+        if (data.ok) {
+          alert(`✅ 연결 성공!\n\n폴더명: ${data.rootFolderName}\n상태: 정상 작동 중`);
+        } else {
+          alert(`❌ 연결 실패: ${data.error || '알 수 없는 오류'}`);
+        }
+      } catch (e) {
+        alert('❌ 통신 실패: URL이 정확한지 확인하거나 웹 앱 액세스 권한이 "모든 사용자(Anyone)"로 배포되었는지 확인하세요.');
+      } finally {
+        btn.innerHTML = '<i data-lucide="zap" class="w-3.5 h-3.5 text-amber-400"></i><span>연결 테스트</span>';
+        lucide.createIcons();
+      }
+    }
+  </script>
+
+</body>
+</html>
