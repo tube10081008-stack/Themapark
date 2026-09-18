@@ -777,42 +777,62 @@
       let cardTotal = 0;
       let orderCount = 0;
 
-      // 1. Scan ticket_ledger
+      // 1. Scan BongplayID Orders (SSOT 실제 주문 원장 실결제액 집계)
       try {
-        const rawLedger = localStorage.getItem('bongplay_ticket_ledger');
-        const ledger = rawLedger ? JSON.parse(rawLedger) : [];
-        const todayTickets = ledger.filter(t => (t.issued_at || '').slice(0, 10) === todayStr);
-        // If tickets exist without detailed POS orders, estimate with blended price (12,036원)
-        if (todayTickets.length > 0) {
-          orderCount += todayTickets.length;
-        }
-      } catch (e) {}
-
-      // 2. Scan sales_records
-      try {
-        const rawSales = localStorage.getItem('bongtteurak_actual_records_v4');
-        const sales = rawSales ? JSON.parse(rawSales) : [];
-        const todaySale = sales.find(s => s.date === todayStr);
-        if (todaySale && todaySale.totalRevenue) {
-          // Assume 30% cash / 70% card standard ratio if not specified
-          cashTotal = Math.round(Number(todaySale.totalRevenue) * 0.3);
-          cardTotal = Math.round(Number(todaySale.totalRevenue) * 0.7);
-        }
-      } catch (e) {}
-
-      // 3. Scan BongplayID Orders (SSOT)
-      try {
-        const orders = (window.BongplayID && typeof BongplayID.getOrdersByDate === 'function') ? BongplayID.getOrdersByDate(todayStr) : [];
+        const orders = (window.BongplayID && typeof BongplayID.getOrdersByDate === 'function') 
+          ? BongplayID.getOrdersByDate(todayStr) 
+          : [];
         if (orders.length > 0) {
           cashTotal = 0;
           cardTotal = 0;
           orderCount = orders.length;
           orders.forEach(ord => {
-            if (ord.payment_method === 'cash') cashTotal += (ord.final_amount || 0);
-            else cardTotal += (ord.final_amount || 0);
+            const amt = Number(ord.final_amount || 0);
+            if (ord.payment_method === 'cash') cashTotal += amt;
+            else cardTotal += amt;
           });
         }
       } catch (e) {}
+
+      // 2. Scan direct order_items (로컬 개별 품목 원장)
+      if (orderCount === 0) {
+        try {
+          const rawItems = localStorage.getItem('bongplay_order_items');
+          if (rawItems) {
+            const items = JSON.parse(rawItems);
+            const todayItems = items.filter(it => (it.purchased_at || it.created_at || '').slice(0, 10) === todayStr);
+            if (todayItems.length > 0) {
+              cashTotal = 0;
+              cardTotal = 0;
+              orderCount = todayItems.length;
+              todayItems.forEach(it => {
+                const amt = Number(it.paid_amount || 0);
+                if (it.payment_method === 'cash') cashTotal += amt;
+                else cardTotal += amt;
+              });
+            }
+          }
+        } catch (e) {}
+      }
+
+      // 3. Scan ticket_ledger (티켓 발권 원장 실결제수단 합산)
+      if (orderCount === 0) {
+        try {
+          const rawLedger = localStorage.getItem('bongplay_ticket_ledger');
+          const ledger = rawLedger ? JSON.parse(rawLedger) : [];
+          const todayTickets = ledger.filter(t => (t.issued_at || '').slice(0, 10) === todayStr);
+          if (todayTickets.length > 0) {
+            cashTotal = 0;
+            cardTotal = 0;
+            orderCount = todayTickets.length;
+            todayTickets.forEach(t => {
+              const amt = Number(t.price_paid || t.price || 0);
+              if (t.payment_method === 'cash') cashTotal += amt;
+              else cardTotal += amt;
+            });
+          }
+        } catch (e) {}
+      }
 
       const badge = document.getElementById('systemLedgerBadge');
       if (cashTotal > 0 || orderCount > 0) {

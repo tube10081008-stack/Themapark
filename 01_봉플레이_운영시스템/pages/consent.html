@@ -49,6 +49,10 @@
     ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
   </style>
 
+  <script>
+    // [보안 핵심] 순수 손님 모바일 화면: 타 고객 개인정보 PULL 및 Realtime 다운로드 원천 차단
+    window.BONGPLAY_GUEST_MODE = true;
+  </script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="../assets/config.js"></script>
   <script src="../assets/bongplay-sync.js"></script>

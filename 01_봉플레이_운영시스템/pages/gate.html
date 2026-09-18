@@ -449,12 +449,19 @@
         } catch (e) {}
       }
 
-      // Search matching record
+      // Search matching record (엄격한 검증: 빈 전화번호나 빈 문자열로 인한 오매칭 방지)
+      const target = clean.toUpperCase();
+      const cleanDigits = clean.replace(/[^0-9]/g, '');
       const match = consents.find(c => {
-        const pass = (c.passCode || c.pass_code || '').toUpperCase();
+        const pass = (c.passCode || c.pass_code || '').trim().toUpperCase();
         const phone = (c.guardianPhone || c.guardian_phone || '').replace(/[^0-9]/g, '');
-        const target = clean.toUpperCase();
-        return pass === target || target.endsWith(phone.slice(-4)) || c.id === clean || c.visit_id === clean;
+        const isPassMatch = !!pass && pass === target;
+        const isPhoneMatch = phone.length >= 4 && (
+          (cleanDigits.length >= 4 && phone.endsWith(cleanDigits)) ||
+          (cleanDigits.length >= 4 && cleanDigits.endsWith(phone.slice(-4)))
+        );
+        const isIdMatch = (!!c.id && c.id === clean) || (!!c.visit_id && c.visit_id === clean);
+        return isPassMatch || isPhoneMatch || isIdMatch;
       });
 
       if (!match) {

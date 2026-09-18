@@ -586,8 +586,8 @@
           <div class="bg-slate-900 rounded-3xl p-5 border border-slate-800 space-y-3">
             <div class="flex items-center justify-between border-b border-slate-800 pb-2">
               <h3 class="text-sm font-extrabold text-white">안전사고 발생 보고서 작성</h3>
-              <button onclick="autoFillConsent()" class="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-rose-300 border border-slate-700">
-                🔍 오늘 동의서 불러오기
+              <button type="button" onclick="openConsentSearchModal()" class="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-rose-300 border border-slate-700 flex items-center space-x-1">
+                <span>🔍 동의서 검색·피해자 선택</span>
               </button>
             </div>
 
@@ -982,21 +982,149 @@
       }
     }
 
+    // --- 안전동의서 검색 및 피해자 선택 연동 (consents[0] 무조건 가져오기 결함 해결) ---
+    let cachedConsents = [];
+
     function autoFillConsent() {
+      openConsentSearchModal();
+    }
+
+    function openConsentSearchModal() {
+      const modal = document.getElementById('consentSearchModal');
+      if (!modal) return;
+      modal.classList.remove('hidden');
+
       try {
-        const raw = localStorage.getItem('bongplay_safety_consents') || localStorage.getItem('bongtteurak_consents_v1') || localStorage.getItem('bongplay_consents');
-        const consents = raw ? JSON.parse(raw) : [];
-        if (consents.length > 0) {
-          const latest = consents[0];
-          const vName = latest.victimName || latest.childName || latest.name || latest.guardianName || '';
-          if (vName) document.getElementById('rep-victim-name').value = vName;
-          showToast('동의서 정보를 불러왔습니다: ' + (vName || '확인 완료'));
-        } else {
-          showToast('동의서 기록이 없습니다.');
+        if (window.BongplaySync && typeof BongplaySync.select === 'function') {
+          cachedConsents = BongplaySync.select('safety_consents') || [];
+        }
+        if (!cachedConsents || cachedConsents.length === 0) {
+          const raw = localStorage.getItem('bongplay_safety_consents') || localStorage.getItem('bongtteurak_consents_v1') || localStorage.getItem('bongplay_consents');
+          cachedConsents = raw ? JSON.parse(raw) : [];
         }
       } catch (e) {
-        showToast('동의서 연동 중 오류 발생');
+        cachedConsents = [];
       }
+
+      const input = document.getElementById('consentSearchInput');
+      if (input) {
+        input.value = '';
+        setTimeout(() => input.focus(), 100);
+      }
+      renderConsentSearchResults('');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function closeConsentSearchModal() {
+      const modal = document.getElementById('consentSearchModal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function renderConsentSearchResults(query) {
+      const container = document.getElementById('consentSearchResults');
+      const countEl = document.getElementById('consentSearchCount');
+      if (!container) return;
+
+      const q = (query || '').trim().toLowerCase();
+      const qDigits = q.replace(/[^0-9]/g, '');
+
+      const filtered = cachedConsents.filter(c => {
+        if (!q) return true;
+        const gName = (c.guardianName || c.guardian_name || '').toLowerCase();
+        const gPhone = (c.guardianPhone || c.guardian_phone || '').replace(/[^0-9]/g, '');
+        const pass = (c.passCode || c.pass_code || '').toLowerCase();
+        
+        let chNames = '';
+        if (Array.isArray(c.children)) {
+          chNames = c.children.map(ch => (typeof ch === 'string' ? ch : (ch.name || ''))).join(' ').toLowerCase();
+        }
+
+        const matchesName = gName.includes(q) || chNames.includes(q);
+        const matchesPass = pass.includes(q);
+        const matchesPhone = qDigits.length >= 2 && gPhone.includes(qDigits);
+
+        return matchesName || matchesPass || matchesPhone;
+      });
+
+      if (countEl) countEl.textContent = `총 ${filtered.length}건`;
+
+      if (filtered.length === 0) {
+        container.innerHTML = `
+          <div class="py-10 text-center text-slate-500 text-xs">
+            ${cachedConsents.length === 0 ? '당일 접수된 안전동의서가 없습니다.' : '검색 조건과 일치하는 동의서가 없습니다.'}
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = filtered.map(c => {
+        const gName = c.guardianName || c.guardian_name || '성명 미상';
+        const gPhone = c.guardianPhone || c.guardian_phone || '-';
+        const pass = c.passCode || c.pass_code || ('BP-' + (c.id || '').slice(0, 6));
+        const time = (c.timestamp_text || c.created_at || '').slice(11, 16) || '시간 미상';
+        const children = Array.isArray(c.children) ? c.children : [];
+
+        let childrenButtons = '';
+        if (children.length > 0) {
+          childrenButtons = children.map(ch => {
+            const chName = typeof ch === 'string' ? ch : (ch.name || '아동');
+            const chBirth = typeof ch === 'object' && ch.birth ? ` (${ch.birth})` : '';
+            return `
+              <button type="button" onclick="selectVictimFromConsent('${escapeJs(chName)}', '아동', '${escapeJs(gName)}', '${escapeJs(gPhone)}', '${escapeJs(pass)}')"
+                class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-rose-900/60 hover:border-rose-500 border border-slate-700 text-[11px] text-slate-200 transition text-left">
+                <span class="text-rose-400 font-bold">아동</span> ${escapeHtml(chName)}${chBirth} 선택
+              </button>
+            `;
+          }).join('');
+        }
+
+        return `
+          <div class="bg-slate-950/80 border border-slate-800 rounded-2xl p-3 space-y-2 hover:border-slate-700 transition">
+            <div class="flex items-center justify-between text-xs">
+              <div class="flex items-center space-x-2">
+                <span class="font-mono font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded">${escapeHtml(pass)}</span>
+                <span class="text-slate-400 text-[11px]">${time} 접수</span>
+              </div>
+              <button type="button" onclick="selectVictimFromConsent('${escapeJs(gName)}', '보호자', '${escapeJs(gName)}', '${escapeJs(gPhone)}', '${escapeJs(pass)}')"
+                class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-rose-900/60 hover:border-rose-500 border border-slate-700 text-xs text-slate-200 font-bold transition">
+                보호자 본인 선택
+              </button>
+            </div>
+            <div class="text-xs text-slate-300">
+              <span class="text-slate-400 font-bold">보호자:</span> <span class="font-bold text-white">${escapeHtml(gName)}</span> (${escapeHtml(gPhone)})
+            </div>
+            ${children.length > 0 ? `
+              <div class="pt-1 border-t border-slate-800/60 flex flex-wrap gap-1.5 items-center">
+                <span class="text-[11px] text-slate-400 font-bold mr-1">동반 아동:</span>
+                ${childrenButtons}
+              </div>
+            ` : ''}
+          </div>
+        `;
+      }).join('');
+    }
+
+    function selectVictimFromConsent(victimName, role, guardianName, guardianPhone, passCode) {
+      const victimInput = document.getElementById('rep-victim-name');
+      if (victimInput) {
+        if (role === '아동') {
+          victimInput.value = `${victimName} (보호자: ${guardianName}, ${guardianPhone})`;
+        } else {
+          victimInput.value = `${victimName} (${guardianPhone})`;
+        }
+      }
+      closeConsentSearchModal();
+      showToast(`✅ 피해자 [${victimName}] 동의서 연동 완료 (${passCode})`);
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function escapeJs(str) {
+      if (!str) return '';
+      return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
     }
 
     function downloadReportTXT() {
@@ -1072,6 +1200,48 @@
         setTimeout(() => toast.remove(), 300);
       }, 2500);
     }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const searchInput = document.getElementById('consentSearchInput');
+      if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+          renderConsentSearchResults(e.target.value);
+        });
+      }
+    });
   </script>
+
+  <!-- 안전동의서 검색 및 피해자 선택 모달 -->
+  <div id="consentSearchModal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-slate-700 rounded-3xl max-w-xl w-full p-5 space-y-4 shadow-2xl flex flex-col max-h-[90vh]">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div>
+          <h3 class="text-base font-extrabold text-white flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse"></span>
+            안전동의서 검색 및 피해자 선택
+          </h3>
+          <p class="text-xs text-slate-400 mt-0.5">사고 보고서에 등록할 정확한 피해자와 보호자 연락처를 선택하세요.</p>
+        </div>
+        <button type="button" onclick="closeConsentSearchModal()" class="text-slate-400 hover:text-white text-2xl font-bold p-1 leading-none">&times;</button>
+      </div>
+      
+      <div>
+        <div class="relative">
+          <input id="consentSearchInput" type="text" placeholder="보호자 성명, 아동명, 전화번호 뒷자리(4자리), 바우처 코드(BP-)..." 
+            class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-rose-500">
+          <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-3"></i>
+        </div>
+      </div>
+
+      <div id="consentSearchResults" class="flex-1 overflow-y-auto space-y-2.5 pr-1 min-h-[220px] max-h-[420px]">
+        <!-- Search items dynamically populated -->
+      </div>
+
+      <div class="flex items-center justify-between pt-2 border-t border-slate-800 text-xs text-slate-500">
+        <span id="consentSearchCount">0건 검색됨</span>
+        <button type="button" onclick="closeConsentSearchModal()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold">닫기</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

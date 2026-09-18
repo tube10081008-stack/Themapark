@@ -104,6 +104,7 @@ revoke delete on table public.safety_consents from anon, authenticated;
 
 -- 2-2. safety_audits: 당일 점검일지만 UPDATE 허용, DELETE 원천 차단
 alter table public.safety_audits enable row level security;
+alter table public.safety_audits add column if not exists signature_data text;
 create policy "anon_safety_audits_select" on public.safety_audits
   for select to anon using (true);
 create policy "anon_safety_audits_insert" on public.safety_audits

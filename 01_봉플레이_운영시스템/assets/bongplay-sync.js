@@ -355,12 +355,25 @@
     }
   }
 
+  /* ---------- 게스트 모드 판별 (손님 폰 PII 다운로드 원천 차단) ---------- */
+  function isGuestMode() {
+    if (typeof window === 'undefined') return false;
+    if (window.BONGPLAY_GUEST_MODE === true) return true;
+    var path = (window.location && window.location.pathname) ? window.location.pathname.toLowerCase() : '';
+    return path.endsWith('consent.html') || path.endsWith('survey.html');
+  }
+
   /* ---------- Supabase 조회 (SELECT) ---------- */
   async function select(table, query) {
+    // 손님 모바일 화면(서약/설문)에서는 타인의 안전동의서 목록 일체 조회 불가
+    if (isGuestMode() && table === 'safety_consents') {
+      return { ok: true, data: [], guest_mode_blocked: true };
+    }
+
     var cfg = getConfig();
     if (!cfg || !navigator.onLine) {
       // 오프라인 시 로컬 캐시에서 서빙 시도
-      var cacheKey = (table === 'safety_consents') ? 'bongplay_safety_consents' :
+      var cacheKey = (table === 'safety_consents') ? (isGuestMode() ? '' : 'bongplay_safety_consents') :
                      (table === 'ticket_ledger') ? 'bongplay_ticket_ledger' :
                      (table === 'safety_audits') ? 'bongplay_safety_audit_logs' : '';
       if (cacheKey) {
@@ -824,6 +837,9 @@
 
   /* ---------- 클라우드 DB 전체 풀 (PULL ALL) ---------- */
   async function pullAll() {
+    // 손님 모바일 화면에서는 타인 개인정보 및 운영 원장 PULL을 원천 차단
+    if (isGuestMode()) return { ok: true, reason: 'guest_mode_skip_pii' };
+
     var cfg = getConfig();
     if (!cfg || !navigator.onLine) return { ok: false, reason: 'offline_or_unconfigured' };
 
@@ -967,6 +983,7 @@
   /* ---------- Supabase Realtime WebSocket 구독 초기화 ---------- */
   var supabaseRealtimeClient = null;
   function initRealtime() {
+    if (isGuestMode()) return;
     var cfg = getConfig();
     if (!cfg || !global.supabase || !global.supabase.createClient) return;
 
@@ -979,7 +996,7 @@
 
       tables.forEach(function (tbl) {
         channel.on('postgres_changes', { event: '*', schema: 'public', table: tbl }, function (payload) {
-          pullAll();
+          if (!isGuestMode()) pullAll();
         });
       });
 
@@ -1040,8 +1057,10 @@
           notifyStatus();
           if (navigator.onLine) {
             flushOutbox();
-            pullAll();
-            initRealtime();
+            if (!isGuestMode()) {
+              pullAll();
+              initRealtime();
+            }
           }
         });
       });
@@ -1050,8 +1069,10 @@
     window.addEventListener('online', function () {
       notifyStatus();
       flushOutbox();
-      pullAll();
-      initRealtime();
+      if (!isGuestMode()) {
+        pullAll();
+        initRealtime();
+      }
     });
 
     window.addEventListener('offline', function () {
@@ -1061,7 +1082,9 @@
     window.addEventListener('focus', function () {
       if (navigator.onLine && isConfigured()) {
         flushOutbox();
-        pullAll();
+        if (!isGuestMode()) {
+          pullAll();
+        }
       }
     });
 

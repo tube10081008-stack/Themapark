@@ -88,11 +88,13 @@ create table if not exists public.safety_audits (
   decision      text default 'pass',           -- pass / conditional / fail
   items         jsonb,                         -- 항목별 체크 결과
   note          text,
+  signature_data text,                         -- 점검자 전자서명 (Base64)
   is_safe       boolean default true,
   device_id     text,
   device_label  text,
   updated_at    timestamptz default now()
 );
+alter table public.safety_audits add column if not exists signature_data text;
 
 -- 1-4. 마감 정산 보드
 create table if not exists public.closing_records (
@@ -610,6 +612,21 @@ begin
   foreach t in array master_tables loop
     execute format('create policy %I on public.%I for select to anon using (true)', 'sec_' || t || '_readonly', t);
   end loop;
+-- 5-7. 심야 자동화 스케줄 (Supabase pg_cron 확장이 지원되는 경우 매일 새벽 03:00 KST 자동 실행)
+do $$
+begin
+  create extension if not exists pg_cron with schema extensions;
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    perform cron.unschedule('daily_mask_expired_consents');
+    perform cron.schedule(
+      'daily_mask_expired_consents',
+      '0 18 * * *', -- UTC 18:00 = KST 03:00
+      $$select public.mask_expired_consents_secure('bongplay2026!')$$
+    );
+  end if;
+exception when others then
+  -- pg_cron 권한이 없거나 미지원 플랜인 경우 무시
+  null;
 end $$;
 
 -- ────────────────────────────────────────────────────────────
