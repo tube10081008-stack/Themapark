@@ -476,7 +476,9 @@
     }
 
     // 3. 온라인 상태: Supabase로 전송 시도
-    var maxRetries = 6;
+    //    누락 컬럼 제거 재시도는 필드 수만큼 필요하므로 상한을 필드 수 기준으로 잡습니다.
+    //    (이전 상한 6회: 누락 컬럼이 7개 이상인 테이블은 끝내 저장되지 못했습니다)
+    var maxRetries = Object.keys(payload).length + 2;
     for (var attempt = 0; attempt < maxRetries; attempt++) {
       try {
         var res = await fetch(cfg.url + '/rest/v1/' + table, {
@@ -528,7 +530,15 @@
               body: JSON.stringify(patchData)
             });
             if (resPatch.ok) {
+              // RLS 가 수정을 막으면 PostgREST 는 오류 대신 "200 + 빈 배열"을 돌려줍니다.
+              // (예: 마감 확정된 closing_records, 과거 날짜 서약서) → 성공으로 오인하지 않음
+              var patched = null;
+              try { patched = await resPatch.json(); } catch (jsonErr) {}
               await removeOutboxItem(payload[pkField]);
+              if (Array.isArray(patched) && patched.length === 0) {
+                console.warn('Upsert rejected by RLS (0 rows updated):', table, pkVal);
+                return { ok: false, reason: 'rls_denied', detail: '권한 정책에 의해 수정이 거부되었습니다 (잠금/보존 기록).' };
+              }
               broadcast({ type: 'UPSERT_SUCCESS', table: table, row: payload });
               return { ok: true, row: payload };
             }
@@ -895,7 +905,9 @@
             timestamp: row.timestamp_text,
             ticket_ids: row.ticket_ids,
             signatureData: row.signature_data,
-            consentMarketing: row.consent_marketing
+            consentMarketing: row.consent_marketing,
+            legal_hold_until: row.legal_hold_until || null,
+            pii_masked_at: row.pii_masked_at || null
           };
         });
         cloudConsents.sort(function (a, b) {
@@ -910,6 +922,31 @@
       if (rTickets.ok && Array.isArray(rTickets.data)) {
         localStorage.setItem('bongplay_ticket_ledger', JSON.stringify(rTickets.data));
         results.ticket_ledger = rTickets.data.length;
+      }
+
+      // 3-1. order_items (POS 결제 원장) — 마감 PC가 매표 PC의 결제를 집계할 수 있도록 최근 3일분 수신
+      //      서버에 아직 올라가지 않은 이 기기의 주문(아웃박스 대기분)은 지우지 않고 병합합니다.
+      var since = toLocalDateStr(new Date(Date.now() - 2 * 24 * 3600 * 1000));
+      var rOrders = await select('order_items', '?select=*&purchased_at=gte.' + since + 'T00:00:00&order=purchased_at.desc&limit=2000');
+      if (rOrders.ok && Array.isArray(rOrders.data)) {
+        var byId = {};
+        rOrders.data.forEach(function (row) {
+          var key = row.id || row.item_id;
+          if (key) byId[key] = Object.assign({}, row, { id: key });
+        });
+        try {
+          var localOrders = JSON.parse(localStorage.getItem('bongplay_order_items') || '[]');
+          localOrders.forEach(function (row) {
+            var key = row.id || row.item_id;
+            if (key && !byId[key]) byId[key] = row;
+          });
+        } catch (e) {}
+        var mergedOrders = Object.keys(byId).map(function (k) { return byId[k]; });
+        mergedOrders.sort(function (a, b) {
+          return new Date(b.purchased_at || b.created_at || 0) - new Date(a.purchased_at || a.created_at || 0);
+        });
+        localStorage.setItem('bongplay_order_items', JSON.stringify(mergedOrders));
+        results.order_items = rOrders.data.length;
       }
 
       // 4. sales_records
@@ -958,13 +995,14 @@
         if (todayClose) {
           var closeData = {
             date: todayClose.date,
-            manager: todayClose.manager,
+            manager: todayClose.manager || todayClose.settled_by,
             staff: todayClose.staff,
             cash: todayClose.cash,
             actualCash: todayClose.actual_cash,
             diff: todayClose.diff,
             notes: todayClose.notes,
-            is_locked: todayClose.is_locked
+            is_locked: !!todayClose.is_locked,
+            locked_at: todayClose.locked_at || null
           };
           localStorage.setItem('bongplay_closing_board_data', JSON.stringify(closeData));
           localStorage.setItem('bongtteurak_closing_board_data', JSON.stringify(closeData));
@@ -992,7 +1030,7 @@
         supabaseRealtimeClient = global.supabase.createClient(cfg.url, cfg.key);
       }
       var channel = supabaseRealtimeClient.channel('bongplay-realtime-bus');
-      var tables = ['safety_consents', 'safety_audits', 'sales_records', 'closing_records', 'ticket_ledger'];
+      var tables = ['safety_consents', 'safety_audits', 'sales_records', 'closing_records', 'ticket_ledger', 'order_items'];
 
       tables.forEach(function (tbl) {
         channel.on('postgres_changes', { event: '*', schema: 'public', table: tbl }, function (payload) {

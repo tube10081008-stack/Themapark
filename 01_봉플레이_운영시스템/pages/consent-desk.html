@@ -385,6 +385,12 @@
       await loadData();
     });
 
+    // 고객이 입력한 성명·연락처 등을 innerHTML 에 넣기 전 이스케이프 (저장형 XSS 방지)
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     // 2. Safety Interlock Check (BP-003)
     async function checkSafetyInterlock() {
       const banner = document.getElementById('safetyInterlockBanner');
@@ -419,9 +425,9 @@
           consents = JSON.parse(raw);
         } else if (window.BongplaySync) {
           let res = null;
-          if (BongplaySync.rpc) {
-            const cfgCode = (window.BONGPLAY_CONFIG && window.BONGPLAY_CONFIG.ACCESS_CODE) || 'bongplay2026!';
-            const rpcRes = await BongplaySync.rpc('get_today_consents_secure', { p_access_code: cfgCode });
+          const staffCode = window.BongplayAuth ? BongplayAuth.getAccessCode() : null;
+          if (BongplaySync.rpc && staffCode) {
+            const rpcRes = await BongplaySync.rpc('get_today_consents_secure', { p_access_code: staffCode });
             if (rpcRes.ok && Array.isArray(rpcRes.data)) res = rpcRes;
           }
           if (!res) {
@@ -591,17 +597,17 @@
         const passCode = rec.passCode || rec.pass_code || ('BP-' + (rec.id || '').slice(0, 6));
         const timeStr = BongplaySync.toLocalTimeStr(rec.arrival_at || rec.created_date || rec.updated_at);
         const children = rec.children || [];
-        const chDesc = children.map(ch => `${ch.name}(${ch.height ? ch.height + 'cm' : '키미입력'})`).join(', ') || '아동 없음';
+        const chDesc = escapeHtml(children.map(ch => `${ch.name}(${ch.height ? ch.height + 'cm' : '키미입력'})`).join(', ') || '아동 없음');
 
         return `
-          <tr class="hover:bg-slate-800/40 transition cursor-pointer ${isIssued ? 'opacity-75' : 'bg-slate-900/30'}" onclick="openDetailModal('${rec.id}')">
+          <tr class="hover:bg-slate-800/40 transition cursor-pointer ${isIssued ? 'opacity-75' : 'bg-slate-900/30'}" onclick="openDetailModal('${escapeHtml(String(rec.id).replace(/'/g, ''))}')">
             <td class="py-3 px-3 font-mono text-slate-300">${timeStr}</td>
             <td class="py-3 px-3">
-              <span class="font-mono font-bold text-brand-400 bg-brand-950/80 px-2 py-0.5 rounded border border-brand-800/60">${passCode}</span>
+              <span class="font-mono font-bold text-brand-400 bg-brand-950/80 px-2 py-0.5 rounded border border-brand-800/60">${escapeHtml(passCode)}</span>
             </td>
-            <td class="py-3 px-3 font-bold text-white">${rec.guardianName || rec.guardian_name || '미입력'}</td>
-            <td class="py-3 px-3 font-mono text-slate-400">${rec.guardianPhone || rec.guardian_phone || '-'}</td>
-            <td class="py-3 px-3 text-slate-300">${rec.residence || '일반'}</td>
+            <td class="py-3 px-3 font-bold text-white">${escapeHtml(rec.guardianName || rec.guardian_name || '미입력')}</td>
+            <td class="py-3 px-3 font-mono text-slate-400">${escapeHtml(rec.guardianPhone || rec.guardian_phone || '-')}</td>
+            <td class="py-3 px-3 text-slate-300">${escapeHtml(rec.residence || '일반')}</td>
             <td class="py-3 px-3 text-slate-300 max-w-xs truncate" title="${chDesc}">${chDesc}</td>
             <td class="py-3 px-3">
               <span class="inline-flex items-center gap-1 text-[11px] text-emerald-400">
@@ -616,8 +622,8 @@
             </td>
             <td class="py-3 px-3 text-right" onclick="event.stopPropagation()">
               ${isIssued
-                ? `<button onclick="toggleTicketIssue('${rec.id}', false)" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-400 text-xs rounded-lg transition font-bold">발권취소</button>`
-                : `<button onclick="toggleTicketIssue('${rec.id}', true)" ${!isSafetyInspectionPassed ? 'disabled title="안전점검 미완료로 발권이 잠겨 있습니다"' : ''} class="px-3 py-1 bg-brand-600 hover:bg-brand-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed text-white text-xs rounded-lg transition font-black shadow flex items-center gap-1 inline-flex">
+                ? `<button onclick="toggleTicketIssue('${escapeHtml(String(rec.id).replace(/'/g, ''))}', false)" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-400 text-xs rounded-lg transition font-bold">발권취소</button>`
+                : `<button onclick="toggleTicketIssue('${escapeHtml(String(rec.id).replace(/'/g, ''))}', true)" ${!isSafetyInspectionPassed ? 'disabled title="안전점검 미완료로 발권이 잠겨 있습니다"' : ''} class="px-3 py-1 bg-brand-600 hover:bg-brand-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed text-white text-xs rounded-lg transition font-black shadow flex items-center gap-1 inline-flex">
                     <i data-lucide="ticket" class="w-3 h-3"></i> 즉시발권
                    </button>`
               }
@@ -696,16 +702,16 @@
           return `
             <div class="p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between">
               <div>
-                <span class="font-bold text-white text-xs">${idx + 1}. ${ch.name}</span>
-                <span class="text-[11px] text-slate-400 ml-2">생년월일/나이: ${ch.birth || ch.age || '미기재'}</span>
+                <span class="font-bold text-white text-xs">${idx + 1}. ${escapeHtml(ch.name)}</span>
+                <span class="text-[11px] text-slate-400 ml-2">생년월일/나이: ${escapeHtml(ch.birth || ch.age || '미기재')}</span>
               </div>
               <div class="flex items-center gap-2 text-[11px] font-mono">
                 <span class="${isHeightOk ? 'text-slate-300' : 'text-rose-400 font-bold'}">
-                  신장: ${ch.height ? ch.height + 'cm' : '미측정'}
+                  신장: ${ch.height ? escapeHtml(ch.height) + 'cm' : '미측정'}
                 </span>
                 <span class="text-slate-600">|</span>
                 <span class="${isWeightOk ? 'text-slate-300' : 'text-rose-400 font-bold'}">
-                  체중: ${ch.weight ? ch.weight + 'kg' : '미측정'}
+                  체중: ${ch.weight ? escapeHtml(ch.weight) + 'kg' : '미측정'}
                 </span>
               </div>
             </div>

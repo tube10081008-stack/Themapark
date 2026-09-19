@@ -2597,78 +2597,48 @@
     const st = BongplaySync.getStatus();
     if (!st.configured) { el.textContent='DB 미연동'; btn.className='flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-700 rounded-xl text-xs font-bold shrink-0'; }
     else if (!st.online || st.pending>0) { el.textContent = st.online ? '대기 '+st.pending : '오프라인'; btn.className='flex items-center gap-1.5 px-3 py-1.5 bg-amber-900/30 text-amber-300 border border-amber-600/40 rounded-xl text-xs font-bold shrink-0'; }
+    else { el.textContent='동기화 정상 · '+BongplaySync.getDeviceLabel(); btn.className='flex items-center gap-1.5 px-3 py-1.5 bg-emerald-900/30 text-emerald-300 border border-emerald-600/40 rounded-xl text-xs font-bold shrink-0'; }
+  }
+
   /* ================= BP-007: 개인정보 라이프사이클 관리 ================= */
+  // 마스킹은 서버 함수(private.mask_expired_consents_internal)만 수행합니다.
+  //   · 이전 화면 코드는 사고 기록을 'bongplay_emergency_logs'(존재하지 않는 키)에서 찾아,
+  //     사고와 연계된 서약서의 서명까지 지우는 등 법적 보존 원칙과 반대로 동작했습니다.
+  //   · 90일 지난 서약서는 RLS 상 브라우저에서 수정할 수도 없으므로(당일분만 수정 가능)
+  //     서버의 보안 함수가 사고 연계 여부·보존기한을 DB 기준으로 판정해 처리합니다.
+  //   · 평소에는 pg_cron 이 매일 03:00 자동 실행하며, 이 버튼은 수동 즉시 실행용입니다.
   async function runPiiLifecycleAudit() {
-    const now = new Date();
-    const cutoff90Days = new Date(now.getTime() - (90 * 24 * 60 * 60 * 1000));
-    
-    let consents = [];
-    try {
-      const raw = localStorage.getItem('bongplay_safety_consents');
-      if (raw) consents = JSON.parse(raw);
-    } catch(e) {}
-
-    let incidents = [];
-    try {
-      const rawInc = localStorage.getItem('bongplay_emergency_logs');
-      if (rawInc) incidents = JSON.parse(rawInc);
-    } catch(e) {}
-
-    const incidentVisitIds = new Set(incidents.map(i => i.visit_id).filter(Boolean));
-    let maskedCount = 0;
-    let preservedCount = 0;
-    let recentActiveCount = 0;
-
-    for (let i = 0; i < consents.length; i++) {
-      const c = consents[i];
-      const createdDate = new Date(c.created_date || c.arrival_at || c.created_at || 0);
-      const isIncident = incidentVisitIds.has(c.visit_id);
-
-      if (isIncident) {
-        preservedCount++;
-      } else if (createdDate < cutoff90Days) {
-        let changed = false;
-        if (c.guardianPhone && !c.guardianPhone.includes('****')) {
-          const digits = c.guardianPhone.replace(/[^0-9]/g, '');
-          if (digits.length >= 8) {
-            c.guardianPhone = digits.slice(0, 3) + '-****-' + digits.slice(-4);
-            c.guardian_phone = c.guardianPhone;
-            changed = true;
-          }
-        }
-        if (c.signatureData || c.signature_data) {
-          c.signatureData = null;
-          c.signature_data = null;
-          changed = true;
-        }
-        if (changed) {
-          maskedCount++;
-          if (window.BongplaySync) {
-            await BongplaySync.upsert('safety_consents', c);
-          }
-        }
-      } else {
-        recentActiveCount++;
-      }
-    }
-
-    localStorage.setItem('bongplay_safety_consents', JSON.stringify(consents));
-
-    // Supabase 클라우드 DB 90일 경과 마스킹 보안 RPC 동시 호출
-    if (window.BongplaySync && window.BongplaySync.rpc) {
-      try {
-        var cfgCode = (window.BONGPLAY_CONFIG && window.BONGPLAY_CONFIG.ACCESS_CODE) || 'bongplay2026!';
-        await BongplaySync.rpc('mask_expired_consents_secure', { p_access_code: cfgCode });
-      } catch (errRpc) {
-        console.warn('Server-side PII mask RPC skipped or offline:', errRpc);
-      }
-    }
-
     const statusEl = document.getElementById('piiAuditStatusText');
-    if (statusEl) {
-      statusEl.textContent = `최근 점검 완료: ${maskedCount}건 마스킹 (사고보존 ${preservedCount}건, 정상보관 ${recentActiveCount}건)`;
+    const staffCode = window.BongplayAuth ? BongplayAuth.getAccessCode() : null;
+
+    if (!window.BongplaySync || !BongplaySync.rpc) {
+      alert('DB 동기화 모듈이 없어 실행할 수 없습니다.');
+      return;
     }
-    alert(`[개인정보보호법 보존주기 점검 완료]\n• 90일 경과 무사고 마스킹 처리: ${maskedCount}건 (전화번호 마스킹 및 서명 파기)\n• 법정 보존 대상 (사고 연계 3년 보존): ${preservedCount}건\n• 90일 이내 활성 보관 건: ${recentActiveCount}건`);
+    if (!staffCode) {
+      alert('운영자 인증 세션이 없습니다. 페이지를 새로고침해 다시 로그인하십시오.');
+      return;
+    }
+    if (!confirm('접수 90일이 지난 무사고 서약서의 성명·연락처를 마스킹하고 전자서명 원본을 영구 삭제합니다.\n(사고 연계 서약서는 3년 보존 대상으로 자동 제외)\n\n실행하시겠습니까?')) {
+      return;
+    }
+
+    if (statusEl) statusEl.textContent = '서버에서 처리 중…';
+    const r = await BongplaySync.rpc('mask_expired_consents_secure', { p_access_code: staffCode });
+
+    if (!r.ok || !r.data || r.data.ok === false) {
+      const reason = (r.data && r.data.error === 'access_denied') ? '운영자 암호 검증 실패'
+        : (r.status === 404 ? '서버 함수 미설치 (FINAL_SUPABASE_SETUP.sql 적용 필요)' : (r.error || r.reason || '알 수 없는 오류'));
+      if (statusEl) statusEl.textContent = `실행 실패: ${reason}`;
+      alert(`[개인정보 마스킹 실패]\n${reason}`);
+      return;
+    }
+
+    const masked = Number(r.data.masked_count || 0);
+    const at = r.data.executed_at ? BongplaySync.toLocalTimeStr(r.data.executed_at) : '';
+    if (statusEl) statusEl.textContent = `최근 실행 ${at}: ${masked}건 마스킹 완료 (사고 연계 건은 서버에서 보존 처리)`;
+    if (typeof BongplaySync.pullAll === 'function') BongplaySync.pullAll();
+    alert(`[개인정보보호법 보존주기 처리 완료]\n• 90일 경과 무사고 서약서 마스킹·서명 파기: ${masked}건\n• 사고 연계 서약서: 3년 법정 보존 (자동 제외)`);
   }
 
   function exportPiiComplianceLog() {
@@ -2678,14 +2648,26 @@
       if (raw) consents = JSON.parse(raw);
     } catch(e) {}
 
-    const log = consents.map(c => ({
-      visit_id: c.visit_id,
-      pass_code: c.passCode || c.pass_code,
-      created_date: c.created_date || c.arrival_at,
-      phone_masked: (c.guardianPhone || '').includes('****'),
-      signature_destroyed: !c.signatureData && !c.signature_data,
-      compliance_status: 'VERIFIED'
-    }));
+    // 상태는 실제 값으로 판정 (이전 코드는 모든 건을 무조건 'VERIFIED' 로 기록)
+    const cutoff = Date.now() - 90 * 24 * 60 * 60 * 1000;
+    const log = consents.map(c => {
+      const created = new Date(c.created_date || c.createdDate || c.arrival_at || 0).getTime();
+      const phoneMasked = (c.guardianPhone || c.guardian_phone || '').includes('****');
+      const sigDestroyed = !c.signatureData && !c.signature_data;
+      const onHold = !!(c.legal_hold_until && new Date(c.legal_hold_until).getTime() >= Date.now());
+      let status = 'ACTIVE_WITHIN_90D';
+      if (onHold) status = 'LEGAL_HOLD';
+      else if (created < cutoff) status = (phoneMasked && sigDestroyed) ? 'MASKED' : 'OVERDUE_NOT_MASKED';
+      return {
+        visit_id: c.visit_id,
+        pass_code: c.passCode || c.pass_code,
+        created_date: c.created_date || c.createdDate || c.arrival_at,
+        phone_masked: phoneMasked,
+        signature_destroyed: sigDestroyed,
+        legal_hold_until: c.legal_hold_until || null,
+        compliance_status: status
+      };
+    });
 
     const blob = new Blob([JSON.stringify(log, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');

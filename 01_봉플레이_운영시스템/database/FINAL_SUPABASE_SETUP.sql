@@ -1,18 +1,26 @@
 -- ============================================================
 -- 🌟 봉플레이 운영시스템 — 최종 통합 마스터 DB 설정 스크립트 (FINAL_SUPABASE_SETUP.sql)
 -- ------------------------------------------------------------
--- 버전: v2026.FINAL
+-- 버전: v2026.FINAL-r2 (2026-09-18 워크플로우 정합성 수정)
 -- 포함 내용:
 --   1. 전체 29개 테이블 스키마 및 최신 컬럼 정의 (IF NOT EXISTS)
---   2. 실시간 동기화(Supabase Realtime) 채널 활성화
---   3. [P0 해결] safety_consents 아동 개인정보 보호 (anon 전량 덤프 원천 차단 & 보안 RPC 함수)
---   4. [P1 해결] 점검일지·서약서 삭제 버튼 2곳 회귀 방지 (DELETE 허용 정책 수록)
---   5. [P1 해결] 전 테이블 Row Level Security (RLS) 최소 권한 보안 강화
+--   1-12. 프런트 기록 필드 ↔ DB 컬럼 정합성 보강 (결제수단·사고연계·마감잠금 등)
+--   2. 실시간 동기화(Supabase Realtime) 채널 활성화 (테이블별 개별 등록)
+--   3. safety_consents 아동 개인정보 보호 (과거 이력 조회·수정·삭제 차단)
+--   4. 전 테이블 Row Level Security (RLS) 최소 권한, anon DELETE 전면 회수
+--   5-2. 서버 검증형 운영자 인증 (bcrypt, 대입 공격 잠금) · 90일 개인정보 마스킹 · 사고 연계 3년 보존
+--   5-4. 마감 확정 후 원장 수정 차단
+--   5-7. pg_cron 새벽 3시 자동 마스킹
 -- ------------------------------------------------------------
 -- 실행 방법:
 --   1. https://supabase.com 접속 ➔ 봉플레이 프로젝트 선택
 --   2. 좌측 메뉴 [SQL Editor] ➔ [New query] 클릭
 --   3. 본 파일 내용 전체를 복사하여 붙여넣고 우측 하단 [Run] 클릭
+--   4. ★ 최초 1회: 5-2 절 안내에 따라 운영자 암호를 등록 (등록 전에는 대시보드 로그인 불가)
+--   5. (선택) Database > Extensions 에서 pg_cron 활성화 후 이 파일을 한 번 더 실행
+--
+-- ※ 이 스크립트는 여러 번 실행해도 안전합니다(멱등). 한 문장이라도 실패하면 전체가
+--   롤백되므로, 실행 결과 하단에 오류가 없는지 반드시 확인하십시오.
 -- ============================================================
 
 -- ────────────────────────────────────────────────────────────
@@ -389,22 +397,81 @@ create table if not exists public.asset_usage_counters (
   site_id         text default 'bongplay_bonghwa'
 );
 
+-- 1-12. 스키마 정합성 보강 (프런트가 실제로 기록하는 필드 ↔ DB 컬럼)
+--   이전 스크립트(supabase_setup.sql)와 이 파일의 테이블 정의가 서로 달라,
+--   어느 쪽으로 먼저 만들어졌든 프런트 기록이 누락되지 않도록 컬럼을 맞춥니다.
+--   (누락 컬럼은 bongplay-sync.js 가 조용히 버리므로, 결제수단·잠금 여부 같은
+--    핵심 값이 DB에 도달하지 못하던 원인입니다.)
+
+-- (1) order_items: POS 결제 원장 (bongplay-id.js createOrder)
+alter table public.order_items add column if not exists id               text;
+alter table public.order_items add column if not exists item_id          text;
+alter table public.order_items add column if not exists visit_id         text;
+alter table public.order_items add column if not exists purchased_at     timestamptz;
+alter table public.order_items add column if not exists sales_channel    text;
+alter table public.order_items add column if not exists product_category text;
+alter table public.order_items add column if not exists list_price       bigint default 0;
+alter table public.order_items add column if not exists discount_amount  bigint default 0;
+alter table public.order_items add column if not exists paid_amount      bigint default 0;
+alter table public.order_items add column if not exists payment_method   text;
+alter table public.order_items add column if not exists coupon_id        text;
+alter table public.order_items add column if not exists staff_id         text;
+alter table public.order_items add column if not exists device_id        text;
+alter table public.order_items add column if not exists device_label     text;
+create index if not exists idx_order_items_purchased on public.order_items (purchased_at desc);
+
+-- (2) incident_logs: 비상 키오스크 사고 보고 (emergency.html) + 디스코드 트리거 참조 컬럼
+alter table public.incident_logs add column if not exists incident_date      date default current_date;
+alter table public.incident_logs add column if not exists occurred_at        text;
+alter table public.incident_logs add column if not exists facility_id        text;
+alter table public.incident_logs add column if not exists victim_name        text;
+alter table public.incident_logs add column if not exists action_taken       text;
+alter table public.incident_logs add column if not exists hospital_transport text;
+alter table public.incident_logs add column if not exists reported_by        text;
+alter table public.incident_logs add column if not exists created_at         timestamptz default now();
+alter table public.incident_logs add column if not exists severity           text;
+alter table public.incident_logs add column if not exists target_type        text;
+alter table public.incident_logs add column if not exists called_119         boolean default false;
+alter table public.incident_logs add column if not exists notified_guardian  boolean default false;
+alter table public.incident_logs add column if not exists consent_id         text;   -- 연계 서약서 (법적 보존)
+alter table public.incident_logs add column if not exists visit_id           text;
+create index if not exists idx_incident_consent on public.incident_logs (consent_id);
+create index if not exists idx_incident_visit   on public.incident_logs (visit_id);
+
+-- (3) closing_records: 마감 정산 (closing.html) + 잠금 전용 컬럼
+alter table public.closing_records add column if not exists manager      text;
+alter table public.closing_records add column if not exists staff        jsonb;
+alter table public.closing_records add column if not exists cash         jsonb;
+alter table public.closing_records add column if not exists actual_cash  bigint default 0;
+alter table public.closing_records add column if not exists diff         bigint default 0;
+alter table public.closing_records add column if not exists system_cash  bigint default 0;
+alter table public.closing_records add column if not exists system_card  bigint default 0;
+alter table public.closing_records add column if not exists raw_payload  jsonb;
+alter table public.closing_records add column if not exists is_locked    boolean not null default false;
+alter table public.closing_records add column if not exists locked_at    timestamptz;
+
+-- (4) safety_consents: 법적 보존 기한 및 마스킹 이력
+alter table public.safety_consents add column if not exists legal_hold_until date;       -- 사고 연계 시 +3년
+alter table public.safety_consents add column if not exists pii_masked_at    timestamptz;
+
 -- ────────────────────────────────────────────────────────────
 -- 2. 실시간 통신(Supabase Realtime) 활성화
 -- ────────────────────────────────────────────────────────────
+-- 테이블을 한 번에 추가하면 하나라도 이미 등록된 경우 문장 전체가 실패해
+-- 나머지 테이블까지 누락되므로, 테이블별로 개별 등록합니다.
 do $$
+declare
+  t text;
 begin
-  begin
-    alter publication supabase_realtime add table 
-      sales_records, 
-      safety_consents, 
-      safety_audits, 
-      closing_records, 
-      ticket_ledger;
-  exception when others then
-    -- 이미 추가된 경우 무시
-    null;
-  end;
+  foreach t in array array['sales_records', 'safety_consents', 'safety_audits',
+                           'closing_records', 'ticket_ledger', 'order_items'] loop
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
+    ) then
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    end if;
+  end loop;
 end $$;
 
 -- ────────────────────────────────────────────────────────────
@@ -482,20 +549,100 @@ create policy "consents_select_restricted" on public.safety_consents
 
 -- ※ DELETE 정책: 등록하지 않음 (anon DELETE 원천 불가)
 
--- 5-2. 현장 매표소 관리자 전용 안전 조회 및 관리 RPC 함수
--- (1) 당일 및 전일 서약서 목록 안전 조회
+-- 5-2. 현장 운영자 인증 및 개인정보 보안 함수
+-- ────────────────────────────────────────────────────────────
+-- [설계 원칙]
+--   · 운영자 암호는 브라우저에 두지 않습니다. (config.js 는 누구나 열람 가능)
+--     → 암호의 bcrypt 해시만 API 로 노출되지 않는 private 스키마에 저장하고,
+--       검증은 DB 함수만 수행합니다. 하드코딩된 기본 암호는 없습니다.
+--   · 암호 대입 공격 방지: 접속 IP 별로 10분 내 20회 실패 시 잠금.
+--   · 암호가 틀려도 예외를 던지지 않고 빈 결과를 돌려줍니다.
+--     (예외를 던지면 실패 기록까지 롤백되어 대입 방지가 무력화됩니다.)
+--
+-- [최초 1회 필수] 이 스크립트 실행 후 SQL Editor 에서 운영자 암호(6자 이상)를 등록하십시오.
+--   insert into private.app_settings (key, value)
+--   values ('access_code', extensions.crypt('여기에-새-암호', extensions.gen_salt('bf')))
+--   on conflict (key) do update set value = excluded.value, updated_at = now();
+--   ※ 등록 전에는 모든 대시보드 로그인이 거부됩니다. 암호 변경도 같은 문장으로 합니다.
+-- ────────────────────────────────────────────────────────────
+create extension if not exists pgcrypto with schema extensions;
+
+create schema if not exists private;
+revoke all on schema private from public;
+revoke all on schema private from anon, authenticated;
+
+create table if not exists private.app_settings (
+  key         text primary key,
+  value       text not null,
+  updated_at  timestamptz default now()
+);
+
+create table if not exists private.auth_attempts (
+  id            bigserial primary key,
+  client_ip     text,
+  ok            boolean not null,
+  attempted_at  timestamptz not null default now()
+);
+create index if not exists idx_auth_attempts_ip on private.auth_attempts (client_ip, attempted_at desc);
+
+-- (1) 암호 검증 (내부 전용)
+create or replace function private.verify_access_code(p_code text)
+returns boolean
+language plpgsql
+security definer
+set search_path = private, extensions, public
+as $$
+declare
+  v_hash  text;
+  v_ip    text;
+  v_fails int;
+  v_ok    boolean := false;
+begin
+  begin
+    v_ip := split_part(nullif(current_setting('request.headers', true), '')::json->>'x-forwarded-for', ',', 1);
+  exception when others then
+    v_ip := null;
+  end;
+  v_ip := coalesce(nullif(trim(v_ip), ''), 'unknown');
+
+  select count(*) into v_fails
+    from private.auth_attempts
+   where client_ip = v_ip and not ok and attempted_at > now() - interval '10 minutes';
+  if v_fails >= 20 then
+    return false;
+  end if;
+
+  select value into v_hash from private.app_settings where key = 'access_code';
+  if v_hash is not null and v_hash like '$2%' and p_code is not null and length(p_code) >= 6 then
+    v_ok := extensions.crypt(p_code, v_hash) = v_hash;
+  end if;
+
+  insert into private.auth_attempts (client_ip, ok) values (v_ip, v_ok);
+  delete from private.auth_attempts where attempted_at < now() - interval '1 day';
+  return v_ok;
+end;
+$$;
+
+-- (2) 대시보드 로그인 RPC (config.js 인증 창이 호출)
+create or replace function public.verify_staff_access(p_access_code text)
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select private.verify_access_code(p_access_code);
+$$;
+
+-- (3) 매표소 서약서 조회 (당일 포함 최근 3일) — 암호 불일치 시 빈 결과
 create or replace function public.get_today_consents_secure(p_access_code text)
 returns setof public.safety_consents
 language plpgsql
 security definer
 set search_path = public
 as $$
-declare
-  v_expected text;
 begin
-  v_expected := coalesce(current_setting('app.settings.access_code', true), 'bongplay2026!');
-  if p_access_code is null or (p_access_code <> v_expected and p_access_code <> 'bongplay2026') then
-    raise exception '접근 거부: 관리자 암호가 일치하지 않습니다.';
+  if not private.verify_access_code(p_access_code) then
+    return;
   end if;
 
   return query
@@ -505,38 +652,77 @@ begin
 end;
 $$;
 
--- (2) [BP-007] 90일 경과 미사고 동의서 자동 마스킹 및 서명 파기 서버사이드 보안 RPC
-create or replace function public.mask_expired_consents_secure(p_access_code text)
+-- (4) 개인정보 마스킹 도우미: 홍길동 → 홍*동, 김철 → 김*
+create or replace function private.mask_name(p text)
+returns text
+language sql
+immutable
+as $$
+  select case
+    when p is null or length(trim(p)) = 0 then p
+    when length(p) = 1 then '*'
+    when length(p) = 2 then left(p, 1) || '*'
+    else left(p, 1) || repeat('*', length(p) - 2) || right(p, 1)
+  end;
+$$;
+
+-- 동반 아동 배열: 이름 마스킹 + 생년월일은 연도만 남김 (연령 통계용)
+create or replace function private.mask_children(p jsonb)
+returns jsonb
+language sql
+immutable
+as $$
+  select case
+    when p is null or jsonb_typeof(p) <> 'array' then p
+    else coalesce((
+      select jsonb_agg(
+        case jsonb_typeof(elem)
+          when 'string' then to_jsonb(private.mask_name(elem #>> '{}'))
+          when 'object' then
+            elem
+            || case when elem ? 'name'  then jsonb_build_object('name', private.mask_name(elem->>'name')) else '{}'::jsonb end
+            || case when elem ? 'birth' then jsonb_build_object('birth', left(elem->>'birth', 4))      else '{}'::jsonb end
+          else elem
+        end)
+      from jsonb_array_elements(p) as elem
+    ), '[]'::jsonb)
+  end;
+$$;
+
+-- (5) [BP-007] 개인정보 수명주기 처리 (크론 전용 내부 함수)
+--   대상: 접수 90일 경과 + 미마스킹 + 법적 보존기한 없음/만료 + 최근 3년 내 사고 연계 없음
+--   처리: 보호자·아동 성명 마스킹, 연락처 뒷 4자리만 보존, 전자서명 원본 영구 삭제
+create or replace function private.mask_expired_consents_internal()
 returns jsonb
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
-  v_expected text;
   v_count int := 0;
 begin
-  v_expected := coalesce(current_setting('app.settings.access_code', true), 'bongplay2026!');
-  if p_access_code is null or (p_access_code <> v_expected and p_access_code <> 'bongplay2026') then
-    raise exception '접근 거부: 관리자 암호가 일치하지 않습니다.';
-  end if;
-
-  -- 90일 경과 및 사고 이력(incident_logs)에 연계되지 않은 서약서의 개인정보 마스킹
   with target as (
     update public.safety_consents c
-    set 
-      guardian_phone = case 
-        when length(regexp_replace(guardian_phone, '[^0-9]', '', 'g')) = 11 
-        then substr(regexp_replace(guardian_phone, '[^0-9]', '', 'g'), 1, 3) || '-****-' || substr(regexp_replace(guardian_phone, '[^0-9]', '', 'g'), 8, 4)
-        else '010-****-0000'
+    set
+      guardian_name  = private.mask_name(c.guardian_name),
+      guardian_phone = case
+        when c.guardian_phone is null then null
+        when length(regexp_replace(c.guardian_phone, '[^0-9]', '', 'g')) = 11
+          then substr(regexp_replace(c.guardian_phone, '[^0-9]', '', 'g'), 1, 3) || '-****-'
+               || right(regexp_replace(c.guardian_phone, '[^0-9]', '', 'g'), 4)
+        else '***-****-' || right(regexp_replace(c.guardian_phone, '[^0-9]', '', 'g'), 4)
       end,
+      children       = private.mask_children(c.children),
       signature_data = null,
-      updated_at = now()
+      pii_masked_at  = now(),
+      updated_at     = now()
     where c.created_date < (current_date - interval '90 days')
-      and c.signature_data is not null
+      and c.pii_masked_at is null
+      and (c.legal_hold_until is null or c.legal_hold_until < current_date)
       and not exists (
-        select 1 from public.incident_logs inc 
-        where inc.consent_id = c.id or inc.visit_id = c.visit_id
+        select 1 from public.incident_logs inc
+        where (inc.consent_id = c.id or (c.visit_id is not null and inc.visit_id = c.visit_id))
+          and coalesce(inc.incident_date, current_date) > current_date - interval '3 years'
       )
     returning c.id
   )
@@ -545,6 +731,58 @@ begin
   return jsonb_build_object('ok', true, 'masked_count', v_count, 'executed_at', now());
 end;
 $$;
+
+-- (6) 관리 화면 수동 실행용 RPC (management.html) — 암호 불일치 시 실행 거부
+create or replace function public.mask_expired_consents_secure(p_access_code text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not private.verify_access_code(p_access_code) then
+    return jsonb_build_object('ok', false, 'error', 'access_denied');
+  end if;
+  return private.mask_expired_consents_internal();
+end;
+$$;
+
+-- (7) 사고 일지 저장 시 연계 서약서에 3년 법적 보존 플래그 자동 설정
+create or replace function private.trg_incident_legal_hold()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.consent_id is not null or new.visit_id is not null then
+    update public.safety_consents c
+       set legal_hold_until = greatest(
+             coalesce(c.legal_hold_until, current_date),
+             (coalesce(new.incident_date, current_date) + interval '3 years')::date
+           )
+     where c.id = new.consent_id
+        or (new.visit_id is not null and c.visit_id = new.visit_id);
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_incident_legal_hold on public.incident_logs;
+create trigger trg_incident_legal_hold
+  after insert or update of consent_id, visit_id on public.incident_logs
+  for each row execute function private.trg_incident_legal_hold();
+
+-- (8) 실행 권한 정리: 내부 함수·테이블은 외부 호출 차단, RPC 3종만 anon 허용
+revoke all on all tables    in schema private from public, anon, authenticated;
+revoke all on all functions in schema private from public, anon, authenticated;
+
+revoke all on function public.verify_staff_access(text)          from public;
+revoke all on function public.get_today_consents_secure(text)    from public;
+revoke all on function public.mask_expired_consents_secure(text) from public;
+grant execute on function public.verify_staff_access(text)          to anon, authenticated;
+grant execute on function public.get_today_consents_secure(text)    to anon, authenticated;
+grant execute on function public.mask_expired_consents_secure(text) to anon, authenticated;
 
 -- 5-3. safety_audits (일일 안전점검 일지 - 유원시설 법정 일지)
 create policy "audits_select" on public.safety_audits
@@ -573,10 +811,14 @@ create policy "closing_insert" on public.closing_records
   with check (true);
 
 -- 마감 원장이 이미 잠긴(is_locked = true) 건은 수정 불가
+--   · using      : "수정 전" 행 검사 → 잠긴 행은 아예 수정 대상이 되지 않음
+--   · with check : "수정 후" 행 검사 → 잠금으로 바꾸는 것(마감 확정)은 허용해야 하므로 true
+--   (이전 정책은 with check 에서도 잠금을 막아, 마감 확정 저장 자체가 거부되었습니다.
+--    또 프런트가 채우지 않는 raw_payload 를 검사해 잠금이 한 번도 작동하지 않았습니다.)
 create policy "closing_update" on public.closing_records
   for update to anon
-  using (coalesce(raw_payload->>'is_locked', 'false') <> 'true')
-  with check (coalesce(raw_payload->>'is_locked', 'false') <> 'true');
+  using (not is_locked)
+  with check (true);
 
 -- 5-5. 매출 / 예약 / 민원 / 발권 (운영 테이블 - SELECT / INSERT / UPDATE만 허용, DELETE 차단)
 do $$
@@ -612,22 +854,34 @@ begin
   foreach t in array master_tables loop
     execute format('create policy %I on public.%I for select to anon using (true)', 'sec_' || t || '_readonly', t);
   end loop;
--- 5-7. 심야 자동화 스케줄 (Supabase pg_cron 확장이 지원되는 경우 매일 새벽 03:00 KST 자동 실행)
-do $$
+end $$;
+
+-- 5-7. 심야 자동화 스케줄 (매일 03:00 KST)
+--   ※ 바깥 블록은 $cron_setup$, 크론 명령은 $cron_cmd$ 로 따옴표를 분리합니다.
+--     (같은 $$ 를 중첩하면 바깥 블록이 그 지점에서 끝나 스크립트 전체가 롤백됩니다.)
+--   ※ 크론은 postgres 권한으로 실행되므로 암호 없이 내부 함수를 직접 호출합니다.
+do $cron_setup$
 begin
-  create extension if not exists pg_cron with schema extensions;
+  begin
+    create extension if not exists pg_cron with schema extensions;
+  exception when others then
+    raise warning 'pg_cron 확장을 켤 수 없습니다 (Dashboard > Database > Extensions 에서 활성화): %', sqlerrm;
+  end;
+
   if exists (select 1 from pg_extension where extname = 'pg_cron') then
-    perform cron.unschedule('daily_mask_expired_consents');
+    -- 최초 실행 시에는 등록된 작업이 없어 unschedule 이 오류를 내므로 존재할 때만 해제
+    if exists (select 1 from cron.job where jobname = 'daily_mask_expired_consents') then
+      perform cron.unschedule('daily_mask_expired_consents');
+    end if;
     perform cron.schedule(
       'daily_mask_expired_consents',
       '0 18 * * *', -- UTC 18:00 = KST 03:00
-      $$select public.mask_expired_consents_secure('bongplay2026!')$$
+      $cron_cmd$select private.mask_expired_consents_internal()$cron_cmd$
     );
+  else
+    raise warning 'pg_cron 미설치: 개인정보 자동 마스킹 크론이 등록되지 않았습니다.';
   end if;
-exception when others then
-  -- pg_cron 권한이 없거나 미지원 플랜인 경우 무시
-  null;
-end $$;
+end $cron_setup$;
 
 -- ────────────────────────────────────────────────────────────
 -- 6. 보안 검증 자가 진단 쿼리 (Supabase SQL Editor에서 실행하여 확인)

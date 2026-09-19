@@ -3,7 +3,7 @@
    ------------------------------------------------------------
    오프라인 정적 파일 캐싱 & 네트워크 단절 시 안정적 화면 서빙
    ============================================================ */
-const CACHE_NAME = 'bongplay-static-v2026-01';
+const CACHE_NAME = 'bongplay-static-v2026-09-18r2';
 const STATIC_ASSETS = [
   './index.html',
   './manifest.json',
@@ -52,15 +52,41 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
+// 실시간 데이터 출처: 절대 캐시하지 않음 (캐시하면 같은 URL 의 예전 기상·DB 응답이 계속 반환됨)
+const LIVE_DATA_HOSTS = ['supabase.co', 'api.open-meteo.com', 'script.google.com', 'script.googleusercontent.com'];
 
-  // API 및 외부 동적 요청은 서비스워커 캐시 패스 (BongplaySync가 IndexedDB로 처리)
-  if (url.origin.includes('supabase.co') || url.pathname.startsWith('/rest/v1/') || url.pathname.startsWith('/api/')) {
+self.addEventListener('fetch', (event) => {
+  const req = event.request;
+  const url = new URL(req.url);
+
+  // 1) GET 이 아니거나 실시간 데이터·API 요청 → 서비스워커 개입 없음
+  if (req.method !== 'GET' ||
+      LIVE_DATA_HOSTS.some((h) => url.hostname === h || url.hostname.endsWith('.' + h)) ||
+      url.pathname.startsWith('/rest/v1/') || url.pathname.startsWith('/api/') ||
+      url.pathname.startsWith('/.netlify/')) {
     return;
   }
 
-  // 정적 리소스: Cache First -> Network Fallback
+  // 2) 자체 파일(HTML·JS·CSS): Network First → 오프라인일 때만 캐시
+  //    안전 인터록 로직이 바뀌어도 온라인 기기는 즉시 최신 코드를 받습니다.
+  if (url.origin === self.location.origin) {
+    event.respondWith(
+      fetch(req).then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          const copy = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+        }
+        return networkResponse;
+      }).catch(() =>
+        caches.match(req).then((cached) =>
+          cached || (req.mode === 'navigate' ? caches.match('./index.html') : undefined)
+        )
+      )
+    );
+    return;
+  }
+
+  // 3) 외부 CDN 라이브러리(버전 고정 파일): Cache First → Network Fallback
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {

@@ -677,6 +677,7 @@
 
       const record = {
         id: `${orderId}_${idx + 1}`,
+        item_id: `${orderId}_${idx + 1}`, // FINAL 스키마의 기본키(item_id)와 구 스키마의 id 를 모두 채움
         order_id: orderId,
         site_id: SITE_ID,
         visit_id: visitId,
@@ -732,9 +733,22 @@
       const items = JSON.parse(raw);
       if (!Array.isArray(items)) return [];
 
+      // purchased_at 은 UTC(ISO) 문자열이므로 앞 10자리를 자르면 한국 날짜와 어긋날 수 있음 → 현지 날짜로 변환
+      const localYmd = (iso) => {
+        const d = new Date(iso || '');
+        if (isNaN(d.getTime())) return '';
+        const p = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+      };
+      // 같은 품목이 로컬·서버 양쪽에서 들어와도 한 번만 집계 (id 기준 중복 제거)
+      const seen = {};
       const filtered = items.filter(it => {
-        const itemDate = (it.purchased_at || it.created_at || '').slice(0, 10);
-        return itemDate === dateStr;
+        const key = it.id || it.item_id;
+        if (key) {
+          if (seen[key]) return false;
+          seen[key] = true;
+        }
+        return localYmd(it.purchased_at || it.created_at) === dateStr;
       });
 
       const ordersMap = {};
@@ -1797,8 +1811,10 @@
       temperature: Number(d.temperature !== undefined ? d.temperature : 21.5),
       humidity: Math.round(Number(d.humidity !== undefined ? d.humidity : 55)),
       rainfall: Number(d.rainfall !== undefined ? d.rainfall : 0.0),
-      wind_speed: Number(d.wind_speed !== undefined ? d.wind_speed : 3.2),
-      wind_gust: Number(d.wind_gust !== undefined ? d.wind_gust : (Number(d.wind_speed || 3.2) * 1.5).toFixed(1)),
+      // 풍속은 안전 인터록 입력값이므로 누락 시 기본값을 지어내지 않고 null(미확인 → 잠금)
+      wind_speed: (d.wind_speed != null && d.wind_speed !== '' && isFinite(Number(d.wind_speed))) ? Number(d.wind_speed) : null,
+      wind_gust: (d.wind_gust != null && d.wind_gust !== '' && isFinite(Number(d.wind_gust))) ? Number(d.wind_gust) : null,
+      source: d.source || 'manual_anemometer',
       wind_direction: d.wind_direction || 'NW',
       visibility: Number(d.visibility !== undefined ? d.visibility : 15000),
       snow_depth: Number(d.snow_depth !== undefined ? d.snow_depth : 0.0),
@@ -1839,52 +1855,81 @@
     return [];
   }
 
-  // 봉화 현장 실시간 Open-Meteo 기상 관측 연동 (위도: 36.893, 경도: 128.732)
+  // 기상 데이터 유효시간: Open-Meteo 현재값은 15분 간격 갱신 → 30분이 지나면 신뢰하지 않음
+  // (수동 입력값도 동일 적용: API 장애 시 현장 풍속계 값을 30분마다 다시 입력해야 발권 유지)
+  const WEATHER_MAX_AGE_MS = 30 * 60 * 1000;
+  const WEATHER_POLL_MS = 10 * 60 * 1000;
+
+  // 봉화 현장 Open-Meteo 기상 연동 (위도 36.893, 경도 128.732)
+  //   · current_weather(구형 응답)에는 순간풍속(gust)이 없어 추정값을 쓰게 되므로,
+  //     current=wind_gusts_10m 으로 순간최대풍속을 직접 받습니다.
+  //   · 격자 기상모델 값입니다. 현장 풍속계 실측을 대체하지 않으며, 값이 없으면
+  //     추정하지 않고 null 로 두어 인터록이 "미확인 = 잠금"으로 판단하게 합니다.
   async function fetchLiveWeather() {
+    const url = 'https://api.open-meteo.com/v1/forecast?latitude=36.893&longitude=128.732' +
+      '&current=temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m' +
+      '&wind_speed_unit=ms&timezone=Asia%2FSeoul';
     try {
-      const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=36.893&longitude=128.732&current_weather=true&windspeed_unit=ms');
-      if (res.ok) {
-        const data = await res.json();
-        const cur = data.current_weather || {};
-        const windSpeed = typeof cur.windspeed === 'number' ? Math.round(cur.windspeed * 10) / 10 : 0;
-        const gust = typeof cur.windgust === 'number' ? Math.round(cur.windgust * 10) / 10 : Math.round(windSpeed * 1.3 * 10) / 10;
-        const temp = typeof cur.temperature === 'number' ? Math.round(cur.temperature * 10) / 10 : 20.0;
-        const code = cur.weathercode || 0;
-        const isRain = (code >= 51 && code <= 67) || (code >= 80 && code <= 82);
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error('http_' + res.status);
+      const data = await res.json();
+      const cur = data.current || {};
+      const num = (v) => (typeof v === 'number' && isFinite(v)) ? Math.round(v * 10) / 10 : null;
 
-        const rec = {
-          id: 'wtr_live_' + Date.now(),
-          observed_at: new Date().toISOString(),
-          temperature: temp,
-          humidity: 50,
-          rainfall: isRain ? 6.0 : 0.0,
-          wind_speed: windSpeed,
-          wind_gust: gust,
-          wind_direction: cur.winddirection || 'NW',
-          weather_warning: gust >= 12.0 ? 'strong_wind_watch' : (isRain ? 'rain_watch' : 'none'),
-          source: 'open_meteo_live_bonghwa',
-          status: 'LIVE'
-        };
+      const windSpeed = num(cur.wind_speed_10m);
+      const gust = num(cur.wind_gusts_10m);
+      const code = Number(cur.weather_code || 0);
+      const isRain = (code >= 51 && code <= 67) || (code >= 80 && code <= 82) || code >= 95;
+      const hasWind = windSpeed !== null && gust !== null;
 
-        const existing = getWeatherTelemetry(20);
-        existing.unshift(rec);
-        if (existing.length > 30) existing.length = 30;
-        localStorage.setItem(STORAGE_KEYS.WEATHER_TELEMETRY, JSON.stringify(existing));
-        return rec;
-      }
+      const rec = {
+        id: 'wtr_live_' + Date.now(),
+        observed_at: new Date().toISOString(),
+        model_time: cur.time || null,
+        temperature: num(cur.temperature_2m),
+        humidity: num(cur.relative_humidity_2m),
+        rainfall: num(cur.precipitation),
+        wind_speed: windSpeed,
+        wind_gust: gust,
+        wind_direction: cur.wind_direction_10m !== undefined ? cur.wind_direction_10m : null,
+        weather_warning: !hasWind ? 'UNKNOWN_WEATHER'
+          : ((gust >= 12.0 || windSpeed >= 12.0) ? 'strong_wind_watch' : (isRain ? 'rain_watch' : 'none')),
+        source: 'open_meteo_bonghwa',
+        status: hasWind ? 'LIVE' : 'UNKNOWN'
+      };
+
+      const existing = getWeatherTelemetry(29);
+      existing.unshift(rec);
+      localStorage.setItem(STORAGE_KEYS.WEATHER_TELEMETRY, JSON.stringify(existing));
+      return rec;
     } catch (e) {
       console.warn('[BongplayID] Live weather fetch failed:', e);
+      return null;
     }
-    return null;
+  }
+
+  // 페이지가 열려 있는 동안 10분마다 기상 갱신. onUpdate(rec) 로 화면 재렌더링.
+  let weatherPollTimer = null;
+  function startLiveWeatherPolling(onUpdate) {
+    const tick = async () => {
+      const rec = await fetchLiveWeather();
+      if (typeof onUpdate === 'function') {
+        try { onUpdate(rec); } catch (e) { console.warn('[BongplayID] weather onUpdate error:', e); }
+      }
+    };
+    if (weatherPollTimer) clearInterval(weatherPollTimer);
+    tick();
+    weatherPollTimer = setInterval(tick, WEATHER_POLL_MS);
+    return function stop() { clearInterval(weatherPollTimer); weatherPollTimer = null; };
   }
 
   function getLatestWeather() {
-    const list = getWeatherTelemetry(1);
-    if (list && list.length > 0) {
+    // 과거 버전이 localStorage 에 남긴 가짜 시드값(wtr_seed_*)은 무시
+    const list = getWeatherTelemetry(30).filter(w => !String(w.id || '').startsWith('wtr_seed_'));
+    if (list.length > 0) {
       const latest = list[0];
-      // 관측 데이터가 2시간 이상 경과되었으면 신뢰 불가 처리
       const diffMs = Date.now() - new Date(latest.observed_at || 0).getTime();
-      if (diffMs < 2 * 60 * 60 * 1000) {
+      if (diffMs >= 0 && diffMs < WEATHER_MAX_AGE_MS) {
         return latest;
       }
     }
@@ -1905,7 +1950,9 @@
     const w = weather || getLatestWeather();
     
     // 기상 정보 미확인(UNKNOWN) 상태: 안전 최우선 원칙에 따라 짚코스터 발권 잠금 및 수동 점검 요구
-    if (w.status === 'UNKNOWN' || w.wind_speed === null || w.wind_gust === null || w.weather_warning === 'UNKNOWN_WEATHER') {
+    // (== null 은 null 과 undefined 를 모두 잡습니다. 숫자가 아니면 "미확인"으로 간주)
+    const isNum = (v) => v != null && v !== '' && isFinite(Number(v));
+    if (w.status === 'UNKNOWN' || !isNum(w.wind_speed) || !isNum(w.wind_gust) || w.weather_warning === 'UNKNOWN_WEATHER') {
       return {
         canOperate: false,
         alertLevel: 'warning',
@@ -1915,15 +1962,16 @@
       };
     }
 
-    const gust = Number(w.wind_gust || 0);
+    const gust = Number(w.wind_gust);
+    const wind = Number(w.wind_speed);
     const rain = Number(w.rainfall || 0);
     const warning = String(w.weather_warning || 'none');
 
-    if (gust >= 12.0) {
+    if (gust >= 12.0 || wind >= 12.0) {
       return {
         canOperate: false,
         alertLevel: 'critical',
-        reason: `순간최대풍속 ${gust} m/s (안전 임계치 12.0 m/s 초과)`,
+        reason: `순간최대풍속 ${gust} m/s · 평균풍속 ${wind} m/s (안전 임계치 12.0 m/s 이상)`,
         suggestedAction: '짚코스터 운행 즉시 일시중단(weather_pause) 및 대기열 안내',
         actionStatus: 'PAUSED_WEATHER'
       };
@@ -1953,6 +2001,20 @@
       suggestedAction: '정상 운행 유지',
       actionStatus: 'OPEN'
     };
+  }
+
+  // POS·발권 화면이 공통으로 쓰는 짚코스터 판매 잠금 판정 (단일 기준)
+  //   locked=true 인 경우: 강풍·우천·데이터 미확인(30분 경과/미수신) 모두 포함 → 실패 시 잠금(fail-closed)
+  function getCoasterWeatherLock() {
+    const weather = getLatestWeather();
+    const evaluation = evaluateCoasterWeatherIntervention(weather);
+    return { locked: !evaluation.canOperate, reason: evaluation.reason, weather: weather, evaluation: evaluation };
+  }
+
+  function isCoasterProduct(item) {
+    const id = String((item && (item.product_id || item.id)) || '');
+    const name = String((item && (item.product_name || item.name)) || '');
+    return id.includes('coaster') || name.includes('짚코스터');
   }
 
   /* ---------- 4-7. 기준정보 SSOT 조회 및 BEP 계산 (Section 7) ---------- */
@@ -3246,7 +3308,10 @@
     getWeatherTelemetry: getWeatherTelemetry,
     getLatestWeather: getLatestWeather,
     fetchLiveWeather: fetchLiveWeather,
+    startLiveWeatherPolling: startLiveWeatherPolling,
     evaluateCoasterWeatherIntervention: evaluateCoasterWeatherIntervention,
+    getCoasterWeatherLock: getCoasterWeatherLock,
+    isCoasterProduct: isCoasterProduct,
     getOrdersByDate: getOrdersByDate,
     getProduct: getProduct,
     getFacilityMaster: getFacilityMaster,

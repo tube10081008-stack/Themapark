@@ -591,6 +591,9 @@
               </button>
             </div>
 
+            <!-- 선택된 피해자 ↔ 서약서 연결 + 보호자 원터치 통화 -->
+            <div id="rep-guardian-link" class="hidden bg-rose-950/60 border border-rose-700/70 rounded-2xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2"></div>
+
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
               <div>
                 <label class="block text-slate-400 mb-1 font-bold">발생 일시</label>
@@ -950,7 +953,14 @@
         action_taken: action,
         hospital_transport: hospital,
         reported_by: '홍성현 대표 (010-5931-4144)',
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        incident_date: (dt || '').slice(0, 10) || BongplaySync.toLocalDateStr(new Date()),
+        called_119: action.includes('119'),
+        // 서약서 연계: DB 트리거(trg_incident_legal_hold)가 이 값으로 해당 서약서를 3년 보존 처리
+        consent_id: selectedConsentLink ? selectedConsentLink.consent_id : null,
+        visit_id: selectedConsentLink ? selectedConsentLink.visit_id : null,
+        target_type: selectedConsentLink ? selectedConsentLink.role : null,
+        notified_guardian: !!guardianCalledAt
       };
 
       try {
@@ -976,42 +986,69 @@
           });
         }
 
-        showToast('✅ 사고보고서 저장 및 디스코드 #비상 보고가 완료되었습니다.');
+        showToast(selectedConsentLink
+          ? `✅ 사고보고서 저장 완료 · 서약서 ${selectedConsentLink.pass_code} 3년 법적 보존 지정`
+          : '✅ 사고보고서 저장 완료 (⚠️ 서약서 미연결 — 🔍 동의서 검색으로 피해자를 연결하십시오)');
       } catch (e) {
         console.error('Failed to save incident:', e);
       }
     }
 
-    // --- 안전동의서 검색 및 피해자 선택 연동 (consents[0] 무조건 가져오기 결함 해결) ---
+    // --- 안전동의서 검색 및 피해자 선택 연동 ---
     let cachedConsents = [];
+    // 선택된 피해자-서약서 연결 정보 (사고 일지에 consent_id 로 저장 → DB 트리거가 3년 법적 보존 설정)
+    let selectedConsentLink = null;
+    let guardianCalledAt = null;
 
     function autoFillConsent() {
       openConsentSearchModal();
     }
 
-    function openConsentSearchModal() {
+    function readLocalConsents() {
+      try {
+        const raw = localStorage.getItem('bongplay_safety_consents') || localStorage.getItem('bongtteurak_consents_v1') || localStorage.getItem('bongplay_consents');
+        const list = raw ? JSON.parse(raw) : [];
+        return Array.isArray(list) ? list : [];
+      } catch (e) {
+        return [];
+      }
+    }
+
+    async function openConsentSearchModal() {
       const modal = document.getElementById('consentSearchModal');
       if (!modal) return;
       modal.classList.remove('hidden');
-
-      try {
-        if (window.BongplaySync && typeof BongplaySync.select === 'function') {
-          cachedConsents = BongplaySync.select('safety_consents') || [];
-        }
-        if (!cachedConsents || cachedConsents.length === 0) {
-          const raw = localStorage.getItem('bongplay_safety_consents') || localStorage.getItem('bongtteurak_consents_v1') || localStorage.getItem('bongplay_consents');
-          cachedConsents = raw ? JSON.parse(raw) : [];
-        }
-      } catch (e) {
-        cachedConsents = [];
-      }
 
       const input = document.getElementById('consentSearchInput');
       if (input) {
         input.value = '';
         setTimeout(() => input.focus(), 100);
       }
+
+      // 1) 로컬 캐시로 즉시 표시 (비상 상황: 네트워크를 기다리지 않음)
+      cachedConsents = readLocalConsents();
       renderConsentSearchResults('');
+
+      // 2) 서버 최신본으로 갱신. select()/rpc() 는 async 이므로 반드시 await 후 .data 를 사용
+      //    (이전 코드는 Promise 객체를 배열처럼 다뤄 .filter 에서 오류가 나 목록이 비었습니다)
+      try {
+        let fresh = null;
+        const staffCode = window.BongplayAuth ? BongplayAuth.getAccessCode() : null;
+        if (window.BongplaySync && typeof BongplaySync.rpc === 'function' && staffCode) {
+          const r = await BongplaySync.rpc('get_today_consents_secure', { p_access_code: staffCode });
+          if (r && r.ok && Array.isArray(r.data) && r.data.length > 0) fresh = r.data;
+        }
+        if (!fresh && window.BongplaySync && typeof BongplaySync.select === 'function') {
+          const r = await BongplaySync.select('safety_consents', '?select=*&order=updated_at.desc&limit=300');
+          if (r && r.ok && Array.isArray(r.data)) fresh = r.data;
+        }
+        if (fresh && fresh.length > 0) {
+          cachedConsents = fresh;
+          renderConsentSearchResults(input ? input.value : '');
+        }
+      } catch (e) {
+        console.warn('동의서 서버 조회 실패 (로컬 캐시로 계속):', e);
+      }
       if (window.lucide) lucide.createIcons();
     }
 
@@ -1064,13 +1101,14 @@
         const time = (c.timestamp_text || c.created_at || '').slice(11, 16) || '시간 미상';
         const children = Array.isArray(c.children) ? c.children : [];
 
+        const cid = escapeJs(c.id || '');
         let childrenButtons = '';
         if (children.length > 0) {
-          childrenButtons = children.map(ch => {
+          childrenButtons = children.map((ch, chIdx) => {
             const chName = typeof ch === 'string' ? ch : (ch.name || '아동');
-            const chBirth = typeof ch === 'object' && ch.birth ? ` (${ch.birth})` : '';
+            const chBirth = typeof ch === 'object' && ch.birth ? ` (${escapeHtml(ch.birth)})` : '';
             return `
-              <button type="button" onclick="selectVictimFromConsent('${escapeJs(chName)}', '아동', '${escapeJs(gName)}', '${escapeJs(gPhone)}', '${escapeJs(pass)}')"
+              <button type="button" onclick="selectVictimFromConsent('${cid}', ${chIdx})"
                 class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-rose-900/60 hover:border-rose-500 border border-slate-700 text-[11px] text-slate-200 transition text-left">
                 <span class="text-rose-400 font-bold">아동</span> ${escapeHtml(chName)}${chBirth} 선택
               </button>
@@ -1085,13 +1123,14 @@
                 <span class="font-mono font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded">${escapeHtml(pass)}</span>
                 <span class="text-slate-400 text-[11px]">${time} 접수</span>
               </div>
-              <button type="button" onclick="selectVictimFromConsent('${escapeJs(gName)}', '보호자', '${escapeJs(gName)}', '${escapeJs(gPhone)}', '${escapeJs(pass)}')"
+              <button type="button" onclick="selectVictimFromConsent('${cid}', -1)"
                 class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-rose-900/60 hover:border-rose-500 border border-slate-700 text-xs text-slate-200 font-bold transition">
                 보호자 본인 선택
               </button>
             </div>
-            <div class="text-xs text-slate-300">
-              <span class="text-slate-400 font-bold">보호자:</span> <span class="font-bold text-white">${escapeHtml(gName)}</span> (${escapeHtml(gPhone)})
+            <div class="text-xs text-slate-300 flex items-center justify-between gap-2">
+              <span><span class="text-slate-400 font-bold">보호자:</span> <span class="font-bold text-white">${escapeHtml(gName)}</span> (${escapeHtml(gPhone)})</span>
+              ${telHref(gPhone) ? `<a href="${telHref(gPhone)}" class="px-2.5 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-[11px] font-black shrink-0">📞 즉시 통화</a>` : ''}
             </div>
             ${children.length > 0 ? `
               <div class="pt-1 border-t border-slate-800/60 flex flex-wrap gap-1.5 items-center">
@@ -1104,17 +1143,80 @@
       }).join('');
     }
 
-    function selectVictimFromConsent(victimName, role, guardianName, guardianPhone, passCode) {
-      const victimInput = document.getElementById('rep-victim-name');
-      if (victimInput) {
-        if (role === '아동') {
-          victimInput.value = `${victimName} (보호자: ${guardianName}, ${guardianPhone})`;
-        } else {
-          victimInput.value = `${victimName} (${guardianPhone})`;
-        }
+    // 전화번호 → tel: 링크 (숫자 9자리 미만이면 링크 생성 안 함)
+    function telHref(phone) {
+      const digits = String(phone || '').replace(/[^0-9]/g, '');
+      return digits.length >= 9 ? `tel:${digits}` : '';
+    }
+
+    // childIndex: -1 = 보호자 본인, 0 이상 = 동반 아동 순번
+    function selectVictimFromConsent(consentId, childIndex) {
+      const c = cachedConsents.find(x => x.id === consentId);
+      if (!c) {
+        showToast('⚠️ 동의서를 다시 검색해 주십시오.');
+        return;
       }
+      const gName = c.guardianName || c.guardian_name || '성명 미상';
+      const gPhone = c.guardianPhone || c.guardian_phone || '';
+      const pass = c.passCode || c.pass_code || '';
+      const children = Array.isArray(c.children) ? c.children : [];
+      const child = childIndex >= 0 ? children[childIndex] : null;
+      const role = child ? '아동' : '보호자';
+      const victimName = child ? (typeof child === 'string' ? child : (child.name || '아동')) : gName;
+
+      selectedConsentLink = {
+        consent_id: c.id,
+        visit_id: c.visit_id || null,
+        role: role,
+        victim_name: victimName,
+        guardian_name: gName,
+        guardian_phone: gPhone,
+        pass_code: pass
+      };
+      guardianCalledAt = null;
+
+      const victimInput = document.getElementById('rep-victim-name');
+      if (victimInput) victimInput.value = victimName;
+      renderGuardianLinkPanel();
+
       closeConsentSearchModal();
-      showToast(`✅ 피해자 [${victimName}] 동의서 연동 완료 (${passCode})`);
+      showToast(`✅ 피해자 [${victimName}] 동의서 연동 완료 (${pass})`);
+    }
+
+    // 보고서 상단 보호자 원터치 호출 패널
+    function renderGuardianLinkPanel() {
+      const panel = document.getElementById('rep-guardian-link');
+      if (!panel) return;
+      if (!selectedConsentLink) {
+        panel.classList.add('hidden');
+        panel.innerHTML = '';
+        return;
+      }
+      const s = selectedConsentLink;
+      const href = telHref(s.guardian_phone);
+      panel.classList.remove('hidden');
+      panel.innerHTML = `
+        <div class="text-xs text-rose-100">
+          <div class="font-black text-white">${escapeHtml(s.role)} ${escapeHtml(s.victim_name)} · 서약서 ${escapeHtml(s.pass_code)}</div>
+          <div class="text-rose-200/80 mt-0.5">보호자 ${escapeHtml(s.guardian_name)} (${escapeHtml(s.guardian_phone || '연락처 없음')})
+            ${guardianCalledAt ? ` · <span class="text-emerald-300 font-bold">통화 시도 ${escapeHtml(guardianCalledAt.slice(11, 16))}</span>` : ''}</div>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          ${href ? `<a href="${href}" onclick="markGuardianCalled()" class="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-black shadow">📞 보호자 즉시 통화</a>` : '<span class="text-[11px] text-amber-300 font-bold">연락처 미기재 — 현장 방송으로 호출</span>'}
+          <button type="button" onclick="clearConsentLink()" class="px-2 py-2 rounded-xl bg-slate-800 text-slate-300 text-[11px] font-bold">해제</button>
+        </div>
+      `;
+    }
+
+    function markGuardianCalled() {
+      guardianCalledAt = new Date().toISOString();
+      setTimeout(renderGuardianLinkPanel, 300);
+    }
+
+    function clearConsentLink() {
+      selectedConsentLink = null;
+      guardianCalledAt = null;
+      renderGuardianLinkPanel();
     }
 
     function escapeHtml(str) {

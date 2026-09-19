@@ -417,9 +417,9 @@
             </div>
 
             <!-- Save Action Button -->
-            <button onclick="saveClosingData()" class="mt-5 w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl shadow-lg transition flex items-center justify-center space-x-2">
+            <button id="btnSaveClosing" onclick="saveClosingData()" class="mt-5 w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl shadow-lg transition flex items-center justify-center space-x-2">
               <i data-lucide="save" class="w-4 h-4"></i>
-              <span>마감 정산 및 점검 일지 저장</span>
+              <span>마감 확정 및 원장 잠금</span>
             </button>
           </div>
 
@@ -770,90 +770,112 @@
       showToast('14개 전 마감 항목이 완료 체크되었습니다.');
     }
 
-    // BP-005: 발권 원장 & POS 매출 일원화 자동 집계
+    // BP-005: POS 결제 원장(order_items) 기준 자동 집계
+    //   · 금액의 유일한 근거는 결제 원장입니다. 금액 정보가 없는 발권 원장(ticket_ledger)으로
+    //     현금을 추정하지 않습니다. (예전 코드는 티켓만 있으면 "현금 0원 연동"으로 표시해
+    //     금고 현금 전액이 과부족으로 잡혔습니다)
+    //   · 원장이 연동되면 현금 매출 칸은 읽기 전용이 됩니다. (사람이 장부 금액을 고칠 수 없음)
+    let systemLedger = { linked: false, cash: 0, card: 0, orderCount: 0, ticketRevenue: 0, fnbRevenue: 0 };
+
     function syncSystemLedger() {
       const todayStr = document.getElementById('closingDate').value || (BongplaySync ? BongplaySync.toLocalDateStr(new Date()) : new Date().toISOString().slice(0, 10));
-      let cashTotal = 0;
-      let cardTotal = 0;
-      let orderCount = 0;
-
-      // 1. Scan BongplayID Orders (SSOT 실제 주문 원장 실결제액 집계)
-      try {
-        const orders = (window.BongplayID && typeof BongplayID.getOrdersByDate === 'function') 
-          ? BongplayID.getOrdersByDate(todayStr) 
-          : [];
-        if (orders.length > 0) {
-          cashTotal = 0;
-          cardTotal = 0;
-          orderCount = orders.length;
-          orders.forEach(ord => {
-            const amt = Number(ord.final_amount || 0);
-            if (ord.payment_method === 'cash') cashTotal += amt;
-            else cardTotal += amt;
-          });
-        }
-      } catch (e) {}
-
-      // 2. Scan direct order_items (로컬 개별 품목 원장)
-      if (orderCount === 0) {
-        try {
-          const rawItems = localStorage.getItem('bongplay_order_items');
-          if (rawItems) {
-            const items = JSON.parse(rawItems);
-            const todayItems = items.filter(it => (it.purchased_at || it.created_at || '').slice(0, 10) === todayStr);
-            if (todayItems.length > 0) {
-              cashTotal = 0;
-              cardTotal = 0;
-              orderCount = todayItems.length;
-              todayItems.forEach(it => {
-                const amt = Number(it.paid_amount || 0);
-                if (it.payment_method === 'cash') cashTotal += amt;
-                else cardTotal += amt;
-              });
-            }
-          }
-        } catch (e) {}
-      }
-
-      // 3. Scan ticket_ledger (티켓 발권 원장 실결제수단 합산)
-      if (orderCount === 0) {
-        try {
-          const rawLedger = localStorage.getItem('bongplay_ticket_ledger');
-          const ledger = rawLedger ? JSON.parse(rawLedger) : [];
-          const todayTickets = ledger.filter(t => (t.issued_at || '').slice(0, 10) === todayStr);
-          if (todayTickets.length > 0) {
-            cashTotal = 0;
-            cardTotal = 0;
-            orderCount = todayTickets.length;
-            todayTickets.forEach(t => {
-              const amt = Number(t.price_paid || t.price || 0);
-              if (t.payment_method === 'cash') cashTotal += amt;
-              else cardTotal += amt;
-            });
-          }
-        } catch (e) {}
-      }
-
+      const cashInput = document.getElementById('cashSales');
       const badge = document.getElementById('systemLedgerBadge');
-      if (cashTotal > 0 || orderCount > 0) {
-        document.getElementById('cashSales').value = cashTotal;
+
+      let orders = [];
+      try {
+        orders = (window.BongplayID && typeof BongplayID.getOrdersByDate === 'function')
+          ? BongplayID.getOrdersByDate(todayStr)
+          : [];
+      } catch (e) { orders = []; }
+
+      if (orders.length > 0) {
+        let cash = 0, card = 0, fnb = 0;
+        orders.forEach(ord => {
+          const amt = Number(ord.final_amount || 0);
+          if (ord.payment_method === 'cash') cash += amt;
+          else card += amt;
+          (ord.items || []).forEach(it => {
+            if ((it.product_category || it.category) === 'fnb') fnb += Number(it.paid_amount || 0);
+          });
+        });
+        systemLedger = { linked: true, cash: cash, card: card, orderCount: orders.length, ticketRevenue: cash + card - fnb, fnbRevenue: fnb };
+
+        cashInput.value = cash;
+        cashInput.readOnly = true;
+        cashInput.title = 'POS 결제 원장에서 자동 집계된 값입니다 (수정 불가)';
         if (badge) {
-          badge.innerHTML = `✓ 발권원장 연동: 현금 ${cashTotal.toLocaleString()}원 / 카드 ${cardTotal.toLocaleString()}원 (${orderCount}건)`;
+          badge.innerHTML = `🔒 결제원장 연동: 현금 ${cash.toLocaleString()}원 / 카드 ${card.toLocaleString()}원 (${orders.length}건)`;
           badge.className = 'text-[10px] text-emerald-400 font-bold block mt-0.5';
         }
       } else {
+        systemLedger = { linked: false, cash: 0, card: 0, orderCount: 0, ticketRevenue: 0, fnbRevenue: 0 };
+        cashInput.readOnly = false;
+        cashInput.title = '';
+
+        // 발권은 있는데 결제 원장이 없으면 POS 결제 누락 가능성 경고
+        let ticketCount = 0;
+        try {
+          const ledger = JSON.parse(localStorage.getItem('bongplay_ticket_ledger') || '[]');
+          ticketCount = ledger.filter(t => BongplaySync.toLocalDateStr(t.issued_at) === todayStr).length;
+        } catch (e) {}
+
         if (badge) {
-          badge.innerHTML = `원장 미기재 (수기 입력 모드)`;
-          badge.className = 'text-[10px] text-slate-500 font-normal block mt-0.5';
+          if (ticketCount > 0) {
+            badge.innerHTML = `⚠️ 발권 ${ticketCount}건이 있으나 결제 원장이 없습니다 — POS 결제 등록 누락 확인 (수기 입력 모드)`;
+            badge.className = 'text-[10px] text-amber-400 font-bold block mt-0.5';
+          } else {
+            badge.innerHTML = `결제 원장 없음 (수기 입력 모드)`;
+            badge.className = 'text-[10px] text-slate-500 font-normal block mt-0.5';
+          }
         }
       }
       calculateCashBalance();
     }
 
+    // 마감 확정(잠금) 후에는 금액·실사 입력과 저장 버튼을 모두 비활성화
+    function applyClosingLock(isLocked, lockedAt) {
+      const ids = ['baseCash', 'cashSales', 'cashExpenses', 'count50k', 'count10k', 'count5k', 'count1k', 'countCoin', 'handoverNotes', 'closingManager'];
+      ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = !!isLocked;
+      });
+      const btn = document.getElementById('btnSaveClosing');
+      if (btn) {
+        btn.disabled = !!isLocked;
+        btn.classList.toggle('opacity-50', !!isLocked);
+        btn.classList.toggle('cursor-not-allowed', !!isLocked);
+        const label = btn.querySelector('span');
+        if (label) label.textContent = isLocked
+          ? `마감 확정됨 (${lockedAt ? BongplaySync.toLocalTimeStr(lockedAt) : '잠금'}) — 수정 불가`
+          : '마감 확정 및 원장 잠금';
+      }
+    }
+
     // Save & Load (Ledger Lock BP-005)
-    function saveClosingData() {
+    async function saveClosingData() {
       const dateVal = document.getElementById('closingDate').value;
       const notesVal = document.getElementById('handoverNotes').value.trim();
+
+      // 이미 확정된 날짜는 다시 저장하지 않음 (DB 정책도 잠긴 행의 수정을 거부)
+      try {
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+        if (saved && saved.date === dateVal && saved.is_locked) {
+          alert('🔒 이미 마감 확정된 날짜입니다. 확정 후에는 원장을 수정할 수 없습니다.\n정정이 필요하면 대표 권한으로 DB에서 처리하십시오.');
+          applyClosingLock(true, saved.locked_at);
+          return;
+        }
+      } catch (e) {}
+
+      // 저장 직전 결제 원장을 한 번 더 집계 (다른 PC에서 방금 결제된 건 반영)
+      if (window.BongplaySync && typeof BongplaySync.pullAll === 'function') {
+        try { await BongplaySync.pullAll(); } catch (e) {}
+      }
+      syncSystemLedger();
+
+      if (!confirm('마감을 확정하면 오늘 원장이 잠겨 이후 수정할 수 없습니다.\n금고 실사 입력을 모두 마쳤습니까?')) {
+        return;
+      }
 
       // Check difference
       const base = Number(document.getElementById('baseCash').value) || 0;
@@ -892,45 +914,59 @@
           diff: diff
         },
         notes: notesVal,
+        system: systemLedger,
         is_locked: true, // Ledger locked
+        locked_at: new Date().toISOString(),
         savedAt: new Date().toISOString()
       };
 
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-
       if (window.BongplaySync) {
-        BongplaySync.upsert('closing_records', {
+        // DB 컬럼명에 맞춰 전송 (FINAL_SUPABASE_SETUP.sql 1-12 (3) 참고)
+        const res = await BongplaySync.upsert('closing_records', {
           id: data.date,
           date: data.date,
           manager: data.manager,
+          settled_by: data.manager,
           staff: data.staff,
           cash: data.cash,
           actual_cash: actualCash,
+          cash_actual: actualCash,
           diff: diff,
+          diff_amount: diff,
+          system_cash: systemLedger.cash,
+          system_card: systemLedger.card,
+          card_actual: systemLedger.card,
           notes: data.notes,
-          is_locked: true
+          raw_payload: data,
+          is_locked: true,
+          locked_at: data.locked_at
         });
+        if (res && res.ok === false) {
+          // 잠긴 행 수정 시도 등 서버 거부 → 로컬도 확정 처리하지 않음
+          alert('⚠️ 서버가 마감 저장을 거부했습니다. 이미 다른 기기에서 확정되었을 수 있습니다.\n' + (res.detail || res.reason || ''));
+          if (typeof BongplaySync.pullAll === 'function') BongplaySync.pullAll();
+          return;
+        }
       }
 
-      // Discord #마감 채널 일일 결산 리포트 자동 발송
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      applyClosingLock(true, data.locked_at);
+
+      // Discord #마감 채널 일일 결산 리포트 자동 발송 (추정 비율 없이 결제 원장 실제값 사용)
       if (window.BongplayNotify && typeof BongplayNotify.sendClosingReport === 'function') {
-        let todaySales = sales;
         let todayVisitors = 0;
         try {
           const actuals = JSON.parse(localStorage.getItem('bongtteurak_actual_records_v4') || '[]');
           const rec = actuals.find(a => a.date === data.date);
-          if (rec) {
-            todaySales = Number(rec.total_sales || rec.totalSales || todaySales);
-            todayVisitors = Number(rec.visitors || todayVisitors);
-          }
+          if (rec) todayVisitors = Number(rec.visitors || rec.totalVisitors || 0);
         } catch(e) {}
 
         BongplayNotify.sendClosingReport({
           date: data.date,
-          total_revenue: todaySales,
+          total_revenue: systemLedger.linked ? systemLedger.cash + systemLedger.card : sales,
           total_visitors: todayVisitors,
-          ticket_revenue: Math.round(todaySales * 0.75),
-          fnb_revenue: Math.round(todaySales * 0.25)
+          ticket_revenue: systemLedger.linked ? systemLedger.ticketRevenue : null,
+          fnb_revenue: systemLedger.linked ? systemLedger.fnbRevenue : null
         });
       }
 
@@ -939,7 +975,10 @@
 
     function loadSavedData() {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
+      if (!raw) {
+        syncSystemLedger(); // 저장 기록이 없는 날도 원장 자동 집계
+        return;
+      }
       try {
         const data = JSON.parse(raw);
         const now = new Date();
@@ -949,6 +988,7 @@
         const todayYmd = `${yyyy}-${mm}-${dd}`;
 
         // 오늘 날짜로 이미 저장된 마감 일지가 있는 경우에만 복원
+        // (이전 코드는 이 if 블록의 닫는 괄호가 빠져 try/catch 구문이 깨져 있었습니다)
         if (data && data.date === todayYmd) {
           if (data.manager) document.getElementById('closingManager').value = data.manager;
           if (data.notes) document.getElementById('handoverNotes').value = data.notes;
@@ -963,9 +1003,10 @@
             document.getElementById('countCoin').value = data.cash.cCoin || 0;
             calculateCashBalance();
           }
-        if (!data || data.date !== todayYmd || !data.cash || !data.cash.sales) {
-          syncSystemLedger();
+          applyClosingLock(!!data.is_locked, data.locked_at);
+          if (data.is_locked) return; // 확정된 날은 저장 당시 값을 그대로 보여줌
         }
+        syncSystemLedger();
       } catch (e) {
         syncSystemLedger();
       }

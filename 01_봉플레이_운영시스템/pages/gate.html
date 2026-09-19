@@ -449,28 +449,93 @@
         } catch (e) {}
       }
 
-      // Search matching record (엄격한 검증: 빈 전화번호나 빈 문자열로 인한 오매칭 방지)
-      const target = clean.toUpperCase();
-      const cleanDigits = clean.replace(/[^0-9]/g, '');
-      const match = consents.find(c => {
-        const pass = (c.passCode || c.pass_code || '').trim().toUpperCase();
-        const phone = (c.guardianPhone || c.guardian_phone || '').replace(/[^0-9]/g, '');
-        const isPassMatch = !!pass && pass === target;
-        const isPhoneMatch = phone.length >= 4 && (
-          (cleanDigits.length >= 4 && phone.endsWith(cleanDigits)) ||
-          (cleanDigits.length >= 4 && cleanDigits.endsWith(phone.slice(-4)))
-        );
-        const isIdMatch = (!!c.id && c.id === clean) || (!!c.visit_id && c.visit_id === clean);
-        return isPassMatch || isPhoneMatch || isIdMatch;
-      });
+      const candidates = findConsentCandidates(clean);
 
-      if (!match) {
+      if (candidates.length === 0) {
         playChime('error');
         renderNotFound(clean);
         return;
       }
+      if (candidates.length > 1) {
+        // 전화번호 뒷자리가 같은 가족이 여럿이면 임의로 고르지 않고 직원이 확인하게 함
+        playChime('error');
+        renderAmbiguous(clean, candidates);
+        return;
+      }
 
-      renderScanResult(match);
+      renderScanResult(candidates[0]);
+    }
+
+    // 고객이 직접 입력한 값(성명 등)을 직원 화면 innerHTML 에 넣기 전 반드시 이스케이프 (저장형 XSS 방지)
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function parseTicketIds(c) {
+      let ids = c.ticket_ids || c.ticketIds || [];
+      if (typeof ids === 'string') {
+        try { ids = JSON.parse(ids); } catch (e) { ids = ids.split(','); }
+      }
+      return Array.isArray(ids) ? ids.map(x => String(x).trim().toUpperCase()) : [];
+    }
+
+    // 매칭 우선순위 (앞 단계에서 찾으면 뒤 단계는 보지 않음)
+    //   1) 접수번호(pass_code) 정확 일치  2) 손목 띠지 티켓번호(ticket_ids)
+    //   3) 서약서 ID / 방문 ID            4) 전화번호 — 숫자만 4자리 이상 "직접 입력"한 경우만, 당일 접수분 한정
+    // 이전 코드는 모든 조건을 OR 로 묶어 find() 로 첫 건을 골랐기 때문에, 접수번호를 스캔해도
+    // 그 번호 속 숫자가 다른 가족의 전화번호 뒷자리와 겹치면 엉뚱한 가족이 입장 처리될 수 있었습니다.
+    function findConsentCandidates(clean) {
+      const target = clean.toUpperCase();
+
+      const byPass = consents.filter(c => {
+        const pass = (c.passCode || c.pass_code || '').trim().toUpperCase();
+        return !!pass && pass === target;
+      });
+      if (byPass.length) return byPass;
+
+      const byTicket = consents.filter(c => parseTicketIds(c).includes(target));
+      if (byTicket.length) return byTicket;
+
+      const byId = consents.filter(c => (!!c.id && c.id === clean) || (!!c.visit_id && c.visit_id === clean));
+      if (byId.length) return byId;
+
+      const isDigitsOnly = /^[0-9\-\s]+$/.test(clean);
+      const digits = clean.replace(/[^0-9]/g, '');
+      if (isDigitsOnly && digits.length >= 4) {
+        const todayYmd = BongplaySync.toLocalDateStr(new Date());
+        return consents.filter(c => {
+          const ymd = (c.created_date || c.createdDate || (c.arrival_at || '').slice(0, 10));
+          const phone = (c.guardianPhone || c.guardian_phone || '').replace(/[^0-9]/g, '');
+          return ymd === todayYmd && phone.length >= 4 && phone.endsWith(digits);
+        });
+      }
+      return [];
+    }
+
+    function renderAmbiguous(code, list) {
+      const panel = document.getElementById('scanResultPanel');
+      panel.classList.remove('hidden');
+      panel.innerHTML = `
+        <div class="bg-amber-950/80 border border-amber-700 rounded-2xl p-4 space-y-3">
+          <div class="text-amber-200 font-black text-sm">⚠️ '${escapeHtml(code)}' 에 해당하는 가족이 ${list.length}팀입니다. 손님에게 성함을 확인 후 선택하십시오.</div>
+          <div class="space-y-2">
+            ${list.map(c => {
+              const pass = c.passCode || c.pass_code || '';
+              const name = c.guardianName || c.guardian_name || '미입력';
+              const kids = (c.children || []).length;
+              return `<button type="button" onclick="selectAmbiguousConsent('${escapeHtml(String(c.id).replace(/'/g, ''))}')"
+                class="w-full text-left px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-slate-200">
+                <span class="font-mono text-amber-300 font-bold">${escapeHtml(pass)}</span> · 보호자 ${escapeHtml(name)} · 아동 ${kids}명
+              </button>`;
+            }).join('')}
+          </div>
+        </div>`;
+    }
+
+    function selectAmbiguousConsent(id) {
+      const rec = consents.find(c => String(c.id).replace(/'/g, '') === id);
+      if (rec) renderScanResult(rec);
     }
 
     // 5. Render Scan Result Card
@@ -577,9 +642,9 @@
               <span class="text-xs font-extrabold px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
                 ${stage === 1 ? '1단계: 서약접수' : stage === 2 ? '2단계: 발권완료' : stage === 3 ? '3단계: 이용중' : '4단계: 퇴장완료'}
               </span>
-              <span class="text-lg font-black font-mono text-brand-400">${passCode}</span>
+              <span class="text-lg font-black font-mono text-brand-400">${escapeHtml(passCode)}</span>
             </div>
-            <h4 class="text-base font-black text-white mt-1">${guardian} 님 가족 (${totalPeople}명)</h4>
+            <h4 class="text-base font-black text-white mt-1">${escapeHtml(guardian)} 님 가족 (${totalPeople}명)</h4>
           </div>
           <button onclick="document.getElementById('scanResultPanel').classList.add('hidden')" class="p-1 text-slate-400 hover:text-white rounded-lg">
             <i data-lucide="x" class="w-5 h-5"></i>
@@ -589,15 +654,15 @@
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs bg-slate-950 p-3 rounded-2xl border border-slate-800">
           <div>
             <span class="text-slate-500 text-[10px] block">보호자 연락처</span>
-            <span class="font-mono text-slate-300">${phone}</span>
+            <span class="font-mono text-slate-300">${escapeHtml(phone)}</span>
           </div>
           <div>
             <span class="text-slate-500 text-[10px] block">거주지</span>
-            <span class="text-emerald-400 font-bold">${rec.residence || '일반'}</span>
+            <span class="text-emerald-400 font-bold">${escapeHtml(rec.residence || '일반')}</span>
           </div>
           <div>
             <span class="text-slate-500 text-[10px] block">동반 아동</span>
-            <span class="text-white font-bold">${children.map(c => c.name).join(', ') || '없음'}</span>
+            <span class="text-white font-bold">${escapeHtml(children.map(c => (typeof c === 'string' ? c : c.name)).join(', ')) || '없음'}</span>
           </div>
           <div>
             <span class="text-slate-500 text-[10px] block">티켓 발권시각</span>
@@ -618,7 +683,7 @@
         <div class="bg-rose-950/80 border border-rose-800 rounded-2xl p-4 text-center space-y-2">
           <i data-lucide="search-x" class="w-8 h-8 text-rose-400 mx-auto"></i>
           <h4 class="text-sm font-black text-white">일치하는 서약/발권 정보를 찾을 수 없습니다.</h4>
-          <p class="text-xs text-rose-300 font-mono">입력 코드: ${code}</p>
+          <p class="text-xs text-rose-300 font-mono">입력 코드: ${escapeHtml(code)}</p>
           <p class="text-[11px] text-rose-400">손님에게 매표소에서 먼저 안전서약 및 발권을 받으시도록 안내해 주십시오.</p>
         </div>
       `;

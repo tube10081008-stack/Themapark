@@ -2536,13 +2536,14 @@
       const filtered = currentPosCategory === 'all'
         ? products
         : products.filter(p => p.category === currentPosCategory);
+      // 기상 판정은 bongplay-id.js 단일 기준 사용 (데이터 미확인·30분 경과 시에도 잠금)
+      const coasterLock = BongplayID.getCoasterWeatherLock();
+      const lockLabel = coasterLock.evaluation.actionStatus === 'PAUSED_MANUAL_CHECK' ? '기상 미확인 잠금' : '기상 잠금';
 
       container.innerHTML = filtered.map(prod => {
         const qty = posCart[prod.id] || 0;
-        const isCoaster = (prod.id || '').includes('coaster') || (prod.name || '').includes('짚코스터');
-        const latestWtr = (window.BongplayID && typeof BongplayID.getLatestWeather === 'function') ? BongplayID.getLatestWeather() : null;
-        const isHighWind = latestWtr && ((latestWtr.wind_gust >= 12.0) || (latestWtr.wind_speed >= 12.0));
-        const isCoasterLocked = isCoaster && isHighWind;
+        const isCoaster = BongplayID.isCoasterProduct(prod);
+        const isCoasterLocked = isCoaster && coasterLock.locked;
 
         return `
           <div class="bg-slate-950/70 p-3 rounded-2xl border ${isCoasterLocked ? 'border-rose-700/80 bg-rose-950/30' : 'border-slate-800'} flex items-center justify-between transition hover:border-slate-700">
@@ -2550,14 +2551,14 @@
               <div class="font-extrabold text-xs sm:text-sm text-white flex items-center gap-1.5 flex-wrap">
                 <span>${escapeHtml(prod.name)}</span>
                 <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono font-normal uppercase">${prod.category}</span>
-                ${isCoasterLocked ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-rose-900 text-rose-200 font-bold border border-rose-700 animate-pulse">강풍잠금(12m/s)</span>' : ''}
+                ${isCoasterLocked ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-rose-900 text-rose-200 font-bold border border-rose-700 animate-pulse" title="${escapeHtml(coasterLock.reason)}">${lockLabel}</span>` : ''}
               </div>
               <div class="text-xs font-mono font-bold text-amber-400 mt-0.5">${prod.price.toLocaleString()}원</div>
             </div>
             <div class="flex items-center gap-1.5">
               <button type="button" onclick="adjustPosItem('${prod.id}', -1)" class="touch-btn w-8 h-8 rounded-lg bg-slate-800 text-slate-300 font-bold text-sm flex items-center justify-center hover:bg-slate-700">-</button>
               <span class="w-9 text-center font-mono font-bold text-sm ${qty > 0 ? 'text-amber-300 font-black' : 'text-slate-500'}">${qty}</span>
-              <button type="button" onclick="adjustPosItem('${prod.id}', 1)" ${isCoasterLocked ? 'disabled title="강풍으로 짚코스터 발권이 중단되었습니다"' : ''} class="touch-btn w-8 h-8 rounded-lg ${isCoasterLocked ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-amber-600 hover:bg-amber-500 text-white'} font-bold text-sm flex items-center justify-center">+</button>
+              <button type="button" onclick="adjustPosItem('${prod.id}', 1)" ${isCoasterLocked ? `disabled title="${escapeHtml(coasterLock.reason)}"` : ''} class="touch-btn w-8 h-8 rounded-lg ${isCoasterLocked ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-amber-600 hover:bg-amber-500 text-white'} font-bold text-sm flex items-center justify-center">+</button>
             </div>
           </div>
         `;
@@ -2567,12 +2568,11 @@
     function adjustPosItem(productId, delta) {
       const products = (window.BongplayID && BongplayID.PRODUCTS) ? BongplayID.PRODUCTS : [];
       const prod = products.find(p => p.id === productId);
-      const isCoaster = prod && ((prod.id || '').includes('coaster') || (prod.name || '').includes('짚코스터'));
-      const latestWtr = (window.BongplayID && typeof BongplayID.getLatestWeather === 'function') ? BongplayID.getLatestWeather() : null;
-      const isHighWind = latestWtr && ((latestWtr.wind_gust >= 12.0) || (latestWtr.wind_speed >= 12.0));
+      const isCoaster = prod && BongplayID.isCoasterProduct(prod);
+      const coasterLock = BongplayID.getCoasterWeatherLock();
 
-      if (delta > 0 && isCoaster && isHighWind) {
-        alert('⚠️ [기상안전 인터록] 현재 순간풍속 12.0m/s 이상 강풍으로 인해 실버 짚코스터 탑승권은 선택할 수 없습니다.');
+      if (delta > 0 && isCoaster && coasterLock.locked) {
+        alert(`⚠️ [기상안전 인터록] 실버 짚코스터 탑승권을 선택할 수 없습니다.\n사유: ${coasterLock.reason}`);
         return;
       }
 
@@ -2652,12 +2652,11 @@
         return;
       }
 
-      // BP-003 Interlock 2: Wind Speed Check for Coaster
-      const latestWtr = (window.BongplayID && typeof BongplayID.getLatestWeather === 'function') ? BongplayID.getLatestWeather() : null;
-      const isHighWind = latestWtr && ((latestWtr.wind_gust >= 12.0) || (latestWtr.wind_speed >= 12.0));
-      const hasCoaster = items.some(it => (it.product_id || '').includes('coaster') || (it.product_name || '').includes('짚코스터'));
-      if (isHighWind && hasCoaster) {
-        alert('⚠️ [기상안전 인터록 작동]\n현재 순간풍속 12.0m/s 이상 강풍으로 인해 실버 짚코스터 탑승권 발권이 중단되었습니다.\n장바구니에서 짚코스터를 제외하거나 네트어드벤처/트램펄린으로 대체해 주십시오.');
+      // BP-003 Interlock 2: 짚코스터 기상 인터록 (결제 직전 재판정 — 장바구니에 담은 뒤 기상이 바뀐 경우 차단)
+      const coasterLock = BongplayID.getCoasterWeatherLock();
+      const hasCoaster = items.some(it => BongplayID.isCoasterProduct(it));
+      if (coasterLock.locked && hasCoaster) {
+        alert(`⚠️ [기상안전 인터록 작동]\n실버 짚코스터 탑승권 발권이 중단되었습니다.\n사유: ${coasterLock.reason}\n장바구니에서 짚코스터를 제외하거나 네트어드벤처/트램펄린으로 대체해 주십시오.`);
         return;
       }
 
@@ -3084,13 +3083,18 @@
       const elRain = document.getElementById('wtrCardRain');
       const hdrSummary = document.getElementById('hdrWeatherSummary');
 
-      if (elTemp) elTemp.innerText = `${latest.temperature}℃ / ${latest.indoor_temperature || 22.8}℃`;
-      if (elHum) elHum.innerText = `${latest.humidity}% / ${latest.indoor_humidity || 48}%`;
-      if (elWind) elWind.innerText = `${latest.wind_speed} / ${latest.wind_gust} m/s`;
-      if (hdrSummary) hdrSummary.innerText = `${latest.temperature}℃ · 돌풍 ${latest.wind_gust}m/s`;
+      const isUnknown = evalResult.actionStatus === 'PAUSED_MANUAL_CHECK';
+      const fmt = (v) => (v === null || v === undefined || v === '') ? '—' : v;
+      if (elTemp) elTemp.innerText = `${fmt(latest.temperature)}℃ / ${latest.indoor_temperature || 22.8}℃`;
+      if (elHum) elHum.innerText = `${fmt(latest.humidity)}% / ${latest.indoor_humidity || 48}%`;
+      if (elWind) elWind.innerText = `${fmt(latest.wind_speed)} / ${fmt(latest.wind_gust)} m/s`;
+      if (hdrSummary) hdrSummary.innerText = isUnknown ? '기상 미확인 (짚코스터 잠금)' : `${fmt(latest.temperature)}℃ · 돌풍 ${fmt(latest.wind_gust)}m/s`;
 
       if (elWindStatus) {
-        if (latest.wind_gust >= 12.0) {
+        if (isUnknown) {
+          elWindStatus.innerText = '미확인 (수신 대기·수동 입력 필요)';
+          elWindStatus.className = 'text-[9px] text-amber-400 font-bold';
+        } else if (latest.wind_gust >= 12.0 || latest.wind_speed >= 12.0) {
           elWindStatus.innerText = '위험 (≥12.0m/s 중단)';
           elWindStatus.className = 'text-[9px] text-rose-400 font-bold';
         } else if (latest.wind_gust >= 8.5) {
@@ -3103,8 +3107,8 @@
       }
 
       if (elRain) {
-        const warnText = latest.weather_warning !== 'none' ? '특보발효' : '정상';
-        elRain.innerText = `${latest.rainfall} mm / ${warnText}`;
+        const warnText = isUnknown ? '미확인' : (latest.weather_warning !== 'none' ? '특보발효' : '정상');
+        elRain.innerText = `${fmt(latest.rainfall)} mm / ${warnText}`;
       }
 
       // Update Evaluation Box
@@ -3131,7 +3135,7 @@
           box.className = 'p-3.5 rounded-2xl border flex items-center justify-between gap-3 bg-amber-950/50 border-amber-500/60';
           if (icon) icon.innerText = '⚠️';
           title.className = 'text-xs font-black text-amber-300';
-          title.innerText = '돌풍 주의 (운영 감속 및 안전 주시)';
+          title.innerText = isUnknown ? '기상 데이터 미확인 — 짚코스터 발권 잠금' : '돌풍 주의 (운영 감속 및 안전 주시)';
           desc.className = 'text-[11px] text-amber-200/90 mt-0.5';
           desc.innerText = `${evalResult.reason} — ${evalResult.suggestedAction}`;
           if (btnAction) {
@@ -3175,12 +3179,12 @@
               ${list.map(r => `
                 <tr class="border-b border-slate-800/40 text-slate-300">
                   <td class="py-1 text-slate-400">${new Date(r.observed_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</td>
-                  <td>${r.temperature}℃</td>
-                  <td>${r.humidity}%</td>
-                  <td>${r.wind_speed}m/s</td>
-                  <td class="font-bold ${r.wind_gust >= 12.0 ? 'text-rose-400' : (r.wind_gust >= 8.5 ? 'text-amber-400' : 'text-emerald-400')}">${r.wind_gust}m/s</td>
-                  <td>${r.rainfall}mm</td>
-                  <td><span class="px-1.5 py-0.2 rounded text-[9px] font-bold ${r.wind_gust >= 12.0 ? 'bg-rose-950 text-rose-300 border border-rose-800' : 'bg-slate-800 text-slate-300'}">${r.wind_gust >= 12.0 ? '중단' : '정상'}</span></td>
+                  <td>${fmt(r.temperature)}℃</td>
+                  <td>${fmt(r.humidity)}%</td>
+                  <td>${fmt(r.wind_speed)}m/s</td>
+                  <td class="font-bold ${r.wind_gust == null ? 'text-amber-400' : (r.wind_gust >= 12.0 ? 'text-rose-400' : (r.wind_gust >= 8.5 ? 'text-amber-400' : 'text-emerald-400'))}">${fmt(r.wind_gust)}m/s</td>
+                  <td>${fmt(r.rainfall)}mm</td>
+                  <td><span class="px-1.5 py-0.2 rounded text-[9px] font-bold ${(r.wind_gust == null || r.wind_gust >= 12.0) ? 'bg-rose-950 text-rose-300 border border-rose-800' : 'bg-slate-800 text-slate-300'}">${r.wind_gust == null ? '미확인' : (r.wind_gust >= 12.0 ? '중단' : '정상')}</span> <span class="text-[9px] text-slate-500">${r.source === 'manual_anemometer' ? '수동' : (String(r.source || '').indexOf('open_meteo') === 0 ? 'API' : '')}</span></td>
                 </tr>
               `).join('')}
             </tbody>
@@ -3205,8 +3209,13 @@
         banner.classList.remove('hidden');
       } else if (evalResult.alertLevel === 'warning') {
         banner.className = 'bg-amber-950/90 border border-amber-500/80 rounded-2xl p-3 flex flex-col sm:flex-row items-center justify-between gap-2 shadow-lg flex-none transition-all';
-        if (title) title.innerText = '⚠️ 돌풍 주의보 감지 (안전 주시)';
-        if (desc) desc.innerText = `${evalResult.reason} — 안전요원 추가 배치 요망`;
+        if (evalResult.actionStatus === 'PAUSED_MANUAL_CHECK') {
+          if (title) title.innerText = '⚠️ 기상 데이터 미확인 — 짚코스터 발권 잠금';
+          if (desc) desc.innerText = `${evalResult.reason} — ${evalResult.suggestedAction}`;
+        } else {
+          if (title) title.innerText = '⚠️ 돌풍 주의보 감지 (안전 주시)';
+          if (desc) desc.innerText = `${evalResult.reason} — 안전요원 추가 배치 요망`;
+        }
         banner.classList.remove('hidden');
       } else {
         banner.classList.add('hidden');
@@ -3253,27 +3262,39 @@
     function submitWeatherTelemetryForm(e) {
       if (e) e.preventDefault();
       if (!window.BongplayID) return;
-      const temp = parseFloat(document.getElementById('inputWtrTemp').value) || 21.5;
-      const hum = parseInt(document.getElementById('inputWtrHum').value, 10) || 55;
-      const wind = parseFloat(document.getElementById('inputWtrWindSpeed').value) || 3.2;
-      const gust = parseFloat(document.getElementById('inputWtrWindGust').value) || 4.8;
-      const rain = parseFloat(document.getElementById('inputWtrRain').value) || 0.0;
+      // 빈칸을 기본값으로 채우지 않습니다. (예전 코드는 풍속 빈칸·0 입력을 3.2m/s 로 바꿔 기록)
+      const readNum = (id) => {
+        const raw = (document.getElementById(id).value || '').trim();
+        return raw === '' || !isFinite(Number(raw)) ? null : Number(raw);
+      };
+      const temp = readNum('inputWtrTemp');
+      const hum = readNum('inputWtrHum');
+      const wind = readNum('inputWtrWindSpeed');
+      const gust = readNum('inputWtrWindGust');
+      const rain = readNum('inputWtrRain');
       const dir = document.getElementById('inputWtrDir').value || 'NW';
       const warn = document.getElementById('inputWtrWarning').value || 'none';
 
+      if (wind === null || gust === null || wind < 0 || gust < 0) {
+        alert('현장 풍속계의 평균풍속과 순간최대풍속(돌풍)을 모두 입력해 주십시오.\n풍속 값이 없으면 짚코스터 발권은 잠긴 상태로 유지됩니다.');
+        return;
+      }
+
       BongplayID.recordWeatherTelemetry({
+        source: 'manual_anemometer',
         observed_at: new Date().toISOString(),
-        temperature: temp,
-        humidity: hum,
+        temperature: temp === null ? undefined : temp,
+        humidity: hum === null ? undefined : hum,
         wind_speed: wind,
         wind_gust: gust,
-        rainfall: rain,
+        rainfall: rain === null ? 0 : rain,
         wind_direction: dir,
         weather_warning: warn
       });
 
       renderWeatherTelemetry();
-      alert(`🌤️ [기상 텔레메트리 저장] 10분 마이크로 관측값(돌풍 ${gust}m/s)이 정상 기록되었습니다.`);
+      renderPosProducts();
+      alert(`🌤️ [현장 풍속계 수동 입력 저장] 돌풍 ${gust}m/s 기록 완료.\n수동 입력값은 30분간 유효하며, 이후 새 관측값이 없으면 짚코스터 발권이 다시 잠깁니다.`);
     }
 
     function simulateGustSpike(gustValue) {
@@ -3543,6 +3564,15 @@
       });
 
       checkSafetyInterlock();
+
+      // 실기상 10분 주기 갱신 → 기상 카드·POS 짚코스터 잠금에 즉시 반영
+      // (데이터가 30분 이상 끊기면 getCoasterWeatherLock() 이 자동으로 잠금)
+      if (window.BongplayID && typeof BongplayID.startLiveWeatherPolling === 'function') {
+        BongplayID.startLiveWeatherPolling(() => {
+          renderWeatherTelemetry();
+          renderPosProducts();
+        });
+      }
     });
 
     let isSafetyInspectionPassed = false;
