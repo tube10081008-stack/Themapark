@@ -353,8 +353,95 @@
         </button>
         <button id="modalBtnIssue" onclick="issueTicketFromModal()" class="px-5 py-2 bg-brand-600 hover:bg-brand-500 text-white font-black text-xs rounded-xl shadow flex items-center gap-1.5">
           <i data-lucide="ticket" class="w-3.5 h-3.5"></i>
-          <span>즉시 발권 처리</span>
+          <span>발권 &amp; 결제</span>
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- 간이 매표·결제 모달 (BP-008) — 서약 → 권종 → 결제 → 발권 원스톱      -->
+  <!-- ================================================================= -->
+  <div id="payModal" class="hidden fixed inset-0 z-[60] bg-black/85 backdrop-blur-sm flex items-start sm:items-center justify-center p-2 sm:p-4 overflow-y-auto">
+    <div class="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-2xl shadow-2xl my-auto">
+
+      <!-- 헤더 -->
+      <div class="flex items-center justify-between px-5 py-3.5 border-b border-slate-800">
+        <div>
+          <h3 class="text-base font-black text-white flex items-center gap-2">
+            <span>💳 매표 결제 &amp; 발권</span>
+            <span id="payPassCode" class="font-mono text-xs px-2 py-0.5 rounded bg-brand-950 text-brand-300 border border-brand-800"></span>
+          </h3>
+          <p id="payGuardianInfo" class="text-[11px] text-slate-400 mt-0.5"></p>
+        </div>
+        <button onclick="closePaymentModal()" class="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800">✕</button>
+      </div>
+
+      <div class="p-4 sm:p-5 space-y-3">
+        <!-- 짚코스터 기상 잠금 경고 -->
+        <div id="payCoasterWarn" class="hidden bg-rose-950/70 border border-rose-700 rounded-2xl px-3 py-2 text-[11px] text-rose-200 font-bold"></div>
+
+        <!-- 권종 -->
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-[11px] font-black text-slate-300">이용권 (서약 인원 기준 자동 추천)</span>
+            <span class="text-[10px] text-slate-500">36개월 미만 무료 자동 적용</span>
+          </div>
+          <!-- 아동 권종 일괄 변경 (12시 이전엔 조조권이 자동 선택됨) -->
+          <div class="flex items-center gap-1.5 mb-2">
+            <span class="text-[10px] text-slate-500 shrink-0">아동 권종 일괄</span>
+            <div id="payChildPreset" class="flex items-center gap-1.5 flex-wrap"></div>
+          </div>
+          <div id="payTicketRows" class="space-y-1.5"></div>
+        </div>
+
+        <!-- 추가 품목 -->
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-[11px] font-black text-slate-300">추가 품목</span>
+            <select id="payAddonCategory" onchange="renderPaymentModal()" class="bg-slate-950 border border-slate-700 rounded-lg text-[11px] text-slate-300 px-2 py-1 outline-none">
+              <option value="addon_attraction">체험 / 짚코스터</option>
+              <option value="fnb">F&amp;B / 카페</option>
+              <option value="merchandise">굿즈 / 용품</option>
+            </select>
+          </div>
+          <div id="payAddonRows" class="space-y-1.5 max-h-40 overflow-y-auto pr-1"></div>
+        </div>
+
+        <!-- 할인 & 합계 -->
+        <div class="bg-slate-950 rounded-2xl border border-slate-800 p-3 space-y-2">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-[11px] font-bold text-slate-300">할인 적용</span>
+            <select id="payDiscountRule" onchange="renderPaymentModal()" class="bg-slate-900 border border-slate-700 rounded-lg text-[11px] text-white px-2 py-1 outline-none font-bold"></select>
+          </div>
+          <div class="flex items-center justify-between text-xs text-slate-400">
+            <span>정가 합계</span><span id="paySubtotal" class="font-mono">0 원</span>
+          </div>
+          <div class="flex items-center justify-between text-xs text-amber-400">
+            <span id="payDiscountLabel">할인</span><span id="payDiscount" class="font-mono">0 원</span>
+          </div>
+          <div class="flex items-center justify-between pt-2 border-t border-slate-800">
+            <span class="text-sm font-black text-white">결제 금액</span>
+            <span id="payTotal" class="text-2xl font-black font-mono text-emerald-400">0 원</span>
+          </div>
+        </div>
+
+        <!-- 승인번호 -->
+        <div class="flex items-center gap-2">
+          <label class="text-[11px] font-bold text-slate-400 shrink-0">단말기 승인번호</label>
+          <input id="payApprovalNo" type="text" inputmode="numeric" placeholder="토스 단말기 영수증의 승인번호 (카드 결제 시 권장)"
+            class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs font-mono outline-none">
+        </div>
+
+        <!-- 결제수단 -->
+        <div>
+          <p class="text-[11px] text-slate-400 mb-1.5">실물 단말기에서 승인을 마친 뒤, 결제수단을 누르면 발권과 원장 기록이 동시에 완료됩니다.</p>
+          <div class="grid grid-cols-3 gap-2">
+            <button type="button" onclick="confirmPayment('card')" class="py-3.5 rounded-2xl bg-sky-600 hover:bg-sky-500 text-white font-black text-sm shadow">💳 신용/체크카드</button>
+            <button type="button" onclick="confirmPayment('local_pay')" class="py-3.5 rounded-2xl bg-violet-600 hover:bg-violet-500 text-white font-black text-sm shadow">🎫 봉화사랑상품권</button>
+            <button type="button" onclick="confirmPayment('cash')" class="py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-sm shadow">💵 현금</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -635,49 +722,243 @@
       lucide.createIcons();
     }
 
-    // 7. Toggle Issue Ticket (BP-003 & BP-004)
-    async function toggleTicketIssue(id, issueTarget) {
-      if (issueTarget && !isSafetyInspectionPassed) {
-        alert('🚨 금일 개장 전 안전점검이 완료되지 않았습니다!\n안전점검 일지에서 [적합(PASS)] 판정을 완료해야 발권이 가능합니다.');
-        return;
-      }
+    // 7. 발권 처리 (BP-008: 결제 모달 경유) / 발권 취소
+    //    [발권]은 더 이상 상태값만 바꾸지 않습니다. 권종·금액·결제수단을 받아
+    //    order_items(결제원장) + ticket_ledger(발권원장)를 동시에 남깁니다.
+    function toggleTicketIssue(id, issueTarget) {
+      if (issueTarget) return openPaymentModal(id);
+      return cancelTicketIssue(id);
+    }
 
+    async function cancelTicketIssue(id) {
       const item = consents.find(c => c.id === id);
       if (!item) return;
+      if (!confirm('발권을 취소하시겠습니까?\n(이미 기록된 결제 원장은 남습니다. 환불은 단말기에서 별도로 처리하십시오.)')) return;
 
-      const now = new Date().toISOString();
-      item.isIssued = issueTarget;
-      item.is_issued = issueTarget;
-      if (issueTarget) {
-        item.ticket_issued_at = item.ticket_issued_at || now;
-        item.visit_id = item.visit_id || BongplayID.generateVisitId();
-        item.household_id = item.household_id || BongplayID.generateHouseholdId(item.guardianPhone || item.guardian_phone);
-
-        // Generate tickets in ticket_ledger
-        const totalCount = ((item.children && item.children.length) || 0) + 1;
-        item.ticket_ids = item.ticket_ids || [];
-        for (let i = 1; i <= totalCount; i++) {
-          const tId = BongplayID.generateTicketId(item.visit_id, i);
-          if (!item.ticket_ids.includes(tId)) item.ticket_ids.push(tId);
-          
-          const tRow = {
-            ticket_id: tId,
-            site_id: 'bongplay_bonghwa',
-            visit_id: item.visit_id,
-            household_id: item.household_id,
-            ticket_type: i === 1 ? 'adult' : 'child',
-            issued_at: now,
-            status: 'active'
-          };
-          BongplaySync.upsert('ticket_ledger', tRow);
-        }
-      }
-
-      // Upsert safety_consents
+      item.isIssued = false;
+      item.is_issued = false;
       await BongplaySync.upsert('safety_consents', item);
       updateSummaryStats();
       renderAdminList();
       if (selectedConsentId === id) closeDetailModal();
+    }
+
+    /* ================= 간이 매표·결제 모달 (BP-008) ================= */
+    let payCtx = null;   // { consentId, cart: {product_id: qty}, residence }
+
+    function openPaymentModal(consentId) {
+      if (!isSafetyInspectionPassed) {
+        alert('🚨 금일 개장 전 안전점검이 완료되지 않았습니다!\n안전점검 일지에서 [적합(PASS)] 판정을 완료해야 발권이 가능합니다.');
+        return;
+      }
+      const rec = consents.find(c => c.id === consentId);
+      if (!rec) return;
+
+      const reco = BongplayID.recommendCartForConsent(rec, {});   // 12시 이전이면 조조권 프리셋
+      const cart = {};
+      reco.cart.forEach(l => { cart[l.product_id] = (cart[l.product_id] || 0) + l.quantity; });
+
+      payCtx = { consentId: consentId, cart: cart, residence: reco.residence, morningPreset: reco.isMorningPreset };
+
+      document.getElementById('payPassCode').textContent = rec.passCode || rec.pass_code || ('BP-' + String(rec.id).slice(0, 6));
+      const resident = BongplayID.isResidentDiscount(reco.residence);
+      document.getElementById('payGuardianInfo').textContent =
+        `${rec.guardianName || rec.guardian_name || '보호자'} · 아동 ${reco.paidChildren + reco.infants}명(무료 ${reco.infants}) · ${resident ? '봉화군민 ✅' : (reco.residence || '관외')}`
+        + (reco.isMorningPreset ? ' · ⏰ 조조권 자동 적용 (12시 이전)' : '');
+      document.getElementById('payApprovalNo').value = '';
+      document.getElementById('payModal').classList.remove('hidden');
+      renderPaymentModal();
+    }
+
+    function closePaymentModal() {
+      document.getElementById('payModal').classList.add('hidden');
+      payCtx = null;
+    }
+
+    function adjustPayItem(productId, delta) {
+      if (!payCtx) return;
+      const next = Math.max(0, (payCtx.cart[productId] || 0) + delta);
+      if (next === 0) delete payCtx.cart[productId];
+      else payCtx.cart[productId] = next;
+      renderPaymentModal();
+    }
+
+    function payCartArray() {
+      return Object.keys(payCtx.cart).map(pid => ({ product_id: pid, quantity: payCtx.cart[pid] }));
+    }
+
+    // 아동 권종 일괄 변경: 종합권/조조권/기본권 사이를 클릭 한 번에 전환 (수량은 그대로 이동)
+    function swapChildTicket(productId) {
+      if (!payCtx) return;
+      const ids = BongplayID.CHILD_TICKET_IDS;
+      const total = ids.reduce((s, id) => s + (payCtx.cart[id] || 0), 0);
+      ids.forEach(id => { delete payCtx.cart[id]; });
+      if (total > 0) payCtx.cart[productId] = total;
+      renderPaymentModal();
+    }
+
+    function renderChildPresetButtons(lock) {
+      const wrap = document.getElementById('payChildPreset');
+      if (!wrap) return;
+      const active = BongplayID.CHILD_TICKET_IDS.find(id => (payCtx.cart[id] || 0) > 0);
+      wrap.innerHTML = BongplayID.CHILD_TICKET_IDS.map(id => {
+        const p = BongplayID.PRODUCTS[id];
+        const isActive = id === active;
+        const locked = lock.locked && BongplayID.isCoasterProduct(p);
+        return `<button type="button" onclick="swapChildTicket('${id}')" ${locked ? 'disabled' : ''}
+          class="px-2.5 py-1 rounded-lg text-[11px] font-bold border ${isActive ? 'bg-brand-600 border-brand-500 text-white' : (locked ? 'bg-slate-900 border-slate-800 text-slate-600 cursor-not-allowed' : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white')}">
+          ${p.short || p.name} ${p.list_price.toLocaleString()}원${locked ? ' (잠금)' : ''}</button>`;
+      }).join('');
+    }
+
+    function payRow(prod, qty, locked) {
+      const price = prod.list_price === 0 ? '무료' : prod.list_price.toLocaleString() + '원';
+      return `
+        <div class="flex items-center justify-between gap-2 bg-slate-950/70 border ${qty > 0 ? 'border-brand-800/70' : 'border-slate-800'} rounded-xl px-3 py-2">
+          <div class="min-w-0">
+            <div class="text-xs font-bold text-white truncate">${escapeHtml(prod.name)}
+              ${locked ? '<span class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-rose-900 text-rose-200 border border-rose-700">기상 잠금</span>' : ''}
+            </div>
+            <div class="text-[11px] font-mono text-amber-400">${price}</div>
+          </div>
+          <div class="flex items-center gap-1.5 shrink-0">
+            <button type="button" onclick="adjustPayItem('${prod.id}', -1)" class="w-9 h-9 rounded-lg bg-slate-800 text-white font-bold">-</button>
+            <span class="w-8 text-center font-mono font-black text-sm ${qty > 0 ? 'text-emerald-400' : 'text-slate-600'}">${qty}</span>
+            <button type="button" onclick="adjustPayItem('${prod.id}', 1)" ${locked ? 'disabled' : ''} class="w-9 h-9 rounded-lg ${locked ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-brand-600 hover:bg-brand-500 text-white'} font-bold">+</button>
+          </div>
+        </div>`;
+    }
+
+    function renderPaymentModal() {
+      if (!payCtx) return;
+      const lock = BongplayID.getCoasterWeatherLock();
+
+      // 기상 경고
+      const warn = document.getElementById('payCoasterWarn');
+      if (lock.locked) {
+        warn.textContent = `🚨 짚코스터 포함 상품 판매 중지 — ${lock.reason}`;
+        warn.classList.remove('hidden');
+      } else {
+        warn.classList.add('hidden');
+      }
+
+      const isLockedProduct = (p) => lock.locked && BongplayID.isCoasterProduct(p);
+
+      // 아동 권종 전환 버튼 + 이용권 행
+      renderChildPresetButtons(lock);
+      document.getElementById('payTicketRows').innerHTML = BongplayID.getProductsList({ category: 'ticket' })
+        .map(p => payRow(p, payCtx.cart[p.id] || 0, isLockedProduct(p))).join('');
+
+      // 추가 품목 행
+      const cat = document.getElementById('payAddonCategory').value;
+      document.getElementById('payAddonRows').innerHTML = BongplayID.getProductsList({ category: cat })
+        .map(p => payRow(p, payCtx.cart[p.id] || 0, isLockedProduct(p))).join('');
+
+      // 할인 선택지
+      const pricingAuto = BongplayID.computeCartPricing(payCartArray(), { residence: payCtx.residence });
+      const sel = document.getElementById('payDiscountRule');
+      const prev = payCtx.forceRuleId || '';
+      const opts = [`<option value="">자동 (${pricingAuto.summary.rule_label})</option>`]
+        .concat(BongplayID.DISCOUNT_RULES.map(r => `<option value="${r.id}">${r.label} 강제 적용</option>`))
+        .concat([`<option value="none">할인 없음</option>`]);
+      sel.innerHTML = opts.join('');
+      sel.value = prev;
+      payCtx.forceRuleId = sel.value || null;
+
+      const pricing = BongplayID.computeCartPricing(payCartArray(), {
+        residence: payCtx.residence,
+        forceRuleId: payCtx.forceRuleId
+      });
+      payCtx.pricing = pricing;
+
+      document.getElementById('paySubtotal').textContent = pricing.summary.subtotal.toLocaleString() + ' 원';
+      document.getElementById('payDiscount').textContent = '-' + pricing.summary.discount.toLocaleString() + ' 원';
+      document.getElementById('payDiscountLabel').textContent = pricing.summary.rule_label;
+      document.getElementById('payTotal').textContent = pricing.summary.total.toLocaleString() + ' 원';
+    }
+
+    async function confirmPayment(method) {
+      if (!payCtx || !payCtx.pricing) return;
+      const rec = consents.find(c => c.id === payCtx.consentId);
+      if (!rec) return;
+
+      const pricing = payCtx.pricing;
+      if (pricing.items.length === 0) {
+        alert('판매할 품목을 선택해 주십시오.');
+        return;
+      }
+
+      // 기상 인터록 재확인 (담은 뒤 기상이 바뀐 경우 차단)
+      const lock = BongplayID.getCoasterWeatherLock();
+      const hasCoaster = pricing.items.some(it => BongplayID.isCoasterProduct(it));
+      if (lock.locked && hasCoaster) {
+        alert(`⚠️ [기상안전 인터록]\n짚코스터가 포함된 권종은 발권할 수 없습니다.\n사유: ${lock.reason}\n\n기본이용권(실내+네트)으로 변경해 주십시오.`);
+        return;
+      }
+
+      const approvalNo = document.getElementById('payApprovalNo').value.trim();
+      if (method === 'card' && !approvalNo) {
+        if (!confirm('단말기 승인번호가 비어 있습니다.\n승인번호가 없으면 마감 때 카드 매출 대사가 어렵습니다. 그래도 진행하시겠습니까?')) return;
+      }
+
+      const methodLabel = { card: '신용/체크카드', cash: '현금', local_pay: '봉화사랑상품권(지류)' }[method] || method;
+      if (!confirm(`${methodLabel} ${pricing.summary.total.toLocaleString()}원으로 결제 완료 처리합니다.\n(실물 단말기 승인이 끝났는지 확인하십시오)`)) return;
+
+      const now = new Date().toISOString();
+      rec.visit_id = rec.visit_id || BongplayID.generateVisitId();
+      rec.household_id = rec.household_id || BongplayID.generateHouseholdId(rec.guardianPhone || rec.guardian_phone);
+
+      // 1) 결제 원장 (order_items)
+      const order = BongplayID.createOrder({
+        visit_id: rec.visit_id,
+        sales_channel: 'desk_ticketing',
+        payment_method: method,
+        approval_no: approvalNo || null,
+        consent_id: rec.id,
+        staff_id: 'desk_staff',
+        items: pricing.items
+      });
+
+      // 2) 발권 원장 (ticket_ledger) — 입장권 계열 1매씩, 단가 포함
+      const ticketIds = Array.isArray(rec.ticket_ids) ? rec.ticket_ids.slice() : [];
+      let seq = ticketIds.length;
+      pricing.items.filter(it => it.product_category === 'ticket').forEach(it => {
+        const unitPaid = Math.round(it.paid_amount / it.quantity);
+        for (let i = 0; i < it.quantity; i++) {
+          seq++;
+          const tId = BongplayID.generateTicketId(rec.visit_id, seq);
+          ticketIds.push(tId);
+          BongplaySync.upsert('ticket_ledger', {
+            ticket_id: tId,
+            site_id: 'bongplay_bonghwa',
+            visit_id: rec.visit_id,
+            household_id: rec.household_id,
+            consent_id: rec.id,
+            order_id: order.order_id,
+            product_id: it.product_id,
+            product_name: it.product_name,
+            ticket_type: it.product_id === 'tkt_guardian' ? 'adult' : (it.product_id === 'tkt_infant_free' ? 'infant' : 'child'),
+            price_paid: unitPaid,
+            payment_method: method,
+            issued_at: now,
+            status: 'active'
+          });
+        }
+      });
+
+      // 3) 서약서 상태 갱신
+      rec.isIssued = true;
+      rec.is_issued = true;
+      rec.ticket_issued_at = rec.ticket_issued_at || now;
+      rec.ticket_ids = ticketIds;
+      await BongplaySync.upsert('safety_consents', rec);
+
+      closePaymentModal();
+      closeDetailModal();
+      updateSummaryStats();
+      renderAdminList();
+
+      alert(`✅ 발권 완료\n\n· 결제: ${methodLabel} ${pricing.summary.total.toLocaleString()}원${approvalNo ? ' (승인 ' + approvalNo + ')' : ''}\n· 발권: ${ticketIds.length}매 (손목 띠지 출력 후 게이트 안내)\n· 원장: 결제·발권·실적·마감에 자동 반영되었습니다.`);
     }
 
     // 8. Detail Modal

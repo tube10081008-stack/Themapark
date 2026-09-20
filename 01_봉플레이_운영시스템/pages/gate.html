@@ -216,8 +216,10 @@
       <div id="cameraPreviewContainer" class="hidden relative bg-black rounded-2xl overflow-hidden aspect-video max-w-sm mx-auto border border-slate-700">
         <video id="cameraVideo" class="w-full h-full object-cover" autoplay playsinline></video>
         <div class="absolute inset-0 border-2 border-dashed border-brand-400/60 pointer-events-none m-8 rounded-xl flex items-center justify-center">
-          <span class="text-[10px] bg-black/60 px-2 py-1 rounded text-white">QR 코드를 사각형 안에 맞추십시오</span>
+          <span class="text-[10px] bg-black/60 px-2 py-1 rounded text-white">고객 스마트폰의 서약 바우처 QR을 사각형 안에 맞추십시오</span>
         </div>
+        <!-- jsQR 폴백 판독용 (화면에는 보이지 않음) -->
+        <canvas id="scanCanvas" class="hidden"></canvas>
       </div>
     </div>
 
@@ -749,28 +751,103 @@
       `).join('');
     }
 
-    // 7. Optional Camera Scanner
+    // 7. 카메라 QR 스캐너 (손목 띠지 프린터 미도입 → 고객 스마트폰 바우처 QR 직접 판독)
+    //    · 1순위: 브라우저 내장 BarcodeDetector (안드로이드 Chrome 등)
+    //    · 2순위: jsQR 라이브러리 (미지원 브라우저 폴백)
+    //    이전 코드는 영상만 띄우고 판독기가 없어 카메라 스캔이 동작하지 않았습니다.
+    let scanLoopId = null;
+    let lastDecoded = { code: '', at: 0 };
+    let barcodeDetector = null;
+    let jsQrLoading = null;
+
+    function loadJsQr() {
+      if (window.jsQR) return Promise.resolve(true);
+      if (jsQrLoading) return jsQrLoading;
+      jsQrLoading = new Promise((resolve) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
+        s.onload = () => resolve(true);
+        s.onerror = () => resolve(false);
+        document.head.appendChild(s);
+      });
+      return jsQrLoading;
+    }
+
+    function handleDecoded(raw) {
+      const now = Date.now();
+      // 같은 코드가 카메라에 계속 잡히므로 3초 내 중복은 무시
+      if (raw === lastDecoded.code && now - lastDecoded.at < 3000) return;
+      lastDecoded = { code: raw, at: now };
+      processScanCode(raw);   // 입장/퇴장 판정 후 해당 효과음이 재생됩니다
+    }
+
+    async function scanFrame() {
+      const video = document.getElementById('cameraVideo');
+      if (!cameraStream || !video || video.readyState !== video.HAVE_ENOUGH_DATA) {
+        scanLoopId = requestAnimationFrame(scanFrame);
+        return;
+      }
+      try {
+        if (barcodeDetector) {
+          const codes = await barcodeDetector.detect(video);
+          if (codes && codes.length > 0 && codes[0].rawValue) handleDecoded(codes[0].rawValue.trim());
+        } else if (window.jsQR) {
+          const canvas = document.getElementById('scanCanvas');
+          const w = video.videoWidth, h = video.videoHeight;
+          if (w && h) {
+            canvas.width = w; canvas.height = h;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            ctx.drawImage(video, 0, 0, w, h);
+            const img = ctx.getImageData(0, 0, w, h);
+            const result = jsQR(img.data, w, h, { inversionAttempts: 'dontInvert' });
+            if (result && result.data) handleDecoded(result.data.trim());
+          }
+        }
+      } catch (e) { /* 프레임 단위 오류는 무시하고 계속 스캔 */ }
+      scanLoopId = requestAnimationFrame(scanFrame);
+    }
+
     async function toggleCameraScanner() {
       const container = document.getElementById('cameraPreviewContainer');
       const video = document.getElementById('cameraVideo');
       const btnText = document.getElementById('cameraBtnText');
 
       if (cameraStream) {
+        if (scanLoopId) cancelAnimationFrame(scanLoopId);
+        scanLoopId = null;
         cameraStream.getTracks().forEach(t => t.stop());
         cameraStream = null;
         container.classList.add('hidden');
         btnText.textContent = '내장 카메라 스캔';
-      } else {
-        try {
-          cameraStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'environment' }
-          });
-          video.srcObject = cameraStream;
-          container.classList.remove('hidden');
-          btnText.textContent = '카메라 끄기';
-        } catch (e) {
-          alert('카메라에 접근할 수 없습니다: ' + e.message);
+        return;
+      }
+
+      try {
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' }
+        });
+        video.srcObject = cameraStream;
+        container.classList.remove('hidden');
+        btnText.textContent = '카메라 끄기';
+
+        // 판독기 준비
+        barcodeDetector = null;
+        if ('BarcodeDetector' in window) {
+          try {
+            const formats = await window.BarcodeDetector.getSupportedFormats();
+            const want = ['qr_code', 'code_128', 'code_39', 'ean_13'].filter(f => formats.includes(f));
+            if (want.length) barcodeDetector = new window.BarcodeDetector({ formats: want });
+          } catch (e) { barcodeDetector = null; }
         }
+        if (!barcodeDetector) {
+          const loaded = await loadJsQr();
+          if (!loaded) {
+            alert('QR 판독기를 불러오지 못했습니다(오프라인).\nUSB 스캐너 또는 접수번호 직접 입력을 사용해 주십시오.');
+          }
+        }
+        scanFrame();
+      } catch (e) {
+        alert('카메라에 접근할 수 없습니다: ' + e.message);
       }
     }
 

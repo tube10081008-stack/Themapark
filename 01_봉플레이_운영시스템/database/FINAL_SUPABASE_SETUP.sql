@@ -418,7 +418,19 @@ alter table public.order_items add column if not exists coupon_id        text;
 alter table public.order_items add column if not exists staff_id         text;
 alter table public.order_items add column if not exists device_id        text;
 alter table public.order_items add column if not exists device_label     text;
+alter table public.order_items add column if not exists approval_no      text;   -- 외부 결제단말기(토스 등) 승인번호
+alter table public.order_items add column if not exists discount_rule    text;   -- resident / group20 / null
+alter table public.order_items add column if not exists consent_id       text;   -- 매표 데스크 발권 시 연계 서약서
 create index if not exists idx_order_items_purchased on public.order_items (purchased_at desc);
+
+-- (1-2) ticket_ledger: 발권 사실만 남고 금액·결제수단이 없어 마감 대사가 불가능했음
+alter table public.ticket_ledger add column if not exists order_id       text;
+alter table public.ticket_ledger add column if not exists product_id     text;
+alter table public.ticket_ledger add column if not exists product_name   text;
+alter table public.ticket_ledger add column if not exists price_paid     bigint default 0;
+alter table public.ticket_ledger add column if not exists payment_method text;
+alter table public.ticket_ledger add column if not exists consent_id     text;
+create index if not exists idx_ticket_ledger_order on public.ticket_ledger (order_id);
 
 -- (2) incident_logs: 비상 키오스크 사고 보고 (emergency.html) + 디스코드 트리거 참조 컬럼
 alter table public.incident_logs add column if not exists incident_date      date default current_date;
@@ -446,6 +458,11 @@ alter table public.closing_records add column if not exists actual_cash  bigint 
 alter table public.closing_records add column if not exists diff         bigint default 0;
 alter table public.closing_records add column if not exists system_cash  bigint default 0;
 alter table public.closing_records add column if not exists system_card  bigint default 0;
+-- 지류 봉화사랑상품권(local_pay): 실물이 금고에 보관되므로 현금과 별도로 실사·대조
+alter table public.closing_records add column if not exists voucher      jsonb;
+alter table public.closing_records add column if not exists system_voucher bigint default 0;
+alter table public.closing_records add column if not exists voucher_actual bigint default 0;
+alter table public.closing_records add column if not exists voucher_diff   bigint default 0;
 alter table public.closing_records add column if not exists raw_payload  jsonb;
 alter table public.closing_records add column if not exists is_locked    boolean not null default false;
 alter table public.closing_records add column if not exists locked_at    timestamptz;

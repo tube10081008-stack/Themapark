@@ -149,25 +149,64 @@
   };
 
   /* ---------- 3-1. 표준 상품 및 서비스 카탈로그 (P0-1 Item-level Master) ---------- */
-  const PRODUCTS = {
-    // 1. 이용권 (Tickets)
-    tkt_child_allday:   { id: 'tkt_child_allday',   name: '종합이용권 (어린이)', category: 'ticket', list_price: 21000 },
-    tkt_adult_guardian: { id: 'tkt_adult_guardian', name: '보호자 입장권 (성인)', category: 'ticket', list_price: 5000 },
-    tkt_group_package:  { id: 'tkt_group_package',  name: '단체 패키지 이용권',   category: 'ticket', list_price: 15000 },
-    // 2. 식음료 (F&B)
-    fnb_apple_juice:    { id: 'fnb_apple_juice',    name: '봉화 사과 착즙주스',   category: 'fnb',    list_price: 4000 },
-    fnb_americano:      { id: 'fnb_americano',      name: '아메리카노 (핫/아이스)',category: 'fnb',    list_price: 3500 },
-    fnb_cafe_latte:     { id: 'fnb_cafe_latte',     name: '카페 라떼',            category: 'fnb',    list_price: 4000 },
-    fnb_kids_cookie:    { id: 'fnb_kids_cookie',    name: '유기농 동물쿠키',       category: 'fnb',    list_price: 2500 },
-    fnb_mineral_water:  { id: 'fnb_mineral_water',  name: '생수 (500ml)',         category: 'fnb',    list_price: 1000 },
-    // 3. 부가 체험 (Add-ons)
-    addon_coaster_single:{ id: 'addon_coaster_single',name: '짚코스터 추가 1회권',category: 'addon_attraction', list_price: 5000 },
-    addon_net_challenge: { id: 'addon_net_challenge', name: '네트 어드벤처 추가권',category: 'addon_attraction', list_price: 5000 },
-    addon_sled_slope:    { id: 'addon_sled_slope',    name: '사계절 썰매 5회권',    category: 'addon_attraction', list_price: 3000 },
+  /* 판매 상품 카탈로그 (SSOT) — 2026 공식 요금표
+     ------------------------------------------------------------
+     매표 데스크 결제 모달, 운영 POS, 마감 정산이 모두 이 한 벌만 사용합니다.
+     (이전에는 POS용 PRODUCTS / MASTER_PRODUCTS / 내부 목록이 각각 다른 가격을 갖고 있었음)
+
+     · 동절기 실내전용 요금제(어린이 12,000원 등)는 2026 개장 시즌에는 운영하지 않습니다.
+       (2026-09-20 대표 결정: 11월 개장을 할인 요금으로 시작하지 않음)
+     · 야외 시설(짚코스터·네트)의 기상·결빙 중단은 요금제가 아니라
+       안전 인터록(getCoasterWeatherLock)이 판단합니다.
+     · 할인은 정률 규칙으로만 표현하고 중복 적용하지 않습니다. (아래 DISCOUNT_RULES)
+  */
+  const PRODUCT_CATALOG = [
+    // 1. 이용권 (입장권 계열 — 할인 대상)
+    { id: 'tkt_allday',        name: '종합이용권 (기본+짚코스터 1회)', short: '종합권',   category: 'ticket', list_price: 21000, customer: 'child',  discountable: true,  headcount: 1, coaster: true, sort: 10 },
+    { id: 'tkt_basic',         name: '기본이용권 (실내+네트챌린지 2시간)', short: '기본권', category: 'ticket', list_price: 15000, customer: 'child',  discountable: true,  headcount: 1, sort: 20 },
+    { id: 'tkt_morning',       name: '조조 오전권 (종합, 12시 이전 입장)', short: '조조권', category: 'ticket', list_price: 18000, customer: 'child',  discountable: true,  headcount: 1, coaster: true, time_window: 'morning', sort: 30 },
+    { id: 'tkt_guardian',      name: '보호자 입장권 (카페 음료 포함)',  short: '보호자',   category: 'ticket', list_price: 5000,  customer: 'adult',  discountable: true,  headcount: 1, sort: 40 },
+    { id: 'tkt_infant_free',   name: '영유아 무료 (36개월 미만)',      short: '영유아',   category: 'ticket', list_price: 0,     customer: 'infant', discountable: false, headcount: 1, sort: 50 },
+    { id: 'tkt_teacher_free',  name: '단체 인솔교사 무료',             short: '인솔교사', category: 'ticket', list_price: 0,     customer: 'adult',  discountable: false, headcount: 1, sort: 60 },
+    // 2. 놀이시설 단품 / 추가권 (정액 — 할인 비대상)
+    { id: 'ride_coaster_single', name: '짚코스터 1회 탑승권 (단품)',   short: '짚1회',   category: 'addon_attraction', list_price: 7000, discountable: false, coaster: true, sort: 70 },
+    { id: 'addon_coaster_extra', name: '짚코스터 추가 탑승권',         short: '짚추가',   category: 'addon_attraction', list_price: 5000, discountable: false, coaster: true, sort: 80 },
+    { id: 'addon_net_challenge', name: '네트 어드벤처 추가권',                            category: 'addon_attraction', list_price: 5000, discountable: false, sort: 90 },
+    { id: 'addon_sled_slope',    name: '사계절 썰매 5회권',                               category: 'addon_attraction', list_price: 3000, discountable: false, sort: 100 },
+    // 3. 식음료 (F&B)
+    { id: 'fnb_apple_juice',   name: '봉화 사과 착즙주스',    category: 'fnb', list_price: 4000, discountable: false, sort: 110 },
+    { id: 'fnb_americano',     name: '아메리카노 (핫/아이스)', category: 'fnb', list_price: 3500, discountable: false, sort: 120 },
+    { id: 'fnb_cafe_latte',    name: '카페 라떼',             category: 'fnb', list_price: 4000, discountable: false, sort: 130 },
+    { id: 'fnb_kids_cookie',   name: '유기농 동물쿠키',        category: 'fnb', list_price: 2500, discountable: false, sort: 140 },
+    { id: 'fnb_mineral_water', name: '생수 (500ml)',          category: 'fnb', list_price: 1000, discountable: false, sort: 150 },
     // 4. 안전/굿즈 (Merchandise)
-    md_safety_socks:    { id: 'md_safety_socks',    name: '트램펄린 논슬립 양말', category: 'merchandise', list_price: 2500 },
-    md_forest_cape:     { id: 'md_forest_cape',     name: '봉플레이 방수 케이프',  category: 'merchandise', list_price: 12000 }
-  };
+    { id: 'md_safety_socks',   name: '트램펄린 논슬립 양말',   category: 'merchandise', list_price: 2500, discountable: false, sort: 160 },
+    { id: 'md_forest_cape',    name: '봉플레이 방수 케이프',   category: 'merchandise', list_price: 12000, discountable: false, sort: 170 }
+  ];
+
+  // POS 탭 정의 (탭 키 = 상품 category 값과 반드시 일치시킬 것)
+  const POS_CATEGORIES = [
+    { key: 'all',              label: '전체 품목' },
+    { key: 'ticket',           label: '🎫 이용권' },
+    { key: 'addon_attraction', label: '🎢 체험 / 짚코스터' },
+    { key: 'fnb',              label: '☕ F&B / 카페' },
+    { key: 'merchandise',      label: '🧦 굿즈 / 용품' }
+  ];
+
+  // 할인 규칙: 중복 적용하지 않고 가장 유리한 1건만 적용 (입장권 계열에만)
+  const DISCOUNT_RULES = [
+    { id: 'group20',  label: '20인 이상 단체 20% 할인', rate: 0.20 },
+    { id: 'resident', label: '봉화 관내 주민 20% 감면', rate: 0.20 }
+  ];
+  const GROUP_MIN_HEADCOUNT = 20;
+
+  // 하위 호환: 기존 코드가 PRODUCTS[product_id] 로 조회 (createOrder 등)
+  const PRODUCTS = {};
+  PRODUCT_CATALOG.forEach(function (p) {
+    p.price = p.list_price;          // 화면에서 prod.price 를 쓰는 곳 호환
+    p.category_label = (POS_CATEGORIES.find(function (c) { return c.key === p.category; }) || {}).label || p.category;
+    PRODUCTS[p.id] = p;
+  });
 
   /* ---------- 3-2. 기준정보 마스터 사전 (Section 7: Single Source of Truth, v2026.v1) ---------- */
   const MASTER_PRODUCTS = {
@@ -691,6 +730,9 @@
         discount_amount: discount,
         paid_amount: paid,
         payment_method: paymentMethod,
+        approval_no: orderParams.approval_no || null,   // 외부 결제단말기(토스 등) 승인번호 — 마감 카드 대사용
+        discount_rule: item.discount_rule || null,
+        consent_id: orderParams.consent_id || null,
         coupon_id: couponId,
         staff_id: staffId,
         created_at: now.toISOString()
@@ -2011,9 +2053,161 @@
     return { locked: !evaluation.canOperate, reason: evaluation.reason, weather: weather, evaluation: evaluation };
   }
 
+  /* ---------- 4-2-2. 매표 요금 산출 엔진 (BP-008) ----------
+     한 곳에서만 금액을 계산합니다: 매표 데스크 결제 모달 · 운영 POS · 마감 집계 공통.
+     · 할인은 입장권 계열(discountable:true)에만, 중복 없이 가장 유리한 1건만 적용
+     · 계산 결과는 그대로 order_items(결제 원장)에 저장되는 형태로 반환
+  */
+  function getProductsList(opts) {
+    opts = opts || {};
+    let list = PRODUCT_CATALOG.slice();
+    if (opts.category && opts.category !== 'all') {
+      list = list.filter(function (p) { return p.category === opts.category; });
+    }
+    if (opts.excludeFree) {
+      list = list.filter(function (p) { return Number(p.list_price) > 0; });
+    }
+    return list.sort(function (a, b) { return (a.sort || 999) - (b.sort || 999); });
+  }
+
+  function getPosCategories() {
+    return POS_CATEGORIES.slice();
+  }
+
+  // 아동 나이(개월) 추정: birth('2023-05-01' 또는 '2023') 또는 age(년) 입력 모두 허용
+  function monthsOldFromChild(child) {
+    if (!child || typeof child === 'string') return null;
+    if (child.birth) {
+      const b = new Date(String(child.birth).length === 4 ? child.birth + '-01-01' : child.birth);
+      if (!isNaN(b.getTime())) {
+        const now = new Date();
+        return (now.getFullYear() - b.getFullYear()) * 12 + (now.getMonth() - b.getMonth());
+      }
+    }
+    if (child.age !== undefined && child.age !== null && child.age !== '') {
+      const a = Number(child.age);
+      if (isFinite(a)) return Math.round(a * 12);
+    }
+    return null;
+  }
+
+  function isInfant(child) {
+    const m = monthsOldFromChild(child);
+    return m !== null && m < 36;   // 36개월 미만 무료
+  }
+
+  function isResidentDiscount(residence) {
+    const r = String(residence || '');
+    return r.indexOf('군민') !== -1 || r.indexOf('관내') !== -1;
+  }
+
+  // cart: [{ product_id, quantity }], ctx: { residence, groupSize, forceRuleId }
+  function computeCartPricing(cart, ctx) {
+    ctx = ctx || {};
+    const lines = (cart || [])
+      .map(function (c) {
+        const prod = PRODUCTS[c.product_id];
+        const qty = Math.max(0, Number(c.quantity) || 0);
+        if (!prod || qty === 0) return null;
+        return { prod: prod, quantity: qty };
+      })
+      .filter(Boolean);
+
+    // 인원수 = 입장권 계열 수량 합계 (무료 대상 포함)
+    const headcount = lines.reduce(function (sum, l) {
+      return sum + (l.prod.category === 'ticket' ? l.quantity * (l.prod.headcount || 1) : 0);
+    }, 0);
+
+    // 적용 가능한 할인 판정
+    const candidates = [];
+    if ((Number(ctx.groupSize) || headcount) >= GROUP_MIN_HEADCOUNT) {
+      candidates.push(DISCOUNT_RULES.find(function (r) { return r.id === 'group20'; }));
+    }
+    if (isResidentDiscount(ctx.residence)) {
+      candidates.push(DISCOUNT_RULES.find(function (r) { return r.id === 'resident'; }));
+    }
+    let rule = null;
+    if (ctx.forceRuleId === 'none') {
+      rule = null;
+    } else if (ctx.forceRuleId) {
+      rule = DISCOUNT_RULES.find(function (r) { return r.id === ctx.forceRuleId; }) || null;
+    } else {
+      // 중복 적용 금지: 가장 할인율이 큰 1건만
+      rule = candidates.sort(function (a, b) { return b.rate - a.rate; })[0] || null;
+    }
+
+    const items = lines.map(function (l) {
+      const listTotal = l.prod.list_price * l.quantity;
+      const applies = !!rule && l.prod.discountable === true && listTotal > 0;
+      const discount = applies ? Math.round(listTotal * rule.rate) : 0;
+      return {
+        product_id: l.prod.id,
+        product_name: l.prod.name,
+        product_category: l.prod.category,
+        quantity: l.quantity,
+        list_price: l.prod.list_price,
+        discount_amount: discount,
+        paid_amount: listTotal - discount,
+        discount_rule: applies ? rule.id : null
+      };
+    });
+
+    const subtotal = items.reduce(function (s, i) { return s + i.list_price * i.quantity; }, 0);
+    const discountTotal = items.reduce(function (s, i) { return s + i.discount_amount; }, 0);
+
+    return {
+      items: items,
+      summary: {
+        headcount: headcount,
+        subtotal: subtotal,
+        discount: discountTotal,
+        total: subtotal - discountTotal,
+        rule_id: rule ? rule.id : null,
+        rule_label: rule ? rule.label : '할인 없음',
+        available_rules: candidates.filter(Boolean).map(function (r) { return r.id; })
+      }
+    };
+  }
+
+  // 아동 기본 권종: 12시 이전 입장은 조조권(18,000) 자동 추천, 이후는 종합권(21,000)
+  const CHILD_TICKET_IDS = ['tkt_allday', 'tkt_morning', 'tkt_basic'];
+  function defaultChildTicketId(at) {
+    const d = at ? new Date(at) : new Date();
+    return d.getHours() < 12 ? 'tkt_morning' : 'tkt_allday';
+  }
+
+  // 서약서 1건 → 기본 권종 자동 추천 (36개월 미만 무료, 보호자 1명)
+  function recommendCartForConsent(consent, opts) {
+    opts = opts || {};
+    const children = (consent && Array.isArray(consent.children)) ? consent.children : [];
+    let paidChildren = 0;
+    let infants = 0;
+    children.forEach(function (ch) { if (isInfant(ch)) infants++; else paidChildren++; });
+
+    const childProductId = opts.childProductId || defaultChildTicketId(opts.at);
+    const cart = [];
+    if (paidChildren > 0) cart.push({ product_id: childProductId, quantity: paidChildren });
+    if (infants > 0) cart.push({ product_id: 'tkt_infant_free', quantity: infants });
+    cart.push({ product_id: 'tkt_guardian', quantity: Number(opts.guardianCount) || 1 });
+
+    return {
+      cart: cart,
+      residence: (consent && (consent.residence || consent.residence_region)) || '',
+      paidChildren: paidChildren,
+      infants: infants,
+      childProductId: childProductId,
+      isMorningPreset: childProductId === 'tkt_morning'
+    };
+  }
+
+  // 짚코스터 탑승이 포함된 상품인지 (종합권·조조권도 짚코스터 1회 포함 → 강풍 시 함께 판매 중지)
   function isCoasterProduct(item) {
-    const id = String((item && (item.product_id || item.id)) || '');
-    const name = String((item && (item.product_name || item.name)) || '');
+    if (!item) return false;
+    const id = String(item.product_id || item.id || '');
+    const known = PRODUCTS[id];
+    if (known && known.coaster === true) return true;
+    if (item.coaster === true) return true;
+    const name = String(item.product_name || item.name || '');
     return id.includes('coaster') || name.includes('짚코스터');
   }
 
@@ -3312,6 +3506,18 @@
     evaluateCoasterWeatherIntervention: evaluateCoasterWeatherIntervention,
     getCoasterWeatherLock: getCoasterWeatherLock,
     isCoasterProduct: isCoasterProduct,
+    // 매표 요금 산출 (BP-008)
+    PRODUCT_CATALOG: PRODUCT_CATALOG,
+    POS_CATEGORIES: POS_CATEGORIES,
+    DISCOUNT_RULES: DISCOUNT_RULES,
+    getProductsList: getProductsList,
+    getPosCategories: getPosCategories,
+    computeCartPricing: computeCartPricing,
+    recommendCartForConsent: recommendCartForConsent,
+    defaultChildTicketId: defaultChildTicketId,
+    CHILD_TICKET_IDS: CHILD_TICKET_IDS,
+    isInfant: isInfant,
+    isResidentDiscount: isResidentDiscount,
     getOrdersByDate: getOrdersByDate,
     getProduct: getProduct,
     getFacilityMaster: getFacilityMaster,
