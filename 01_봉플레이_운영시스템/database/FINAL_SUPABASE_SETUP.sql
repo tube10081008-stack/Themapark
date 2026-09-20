@@ -1,7 +1,7 @@
 -- ============================================================
 -- 🌟 봉플레이 운영시스템 — 최종 통합 마스터 DB 설정 스크립트 (FINAL_SUPABASE_SETUP.sql)
 -- ------------------------------------------------------------
--- 버전: v2026.FINAL-r2 (2026-09-18 워크플로우 정합성 수정)
+-- 버전: v2026.FINAL-r3 (2026-09-20 발권·결제 안전 인터록 DB 트리거 강제)
 -- 포함 내용:
 --   1. 전체 29개 테이블 스키마 및 최신 컬럼 정의 (IF NOT EXISTS)
 --   1-12. 프런트 기록 필드 ↔ DB 컬럼 정합성 보강 (결제수단·사고연계·마감잠금 등)
@@ -11,6 +11,7 @@
 --   5-2. 서버 검증형 운영자 인증 (bcrypt, 대입 공격 잠금) · 90일 개인정보 마스킹 · 사고 연계 3년 보존
 --   5-4. 마감 확정 후 원장 수정 차단
 --   5-7. pg_cron 새벽 3시 자동 마스킹
+--   5-8. [P0] 발권·결제 안전 인터록 DB 트리거 강제 (클라이언트 우회 차단)
 -- ------------------------------------------------------------
 -- 실행 방법:
 --   1. https://supabase.com 접속 ➔ 봉플레이 프로젝트 선택
@@ -901,6 +902,56 @@ begin
 end $cron_setup$;
 
 -- ────────────────────────────────────────────────────────────
+-- 5-8. [P0] 발권·결제 안전 인터록 서버 강제 (2026-09-20)
+-- ────────────────────────────────────────────────────────────
+-- 문제: "금일 안전점검 PASS 전에는 결제·발권 불가" 규칙(operations.html /
+--       consent-desk.html)은 지금까지 클라이언트 검사였다. anon 키를 아는
+--       누구나 브라우저 밖에서 REST POST/PATCH를 직접 호출하면 이 규칙을
+--       우회해 ticket_ledger / order_items 에 임의 기록을 넣을 수 있었다.
+--       (5-5의 anon 정책이 insert/update를 using(true)/with check(true)로 허용)
+-- 조치: 클라이언트와 동일한 조건(금일 점검 decision='pass')을 DB 트리거로 강제.
+--       · 대상: ticket_ledger(발권), order_items(POS 결제 원장)의 INSERT·UPDATE
+--       · 판정 기준일은 클라이언트(toLocalDateStr)와 동일한 KST 당일
+--       · sales_records는 과거 분 수기 정산 입력이 있으므로 대상에서 제외
+--       · DELETE는 전면 회수(5장 revoke)되어 있으므로 대상에서 제외
+--       · 기록 시점 기준: 어제 발권분을 오늘 재전송(오프라인 Outbox)하는 경우에도
+--         "지금" PASS 상태여야 통과한다. 거부된 건은 클라이언트 Outbox에 남아
+--         점검 완료 후 자동 재시도된다(bongplay-sync.js 업스터트 재시도).
+create or replace function private.trg_safety_interlock()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not exists (
+    select 1
+      from public.safety_audits
+     where audit_date = (now() at time zone 'Asia/Seoul')::date
+       and decision = 'pass'
+     limit 1
+  ) then
+    raise exception 'SAFETY_INTERLOCK_BLOCKED: 금일 안전점검 PASS 승인 전에는 발권·결제 원장(ticket_ledger/order_items)을 변경할 수 없습니다. safety-check.html에서 점검을 완료한 뒤 다시 시도하세요.'
+      using errcode = 'P0001';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_safety_interlock on public.ticket_ledger;
+create trigger trg_safety_interlock
+  before insert or update on public.ticket_ledger
+  for each row execute function private.trg_safety_interlock();
+
+drop trigger if exists trg_safety_interlock on public.order_items;
+create trigger trg_safety_interlock
+  before insert or update on public.order_items
+  for each row execute function private.trg_safety_interlock();
+
+-- 트리거 함수는 PUBLIC 기본 EXECUTE 권한을 가져서는 안 된다.
+revoke all on function private.trg_safety_interlock() from public, anon, authenticated;
+
+-- ────────────────────────────────────────────────────────────
 -- 6. 보안 검증 자가 진단 쿼리 (Supabase SQL Editor에서 실행하여 확인)
 -- ────────────────────────────────────────────────────────────
 
@@ -922,3 +973,13 @@ from pg_tables t
 where schemaname = 'public' and tablename in ('safety_consents', 'safety_audits', 'sales_records', 'closing_records', 'ticket_ledger')
 order by tablename;
 
+-- 3) 발권·결제 안전 인터록 트리거가 두 테이블에 모두 등록됐는지 확인 (반드시 2건)
+select
+  '안전 인터록 트리거 수' as check_item,
+  count(*) as count,
+  case when count(*) = 2 then 'PASS (ticket_ledger/order_items 서버 강제 작동)'
+       else 'FAIL (5-8절 트리거 미등록 — 이 파일을 다시 실행하세요)' end as status
+from pg_trigger
+where tgname = 'trg_safety_interlock'
+  and tgrelid in ('public.ticket_ledger'::regclass, 'public.order_items'::regclass)
+  and not tgisinternal;

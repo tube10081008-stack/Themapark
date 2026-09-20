@@ -545,7 +545,9 @@
           } catch (patchErr) {}
         }
 
-        if (res.status >= 500) {
+        // 400 이어도 "금일 안전점검 PASS 전" 서버 트리거 거부(SAFETY_INTERLOCK_BLOCKED)는
+        // 당일 점검 완료 후 반드시 기록되어야 하는 임시 상태이므로 5xx와 같이 Outbox로 재시도한다.
+        if (res.status >= 500 || /SAFETY_INTERLOCK_BLOCKED/.test(errBody || '')) {
           await enqueueOutbox({
             id: payload[pkField],
             table: table,
