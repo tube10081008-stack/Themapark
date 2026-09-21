@@ -17,6 +17,7 @@
   <!-- Lucide Icons -->
   <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../assets/bongplay-site.js"></script>
   <script src="../assets/config.js"></script>
   <script src="../assets/bongplay-sync.js"></script>
   <script src="../assets/bongplay-id.js"></script>
@@ -3398,12 +3399,19 @@
     function autoTriggerWeatherPause() {
       if (!window.BongplayID) return;
       const latest = BongplayID.getLatestWeather();
-      BongplayID.changeFacilityOperatingStatus('silver_coaster', 'PAUSED_WEATHER', `순간최대풍속 ${latest.wind_gust} m/s 초과 안전중단`, '김주성');
+      // 조치자는 기준정보(bongplay-site.js)의 안전관리 담당자
+      const officer = window.BongplaySite
+        ? (BongplaySite.data.staff.find(s => s.is_safety_officer) || BongplaySite.defaultInspector())
+        : null;
+      const officerName = officer ? officer.name : '안전관리책임자';
+      const officerLabel = officer ? `${officer.name} ${officer.title || ''}`.trim() : '안전관리책임자';
+
+      BongplayID.changeFacilityOperatingStatus('silver_coaster', 'PAUSED_WEATHER', `순간최대풍속 ${latest.wind_gust} m/s 초과 안전중단`, officerName);
       BongplayID.recordOperatorAction({
         action_type: 'weather_pause',
         target_facility: 'silver_coaster',
         parameter_change: `순간풍속 ${latest.wind_gust}m/s 감지 즉시 중단`,
-        operator_name: '김주성 매니저',
+        operator_name: officerLabel,
         reason: '강풍 안전 기준치 초과'
       });
 
@@ -3417,7 +3425,7 @@
           fields: [
             { name: '대상 시설', value: '실버 짚코스터', inline: true },
             { name: '실측 돌풍', value: `${latest.wind_gust} m/s (기준 12.0m/s 초과)`, inline: true },
-            { name: '조치자', value: '김주성 매니저', inline: true }
+            { name: '조치자', value: officerLabel, inline: true }
           ]
         });
       }

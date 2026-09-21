@@ -140,13 +140,30 @@
     ]
   };
 
-  const STAFF = {
-    stf_jiyeon:  { id: 'stf_jiyeon',  name: '김지연 매니저', role: '매표 및 고객 안내' },
-    stf_jusung:  { id: 'stf_jusung',  name: '김주성 매니저', role: '안전 총괄 및 설비 점검' },
-    stf_park:    { id: 'stf_park',    name: '박기원 안전요원', role: '짚코스터/야외 어드벤처' },
-    stf_eunjung: { id: 'stf_eunjung', name: '조은정 주무관', role: '문화관광과 시설 행정' },
-    stf_barista: { id: 'stf_barista', name: '카페 바리스타', role: '식음료 제조 및 F&B 운영' }
-  };
+  /* 직원 사전: 기준정보(bongplay-site.js)의 인력 명단에서 생성합니다.
+     기준정보가 없으면(단독 로드) 최소한의 익명 항목만 둡니다. */
+  const STAFF = (function () {
+    const map = {};
+    const list = (global.BongplaySite && global.BongplaySite.staff) ? global.BongplaySite.staff() : [];
+    list.forEach(function (s) {
+      map[s.id] = { id: s.id, name: (s.name + ' ' + (s.title || '')).trim(), role: s.role || '' };
+    });
+    // 외부 협력 주체 (직원 명단과 별개)
+    const county = (global.BongplaySite && global.BongplaySite.partner) ? global.BongplaySite.partner('county') : null;
+    if (county) {
+      map.stf_county = { id: 'stf_county', name: county.contact || county.name, role: county.name };
+    }
+    map.stf_barista = { id: 'stf_barista', name: '카페 바리스타', role: '식음료 제조 및 F&B 운영' };
+    map.staff_etc = { id: 'staff_etc', name: '기타 근무자', role: '' };
+    return map;
+  })();
+
+  // 기준정보 기반 기본 담당자 (표시용 문자열)
+  function siteStaffLabel(kind) {
+    if (!global.BongplaySite) return '';
+    const s = kind === 'inspector' ? BongplaySite.defaultInspector() : BongplaySite.defaultManager();
+    return s ? (s.name + ' ' + (s.title || '')).trim() : '';
+  }
 
   /* ---------- 3-1. 표준 상품 및 서비스 카탈로그 (P0-1 Item-level Master) ---------- */
   /* 판매 상품 카탈로그 (SSOT) — 2026 공식 요금표
@@ -497,20 +514,27 @@
     }
   };
 
+  // 사업 기준값(BEP·객단가 등)은 배포별 설정 파일(config.js)이 1순위,
+  // 값이 없을 때만 아래 기본값을 사용합니다. (중복 정의로 화면마다 숫자가 달라지던 문제 방지)
+  const CFG = (global.BONGPLAY_CONFIG || {});
+  const cfgNum = (key, fallback) => (CFG[key] !== undefined && CFG[key] !== null && isFinite(Number(CFG[key]))) ? Number(CFG[key]) : fallback;
+  const approvedBy = (global.BongplaySite && BongplaySite.defaultManager)
+    ? (BongplaySite.defaultManager().name + ' 총괄') : '현장 총괄';
+
   const MASTER_TARGETS = {
     annual_bep: {
       target_id: 'annual_bep',
       target_type: 'annual_bep',
       period_start: '2026-01-01',
       period_end: '2026-12-31',
-      target_visitors: 19606,
-      target_revenue: 236000000,
-      fixed_cost: 228900000,
-      variable_cost_per_person: 361,
-      blended_price: 12036,
+      target_visitors: cfgNum('ANNUAL_BEP_VISITORS', 19606),
+      target_revenue: cfgNum('ANNUAL_BEP_REVENUE', 236000000),
+      fixed_cost: cfgNum('ANNUAL_FIXED_COST', 228900000),
+      variable_cost_per_person: cfgNum('VARIABLE_COST', 361),
+      blended_price: cfgNum('BLENDED_PRICE', 12036),
       operating_days: 350,
-      assumption_version: '2026.v1',
-      approved_by: '홍성현 총괄',
+      assumption_version: CFG.MASTER_VERSION || '2026.v1',
+      approved_by: approvedBy,
       description: '연간 고정비 2.289억 원 회수를 위한 손익분기점(BEP) 연간 총 목표'
     },
     daily_baseline_bep: {
@@ -518,10 +542,10 @@
       target_type: 'daily_baseline_bep',
       period_start: '2026-01-01',
       period_end: '2026-12-31',
-      target_visitors: 55,
-      target_revenue: 660000,
+      target_visitors: Math.max(1, Math.round(cfgNum('DAILY_BASELINE_BEP', 660000) / Math.max(1, cfgNum('BLENDED_PRICE', 12036)))),
+      target_revenue: cfgNum('DAILY_BASELINE_BEP', 660000),
       assumption_version: '2026.v1',
-      approved_by: '홍성현 총괄',
+      approved_by: approvedBy,
       description: '연간 BEP의 350일 균등 배분 시 일일 기준 손익분기 목표'
     },
     weekday_target: {
@@ -529,10 +553,10 @@
       target_type: 'weekday',
       period_start: '2026-01-01',
       period_end: '2026-12-31',
-      target_visitors: 30,
-      target_revenue: 360000,
+      target_visitors: cfgNum('WEEKDAY_TARGET_VISITORS', 30),
+      target_revenue: cfgNum('WEEKDAY_TARGET_REVENUE', 360000),
       assumption_version: '2026.v1',
-      approved_by: '홍성현 총괄',
+      approved_by: approvedBy,
       description: '평일 유치 운영 목표 (어린이집/유치원 단체 및 지역 주민 중심)'
     },
     weekend_target: {
@@ -540,10 +564,10 @@
       target_type: 'weekend',
       period_start: '2026-01-01',
       period_end: '2026-12-31',
-      target_visitors: 148,
-      target_revenue: 1780000,
+      target_visitors: cfgNum('WEEKEND_TARGET_VISITORS', 148),
+      target_revenue: cfgNum('WEEKEND_TARGET_REVENUE', 1780000),
       assumption_version: '2026.v1',
-      approved_by: '홍성현 총괄',
+      approved_by: approvedBy,
       description: '주말 가족 단위 방문객 집중 유치 목표 (영주/안동/봉화)'
     },
     festival_target: {
@@ -554,7 +578,7 @@
       target_visitors: 143,
       target_revenue: 1720000,
       assumption_version: '2026.v1',
-      approved_by: '홍성현 총괄',
+      approved_by: approvedBy,
       description: '봉화 은어/송이 축제 및 성수기 특별 이벤트 유치 목표'
     }
   };
@@ -1100,7 +1124,7 @@
       previous_state: typeof params.previous_state === 'object' ? params.previous_state : { desc: params.previous_state },
       new_state: typeof params.new_state === 'object' ? params.new_state : { desc: params.new_state },
       reason_code: params.reason_code || 'manual_intervention',
-      decided_by: params.decided_by || '김주성 매니저',
+      decided_by: params.decided_by || siteStaffLabel('inspector'),
       expected_effect: params.expected_effect || '대기시간 단축 및 안전 확보',
       created_at: now.toISOString()
     };
@@ -1160,10 +1184,27 @@
     return record;
   }
 
-  /* ---------- 4-7. 장비 개체 단위 관리 & AI 예지보전 (P0-7 Equipment Individual Registry) ---------- */
+  /* ---------- 4-7. 장비 개체 단위 관리 & AI 예지보전 (P0-7 Equipment Individual Registry) ----------
+     ※ 아래 기본 목록은 구입일·사용횟수·불량이력이 임의로 채워진 '시연용 예시 데이터'입니다.
+        운영 환경에서 실제 장비 대장과 섞이지 않도록, 기준정보(bongplay-site.js)의
+        demo_data 플래그가 true 일 때만 생성합니다. (기본값: false)
+        실제 장비는 장비 관리 화면에서 등록하십시오. */
+  function isDemoDataEnabled() {
+    try {
+      if (global.BONGPLAY_SITE && typeof global.BONGPLAY_SITE.demo_data === 'boolean') {
+        return global.BONGPLAY_SITE.demo_data;
+      }
+    } catch (e) {}
+    return false;
+  }
+
   function initDefaultEquipmentAssets() {
     try {
       const existing = localStorage.getItem(STORAGE_KEYS.EQUIPMENT_ASSETS);
+      if (!isDemoDataEnabled()) {
+        if (!existing) localStorage.setItem(STORAGE_KEYS.EQUIPMENT_ASSETS, '[]');
+        return;
+      }
       if (!existing || existing === '[]') {
         const list = [];
         // 12 전신 하네스
@@ -1273,7 +1314,11 @@
     a.usage_count = usage;
     a.cumulative_usage_count = usage;
     a.max_safe_usage_count = maxSafe;
-    a.location = a.location || '?쇱쇅 吏싲씪???대뱶踰ㅼ쿂';
+    // 과거 버전이 인코딩 깨진 문자열로 저장한 위치값을 자동 복구
+    // (한글이 UTF-8 → CP949 로 잘못 해석돼 '?쇱쇅 吏싲씪…' 형태로 남아 있던 데이터)
+    if (!a.location || /[쇱쇅吳싲튰]|�/.test(a.location)) {
+      a.location = '야외 짚라인 어드벤처';
+    }
     a.status = a.status || 'active';
     return a;
   }
@@ -1325,7 +1370,7 @@
       last_defect_note: newAsset.last_defect_note || null,
       repair_history: newAsset.repair_history || [],
       status: newAsset.status || 'active',
-      location: newAsset.location || '?쇱쇅 吏싲씪???대뱶踰ㅼ쿂',
+      location: newAsset.location || '야외 짚라인 어드벤처',
       retired_at: null
     });
 
@@ -1710,7 +1755,7 @@
         status: b.status,
         quoted_amount: b.quoted_amount || 0,
         paid_amount: b.paid_amount || 0,
-        sales_owner: b.sales_owner || '홍성현',
+        sales_owner: b.sales_owner || siteStaffLabel('manager'),
         next_action_at: b.next_action_at || null,
         cancel_reason: b.cancel_reason || null,
         quote_sent_at: b.quote_sent_at || null,
@@ -1849,71 +1894,42 @@
   }
 
   /* ---------- 4-8. P1-5: 직원 근무 교대 및 실시간 구역 재배치 (Staff Shifts & Assignment Events) ---------- */
-  const DEFAULT_STAFF_SHIFTS = [
-    {
-      shift_id: 'SHF-20260915-01',
-      staff_id: 'stf_park',
-      staff_name: '박기원',
-      role: '야외 어드벤처/안전 코치',
-      assigned_zone: 'outdoor_coaster',
-      scheduled_start: '09:00',
-      scheduled_end: '18:30',
-      actual_check_in: '08:48',
-      actual_check_out: null,
-      break_minutes: 60,
-      status: 'on_duty'
-    },
-    {
-      shift_id: 'SHF-20260915-02',
-      staff_id: 'stf_jusung',
-      staff_name: '홍성현',
-      role: '시설 안전 총괄 관리책임자',
-      assigned_zone: 'all_facilities',
-      scheduled_start: '08:30',
-      scheduled_end: '18:30',
-      actual_check_in: '08:25',
-      actual_check_out: null,
-      break_minutes: 60,
-      status: 'on_duty'
-    },
-    {
-      shift_id: 'SHF-20260915-03',
-      staff_id: 'stf_jiyeon',
-      staff_name: '김지연',
-      role: '매표 POS 및 고객 응대 매니저',
-      assigned_zone: 'indoor_office',
-      scheduled_start: '09:10',
-      scheduled_end: '18:10',
-      actual_check_in: '09:02',
-      actual_check_out: null,
-      break_minutes: 60,
-      status: 'on_duty'
-    },
-    {
-      shift_id: 'SHF-20260915-04',
-      staff_id: 'stf_barista',
-      staff_name: '이서준',
-      role: '실내 카페 & 플레이존 안전 서포터',
-      assigned_zone: 'indoor_cafe',
-      scheduled_start: '09:30',
-      scheduled_end: '18:30',
-      actual_check_in: '09:15',
-      actual_check_out: null,
-      break_minutes: 60,
-      status: 'on_duty'
-    }
-  ];
+
+  // 근무 교대 기본표: 기준정보 인력 명단으로 당일 근무표를 만든다.
+  // (예전에는 특정 날짜·이름이 박힌 예시 3건이 항상 생성되었음)
+  function buildDefaultShifts() {
+    const list = (global.BongplaySite && global.BongplaySite.staff) ? global.BongplaySite.staff() : [];
+    if (!list.length) return [];
+    const hours = (global.BongplaySite ? global.BongplaySite.get('hours') : {}) || {};
+    const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    return list.map(function (s, i) {
+      return {
+        shift_id: 'SHF-' + ymd + '-' + String(i + 1).padStart(2, '0'),
+        staff_id: s.id,
+        staff_name: s.name,
+        role: s.role || '',
+        assigned_zone: 'all_facilities',
+        scheduled_start: hours.open || '10:00',
+        scheduled_end: hours.close || '18:00',
+        actual_check_in: null,
+        actual_check_out: null,
+        break_minutes: 60,
+        status: 'scheduled'
+      };
+    });
+  }
 
   function getStaffShifts() {
     try {
       const raw = localStorage.getItem(STORAGE_KEYS.STAFF_SHIFTS);
       if (!raw) {
-        localStorage.setItem(STORAGE_KEYS.STAFF_SHIFTS, JSON.stringify(DEFAULT_STAFF_SHIFTS));
-        return DEFAULT_STAFF_SHIFTS;
+        const built = buildDefaultShifts();
+        localStorage.setItem(STORAGE_KEYS.STAFF_SHIFTS, JSON.stringify(built));
+        return built;
       }
       return JSON.parse(raw);
     } catch (e) {
-      return DEFAULT_STAFF_SHIFTS;
+      return buildDefaultShifts();
     }
   }
 
@@ -1932,7 +1948,7 @@
       started_at: params.started_at || new Date().toISOString(),
       ended_at: params.ended_at || null,
       reason: params.reason || '대기열 혼잡 해소 및 안전 보강',
-      dispatched_by: params.dispatched_by || '홍성현'
+      dispatched_by: params.dispatched_by || siteStaffLabel('manager')
     };
 
     // Update active shift zone
@@ -2643,7 +2659,7 @@
       asset_id: d.asset_id || 'zip_trolley_01',
       maintenance_type: d.maintenance_type || 'lubrication',
       cost: Number(d.cost || 0),
-      technician: d.technician || '김주성',
+      technician: d.technician || siteStaffLabel('inspector'),
       description: d.description || '정기 윤활 및 점검',
       performed_at: d.performed_at || new Date().toISOString(),
       next_due_date: d.next_due_date || null
@@ -3160,7 +3176,7 @@
       discount_amount: 0,
       paid_amount: 42000,
       payment_method: 'card',
-      staff_id: '홍성현',
+      staff_id: (global.BongplaySite ? BongplaySite.defaultManager().id : 'staff_etc'),
       created_at: `${today}T10:18:00.000Z`
     };
     const item2 = {
@@ -3178,7 +3194,7 @@
       discount_amount: 0,
       paid_amount: 5000,
       payment_method: 'card',
-      staff_id: '홍성현',
+      staff_id: (global.BongplaySite ? BongplaySite.defaultManager().id : 'staff_etc'),
       created_at: `${today}T10:18:00.000Z`
     };
 
@@ -3258,7 +3274,7 @@
       started_at: `${today}T10:35:00.000Z`,
       completed_at: `${today}T11:03:00.000Z`,
       result: 'completed',
-      operator_staff_id: '김주성'
+      operator_staff_id: (global.BongplaySite ? BongplaySite.defaultInspector().id : 'staff_etc')
     });
     recordFacilityEvent({
       visit_id: vId,
@@ -3268,7 +3284,7 @@
       started_at: `${today}T11:50:00.000Z`,
       completed_at: `${today}T11:58:00.000Z`,
       result: 'completed',
-      operator_staff_id: '김주성'
+      operator_staff_id: (global.BongplaySite ? BongplaySite.defaultInspector().id : 'staff_etc')
     });
 
     // 6. 퇴장 10초 설문 (Survey)

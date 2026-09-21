@@ -11,6 +11,7 @@
   <!-- Lucide Icons -->
   <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../assets/bongplay-site.js"></script>
   <script src="../assets/config.js"></script>
   <script src="../assets/bongplay-sync.js"></script>
   <script src="../assets/bongplay-id.js"></script>
@@ -902,7 +903,7 @@
         funnel_stage: 'inquiry',
         quoted_amount: quotedAmount,
         paid_amount: 0,
-        sales_owner: '홍성현',
+        sales_owner: (window.BongplaySite ? BongplaySite.defaultManager().name : ''),
         next_action_at: nextActionAt
       };
 

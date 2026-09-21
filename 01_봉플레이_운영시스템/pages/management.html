@@ -30,6 +30,7 @@
   </style>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../assets/bongplay-site.js"></script>
   <script src="../assets/config.js"></script>
   <script src="../assets/bongplay-sync.js"></script>
   <script src="../assets/bongplay-id.js"></script>
@@ -1298,7 +1299,7 @@
       <div class="grid grid-cols-2 gap-2.5">
         <div>
           <label class="block text-slate-400 font-bold mb-1">영업 담당자</label>
-          <input type="text" id="fnlSalesOwner" value="홍성현" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs outline-none focus:border-indigo-500">
+          <input type="text" id="fnlSalesOwner" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs outline-none focus:border-indigo-500">
         </div>
         <div>
           <label class="block text-slate-400 font-bold mb-1">다음 조치 예정일</label>
@@ -1578,7 +1579,7 @@
         </div>
         ${(b.sales_owner || b.next_action_at) ? `
           <div class="text-[10px] text-slate-500 flex justify-between px-1">
-            <span>영업담당: <b class="text-slate-400">${escapeHtml(b.sales_owner||'홍성현')}</b></span>
+            <span>영업담당: <b class="text-slate-400">${escapeHtml(b.sales_owner || siteDefaultOwner())}</b></span>
             <span>다음 조치: <b class="text-indigo-400">${b.next_action_at ? new Date(b.next_action_at).toLocaleDateString('ko-KR') : '미정'}</b></span>
           </div>
         ` : ''}
@@ -1602,7 +1603,7 @@
     document.getElementById('fnlStageSelect').value = b.funnel_stage || 'inquiry';
     document.getElementById('fnlQuotedAmount').value = b.quoted_amount || (Number(b.kidCount || 0) * 15000);
     document.getElementById('fnlPaidAmount').value = b.paid_amount || 0;
-    document.getElementById('fnlSalesOwner').value = b.sales_owner || '홍성현';
+    document.getElementById('fnlSalesOwner').value = b.sales_owner || siteDefaultOwner();
     document.getElementById('fnlNextActionAt').value = b.next_action_at ? b.next_action_at.slice(0, 10) : '';
     document.getElementById('fnlMemo').value = b.memo || '';
 
@@ -1620,7 +1621,7 @@
     const stage = document.getElementById('fnlStageSelect').value;
     const quoted = parseInt(document.getElementById('fnlQuotedAmount').value, 10) || 0;
     const paid = parseInt(document.getElementById('fnlPaidAmount').value, 10) || 0;
-    const owner = document.getElementById('fnlSalesOwner').value.trim() || '홍성현';
+    const owner = document.getElementById('fnlSalesOwner').value.trim() || siteDefaultOwner();
     const nextAction = document.getElementById('fnlNextActionAt').value;
     const memo = document.getElementById('fnlMemo').value.trim();
 
@@ -2598,6 +2599,11 @@
     if (!st.configured) { el.textContent='DB 미연동'; btn.className='flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-700 rounded-xl text-xs font-bold shrink-0'; }
     else if (!st.online || st.pending>0) { el.textContent = st.online ? '대기 '+st.pending : '오프라인'; btn.className='flex items-center gap-1.5 px-3 py-1.5 bg-amber-900/30 text-amber-300 border border-amber-600/40 rounded-xl text-xs font-bold shrink-0'; }
     else { el.textContent='동기화 정상 · '+BongplaySync.getDeviceLabel(); btn.className='flex items-center gap-1.5 px-3 py-1.5 bg-emerald-900/30 text-emerald-300 border border-emerald-600/40 rounded-xl text-xs font-bold shrink-0'; }
+  }
+
+  // 영업 담당자 기본값: 기준정보(bongplay-site.js)의 총괄 담당자
+  function siteDefaultOwner() {
+    return window.BongplaySite ? (BongplaySite.defaultManager().name || '') : '';
   }
 
   /* ================= BP-007: 개인정보 라이프사이클 관리 ================= */

@@ -74,6 +74,7 @@
   </style>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../assets/bongplay-site.js"></script>
   <script src="../assets/config.js"></script>
   <script src="../assets/bongplay-sync.js"></script>
   <script src="../assets/bongplay-id.js"></script>
@@ -851,11 +852,11 @@
 
     // 3. 주소 복사
     function copyAddress() {
-      const addr = '경북 봉화군 봉화읍 유록길 22 봉플레이';
+      const addr = (window.BongplaySite ? BongplaySite.get('address.emergency_call') : '');
       navigator.clipboard.writeText(addr).then(() => {
         showToast('📍 주소가 복사되었습니다: ' + addr);
       }).catch(() => {
-        showToast('주소: 경북 봉화군 봉화읍 유록길 22');
+        showToast('주소: ' + (window.BongplaySite ? BongplaySite.get('address.emergency_call') : ''));
       });
     }
 
@@ -941,7 +942,8 @@
       const victim = document.getElementById('rep-victim-name').value || '미상';
       const cause = document.getElementById('rep-cause').value || '원인 미상';
       const action = document.getElementById('rep-action').value || '현장 응급조치 수행';
-      const hospital = '봉화해성병원 (054-679-1299)';
+      const hospitalInfo = window.BongplaySite ? BongplaySite.partner('hospital') : null;
+      const hospital = hospitalInfo ? `${hospitalInfo.name} (${hospitalInfo.phone})` : '';
 
       const incidentRecord = {
         id: 'inc_' + Date.now(),
@@ -952,7 +954,7 @@
         description: cause,
         action_taken: action,
         hospital_transport: hospital,
-        reported_by: '홍성현 대표 (010-5931-4144)',
+        reported_by: (function () { var m = window.BongplaySite ? BongplaySite.defaultManager() : null; return m ? (m.name + ' ' + (m.title || '') + (m.phone ? ' (' + m.phone + ')' : '')).trim() : '현장책임자'; })(),
         created_at: new Date().toISOString(),
         incident_date: (dt || '').slice(0, 10) || BongplaySync.toLocalDateStr(new Date()),
         called_119: action.includes('119'),
@@ -1236,7 +1238,15 @@
       const cause = document.getElementById('rep-cause').value;
       const action = document.getElementById('rep-action').value;
 
-      const txt = `[봉플레이 안전사고 발생 보고서]\n일시: ${dt}\n장소: ${place}\n피해자: ${victim}\n경위: ${cause}\n조치: ${action}\n병원: 해성병원 (054-679-1299)\n주소: 경북 봉화군 봉화읍 유록길 22\n책임자: 홍성현 (010-5931-4144)`;
+      // 시설·연락처는 기준정보(bongplay-site.js)에서 조회
+      const S = window.BongplaySite;
+      const hos = S ? S.partner('hospital') : null;
+      const mgr = S ? S.defaultManager() : null;
+      const txt = `[${S ? S.get('facility.name') : '봉플레이'} 안전사고 발생 보고서]\n`
+        + `일시: ${dt}\n장소: ${place}\n피해자: ${victim}\n경위: ${cause}\n조치: ${action}\n`
+        + `병원: ${hos ? `${hos.name} (${hos.phone})` : '-'}\n`
+        + `주소: ${S ? S.get('address.road') : '-'}\n`
+        + `책임자: ${mgr ? `${mgr.name}${mgr.phone ? ` (${mgr.phone})` : ''}` : '-'}`;
 
       const dNow = new Date();
       const localStamp = `${dNow.getFullYear()}-${String(dNow.getMonth()+1).padStart(2,'0')}-${String(dNow.getDate()).padStart(2,'0')}`;

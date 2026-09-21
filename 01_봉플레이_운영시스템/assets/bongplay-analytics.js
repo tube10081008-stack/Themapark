@@ -178,7 +178,7 @@
     a.usage_count = usage;
     a.cumulative_usage_count = usage;
     a.max_safe_usage_count = maxSafe;
-    a.location = a.location || '?쇱쇅 吏싲씪???대뱶踰ㅼ쿂';
+    a.location = a.location || '야외 짚라인 어드벤처';
     a.status = a.status || 'active';
     return a;
   }
@@ -225,7 +225,7 @@
       last_defect_note: newAsset.last_defect_note || null,
       repair_history: newAsset.repair_history || [],
       status: newAsset.status || 'active',
-      location: newAsset.location || '?쇱쇅 吏싲씪???대뱶踰ㅼ쿂',
+      location: newAsset.location || '야외 짚라인 어드벤처',
       retired_at: null
     });
 

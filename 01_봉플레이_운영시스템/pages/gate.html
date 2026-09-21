@@ -47,6 +47,7 @@
   </style>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../assets/bongplay-site.js"></script>
   <script src="../assets/config.js"></script>
   <script src="../assets/bongplay-sync.js"></script>
   <script src="../assets/bongplay-id.js"></script>
@@ -127,7 +128,7 @@
           <div class="flex items-baseline gap-2">
             <span id="currentInsideCount" class="text-4xl sm:text-5xl font-black font-mono text-sky-400">0</span>
             <span class="text-sm font-bold text-slate-400">명 이용 중</span>
-            <span class="text-xs font-mono text-slate-500">/ 정원 250명</span>
+            <span class="text-xs font-mono text-slate-500">/ 정원 <span id="capMaxText">-</span>명</span>
           </div>
           <div class="text-[11px] text-slate-400 font-mono">
             수용률: <span id="occupancyRateText" class="font-bold text-white">0%</span>
@@ -141,9 +142,9 @@
 
         <div class="mt-3 flex items-center justify-between text-[11px] text-slate-400">
           <span>0명</span>
-          <span class="text-emerald-400">적정수용 (150명 이하)</span>
-          <span class="text-amber-400">주의 (200명)</span>
-          <span class="text-rose-400 font-bold">정원 초과 (250명)</span>
+          <span class="text-emerald-400">적정수용 (<span id="capComfortText">-</span>명 이하)</span>
+          <span class="text-amber-400">주의 (<span id="capCautionText">-</span>명)</span>
+          <span class="text-rose-400 font-bold">정원 초과 (<span id="capMaxText2">-</span>명)</span>
         </div>
       </div>
 
@@ -373,8 +374,17 @@
         }
       });
 
-      const maxCap = 250;
+      // 정원은 기준정보(bongplay-site.js)에서 가져옴 (기준값 정합성 자동 보정)
+      const cap = window.BongplaySite ? BongplaySite.capacity() : { max_occupancy: 250, comfortable: 150, caution: 200 };
+      const maxCap = Number(cap.max_occupancy) || 250;
       const rate = Math.min(100, Math.round((insideCount / maxCap) * 100));
+
+      // 정원 기준 라벨 표시
+      const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+      setTxt('capMaxText', maxCap);
+      setTxt('capMaxText2', maxCap);
+      setTxt('capComfortText', Number(cap.comfortable) || Math.round(maxCap * 0.6));
+      setTxt('capCautionText', Number(cap.caution) || Math.round(maxCap * 0.8));
 
       document.getElementById('currentInsideCount').textContent = insideCount;
       document.getElementById('occupancyRateText').textContent = `${rate}%`;

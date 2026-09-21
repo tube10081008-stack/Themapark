@@ -49,6 +49,7 @@
   </style>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../assets/bongplay-site.js"></script>
   <script src="../assets/config.js"></script>
   <script src="../assets/bongplay-sync.js"></script>
   <link rel="stylesheet" href="../assets/print.css">
@@ -791,18 +792,34 @@
     const DAILY_BEP = 660000;
     const MONTHLY_BEP = 19800000;
     
-    // System Context Prompt Injected for BongPlay
+    // System Context Prompt — 시설·인력 정보는 기준정보(bongplay-site.js)에서 주입 (하드코딩 제거)
+    const SITE = window.BongplaySite || null;
+    const S = {
+      name: SITE ? SITE.get('facility.name') : '리틀포레스트 봉플레이',
+      address: SITE ? SITE.get('address.road') : '',
+      ceo: SITE ? SITE.defaultManager() : null,
+      staff: SITE ? SITE.staff() : [],
+      county: SITE ? SITE.partner('county') : null
+    };
+    const ceoLabel = S.ceo ? `${S.ceo.name} ${S.ceo.title || ''}`.trim() : '대표';
+    const staffLines = S.staff
+      .filter(s => !S.ceo || s.id !== S.ceo.id)
+      .map((s, i) => `  ${i + 1}. ${s.name} ${s.title || ''} (${s.role || ''})`.replace(/\s+/g, ' '))
+      .join('\n');
+    const countyLine = S.county
+      ? `${S.county.name} ${S.county.contact || ''} (${S.county.phone || ''})`.trim()
+      : '관할 군청';
+
     const BONGPLAY_SYSTEM_CONTEXT = `
-당신은 대한민국 경상북도 봉화군 봉화읍 유록길 22에 위치한 실내외 어린이 어드벤처 테마파크 [리틀포레스트 봉플레이 (BongPlay)]의 총괄 AI 오퍼레이터이자 최고경영자(CEO) 홍성현 대표의 전문 전략 코파일럿입니다.
+당신은 대한민국 ${S.address}에 위치한 실내외 어린이 어드벤처 테마파크 [${S.name}]의 총괄 AI 오퍼레이터이자 최고경영자(CEO) ${ceoLabel}의 전문 전략 코파일럿입니다.
 
 [사업장 프로필 및 핵심 조직]
-- 사업장명: 리틀포레스트 봉플레이 (BongPlay)
-- 소재지: 경상북도 봉화군 봉화읍 유록길 22
-- 총괄 대표: 홍성현 (010-5931-4144)
+- 사업장명: ${S.name}
+- 소재지: ${S.address}
+- 총괄 대표: ${S.ceo ? S.ceo.name : ''}${S.ceo && S.ceo.phone ? ` (${S.ceo.phone})` : ''}
 - 핵심 관리자:
-  1. 김지연 운영매니저: 매표소, 카페, 일일 시재금 정산, 실내놀이동, 상황통제반장
-  2. 김주성 안전매니저: 야외 짚라인, 네트 어드벤처, 안전보호구 소독, 일일 법정 안전점검, 응급구호·현장통제반장
-- 관할 군청 주무관: 봉화군청 문화관광과 관광개발팀 조은정 주무관 (054-679-6355)
+${staffLines}
+- 관할 군청 주무관: ${countyLine}
 - 지정 응급의료기관: 봉화해성병원 응급실 (차량 5분), 안동병원 권역외상센터 054-840-0114
   • ※ 병원 응급실 직통번호는 개장 전 실측 확인 필요 (현재 미검증)
 - 영업배상책임보험: 가입 예정 (보험사·증권번호 확정 후 반영 필요)
@@ -832,9 +849,9 @@
   • 비재무적 복리후생: 봉화 관내 이주 주거비 지원, 유원시설 안전관리자 자격 취득 지원, 안전 운행중단권 명문화
 
 [답변 스타일]
-- 홍성현 대표님을 정중하고 든든하게 보좌하는 전문 오퍼레이터 어조.
+- ${ceoLabel}님을 정중하고 든든하게 보좌하는 전문 오퍼레이터 어조.
 - 군청 공문서 작성 시에는 정통 한국 행정 공문서 표준 양식과 격식을 완벽하게 준수.
-- 수치와 근거를 명확하게 제시하며, 현장 실무자(김지연, 김주성 매니저)의 직무와 유기적으로 연계하여 실천 가능한 솔루션을 제안.
+- 수치와 근거를 명확하게 제시하며, 현장 실무자(${S.staff.filter(s => !S.ceo || s.id !== S.ceo.id).map(s => s.name).join(', ')})의 직무와 유기적으로 연계하여 실천 가능한 솔루션을 제안.
 - 목업 허위 수치는 절대 보고하지 않으며, 실제 입력된 실적을 바탕으로 투명하고 정밀하게 브리핑.
 `;
 
@@ -1184,7 +1201,7 @@
                 safetyCount.className = 'text-emerald-400 font-bold font-mono';
                 safetyProg.style.width = '100%';
                 safetyProg.className = 'h-full bg-teal-500 rounded-full transition-all duration-500';
-                safetyInsp.innerText = todayLog.inspector || '김주성 매니저';
+                safetyInsp.innerText = todayLog.inspector || (window.BongplaySite ? BongplaySite.defaultInspector().name : '-');
                 return;
               } else if (todayLog.decision === 'warn') {
                 safetyText.innerText = '주의 관찰';
@@ -1194,7 +1211,7 @@
                 safetyCount.innerText = '22개 항목 이상유무 확인';
                 safetyCount.className = 'text-amber-400 font-bold font-mono';
                 safetyProg.style.width = '100%';
-                safetyInsp.innerText = todayLog.inspector || '김주성 매니저';
+                safetyInsp.innerText = todayLog.inspector || (window.BongplaySite ? BongplaySite.defaultInspector().name : '-');
                 return;
               } else if (todayLog.decision === 'stop') {
                 safetyText.innerText = '개장 중지';
@@ -1205,7 +1222,7 @@
                 safetyCount.className = 'text-rose-400 font-bold font-mono';
                 safetyProg.style.width = '100%';
                 safetyProg.className = 'h-full bg-rose-500 rounded-full transition-all duration-500';
-                safetyInsp.innerText = todayLog.inspector || '김주성 매니저';
+                safetyInsp.innerText = todayLog.inspector || (window.BongplaySite ? BongplaySite.defaultInspector().name : '-');
                 return;
               }
             }

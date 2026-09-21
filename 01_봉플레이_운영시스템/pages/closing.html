@@ -59,6 +59,7 @@
   </style>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../assets/bongplay-site.js"></script>
   <script src="../assets/config.js"></script>
   <script src="../assets/bongplay-sync.js"></script>
   <script src="../assets/bongplay-notify.js"></script>
@@ -124,7 +125,7 @@
             <span class="px-2.5 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-full font-bold border border-emerald-500/30">
               ● 운영 당일 마감 관리
             </span>
-            <span class="text-slate-400">봉화군 봉화읍 유록길 22 │ 총괄: 홍성현 (010-5931-4144)</span>
+            <span class="text-slate-400"><span data-site="address.road_short"></span> │ 총괄: <span data-site="staff.0.name"></span> (<span data-site="staff.0.phone"></span>)</span>
           </div>
           <h1 class="text-xl font-black text-white mt-1">오늘의 현장 마감 & 인수인계 보드</h1>
           <p class="text-xs text-slate-400 mt-0.5">퇴근 전 시재금 정산, 구역별 안전 소등/잠금, 익일 근무 인수인계 사항을 기록합니다.</p>
@@ -138,10 +139,8 @@
           <div class="h-6 w-px bg-slate-800"></div>
           <div>
             <span class="text-slate-500 block text-[10px]">마감책임자</span>
+            <!-- 마감책임자 목록은 기준정보(bongplay-site.js)에서 생성됩니다 -->
             <select id="closingManager" class="bg-slate-900 text-white font-bold text-xs outline-none border border-slate-800 rounded px-1.5 py-0.5 mt-0.5">
-              <option value="홍성현">홍성현 대표</option>
-              <option value="김지연">김지연 매니저</option>
-              <option value="김주성">김주성 매니저</option>
             </select>
           </div>
         </div>
@@ -498,12 +497,12 @@
           리틀포레스트 봉플레이 일일 마감 및 시재금 정산서
         </h1>
         <p style="font-size: 7.5pt; color: #555; margin: 2px 0 0 0;">
-          소재지: 경상북도 봉화군 봉화읍 유록길 22 │ 총괄관리자: 홍성현 (010-5931-4144)
+          소재지: <span data-site="address.road"></span> │ 총괄관리자: <span data-site="staff.0.name"></span> (<span data-site="staff.0.phone"></span>)
         </p>
       </div>
       <div style="text-align: right; font-size: 7.5pt; color: #666;">
         정산일자: <b id="prtDate" style="color: #000;">2026-09-09</b><br>
-        마감책임자: <b id="prtManager" style="color: #000;">홍성현</b>
+        마감책임자: <b id="prtManager" style="color: #000;">-</b>
       </div>
     </div>
 
@@ -660,19 +659,33 @@
   </div>
 
   <script>
-    // Initial staff data
-    let staffList = [
-      { id: 1, name: '홍성현', role: '총괄 대표 / 현장총괄', shift: '종일조 (09:00~19:00)', status: '근무완료' },
-      { id: 2, name: '김지연', role: '운영매니저 / 매표·정산·실내존', shift: '종일조 (09:00~19:00)', status: '근무완료' },
-      { id: 3, name: '김주성', role: '안전매니저 / 야외 짚라인·네트', shift: '종일조 (09:00~19:00)', status: '근무완료' },
-      { id: 4, name: '안전코치(알바)', role: '짚라인 출발·도착 안전보조', shift: '오후조 (13:30~19:00)', status: '근무완료' }
-    ];
+    // 근무 인력: 기준정보(bongplay-site.js)의 명단에서 생성 (하드코딩 제거)
+    let staffList = (window.BongplaySite ? BongplaySite.staff() : []).map((s, i) => ({
+      id: i + 1,
+      staff_id: s.id,
+      name: s.name,
+      role: s.role || '',
+      shift: s.shift || '',
+      status: '근무중'
+    }));
+
+    // 마감책임자 선택지 생성
+    function renderClosingManagerOptions() {
+      const sel = document.getElementById('closingManager');
+      if (!sel || !window.BongplaySite) return;
+      const managers = BongplaySite.staff('manager');
+      const def = BongplaySite.defaultManager();
+      sel.innerHTML = managers.map(s =>
+        `<option value="${s.name}"${def && s.id === def.id ? ' selected' : ''}>${s.name} ${s.title || ''}</option>`
+      ).join('');
+    }
 
     const STORAGE_KEY = 'bongplay_closing_board_data';
 
     document.addEventListener('DOMContentLoaded', () => {
       lucide.createIcons();
       initDate();
+      renderClosingManagerOptions();
       renderStaffTable();
       calculateCashBalance();
       updateClosingProgress();
@@ -1166,9 +1179,13 @@
       let checkedCount = 0;
       items.forEach(cb => { if (cb.checked) checkedCount++; });
 
-      const text = `[리틀포레스트 봉플레이 마감 보고]\n` +
+      const mgrStaff = window.BongplaySite ? BongplaySite.findStaff(mgr) : null;
+      const mgrPhone = mgrStaff && mgrStaff.phone ? ` (${mgrStaff.phone})` : '';
+      const siteName = window.BongplaySite ? BongplaySite.get('facility.name') : '봉플레이';
+
+      const text = `[${siteName} 마감 보고]\n` +
         `■ 일자: ${dt}\n` +
-        `■ 마감자: ${mgr} (010-5931-4144)\n` +
+        `■ 마감자: ${mgr}${mgrPhone}\n` +
         `────────────────────\n` +
         `■ 현금 시재 정산:\n` +
         ` • 장부 마감액: ${book}\n` +
