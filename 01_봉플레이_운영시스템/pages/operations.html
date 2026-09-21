@@ -887,13 +887,12 @@
             </select>
           </div>
           <div>
-            <label class="text-[11px] font-bold text-slate-400 block mb-1">결제 수단</label>
-            <select id="posPaymentMethod" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs font-bold text-white outline-none">
-              <option value="card">신용/체크카드</option>
-              <option value="cash">현금</option>
-              <option value="local_pay">봉화사랑상품권 (지류)</option>
-              <option value="mobile_pay">간편결제 (카카오/네이버/제로)</option>
-            </select>
+            <label class="text-[11px] font-bold text-slate-400 block mb-1">결제 수단 배분 (복합 결제 가능)</label>
+            <div id="posMethodRows" class="space-y-1.5"></div>
+            <div class="flex items-center justify-between mt-1.5 text-[11px]">
+              <span class="text-slate-400">배분 <span id="posAllocSum" class="font-mono text-slate-200">0</span> / <span id="posAllocTotal" class="font-mono text-slate-200">0</span>원</span>
+              <span class="text-slate-400">잔여 <span id="posAllocRemain" class="font-mono font-black text-amber-300">0원</span></span>
+            </div>
           </div>
           <div class="sm:col-span-2">
             <label class="text-[11px] font-bold text-slate-400 block mb-1">단말기 승인번호 <span class="text-slate-600">(카드 결제 시 권장 · 마감 카드 대사용)</span></label>
@@ -2224,15 +2223,24 @@
        매표 데스크·POS 의 결제 원장(order_items)에서 당일 실적을 그대로 합산합니다.
        정전·단말 장애 시에만 [비상 수기 모드] 체크로 직접 입력할 수 있습니다. */
     function aggregateDailyFromLedger(dateStr) {
-      const result = { child: 0, adult: 0, group: 0, ticketRevenue: 0, extraRevenue: 0, orderCount: 0, cash: 0, noncash: 0 };
+      const result = { child: 0, adult: 0, group: 0, ticketRevenue: 0, extraRevenue: 0, orderCount: 0, cash: 0, noncash: 0, voucher: 0 };
       if (!window.BongplayID || typeof BongplayID.getOrdersByDate !== 'function') return result;
 
       const orders = BongplayID.getOrdersByDate(dateStr) || [];
       result.orderCount = orders.length;
 
+      // 결제수단별 금액은 수납 원장 기준 (복합 결제 분해 · 취소분 제외)
+      const payTotals = (typeof BongplayID.getPaymentTotalsByDate === 'function')
+        ? BongplayID.getPaymentTotalsByDate(dateStr) : { cash: 0, local_pay: 0, card: 0, total: 0 };
+      result.cash = payTotals.cash;
+      result.voucher = payTotals.local_pay;
+      result.noncash = payTotals.card + payTotals.local_pay;
+
       orders.forEach(ord => {
-        const amt = Number(ord.final_amount || 0);
-        if (ord.payment_method === 'cash') result.cash += amt; else result.noncash += amt;
+        if (payTotals.total === 0) {
+          const amt = Number(ord.final_amount || 0);
+          if (ord.payment_method === 'cash') result.cash += amt; else result.noncash += amt;
+        }
 
         (ord.items || []).forEach(it => {
           const paid = Number(it.paid_amount || 0);
@@ -2287,7 +2295,7 @@
 
       if (statusEl) {
         statusEl.textContent = agg.orderCount > 0
-          ? `${dateStr} 결제 ${agg.orderCount}건 자동 반영 · 이용권 ${(agg.ticketRevenue).toLocaleString()}원 / 부가 ${(agg.extraRevenue).toLocaleString()}원 (현금 ${agg.cash.toLocaleString()} · 카드·상품권 ${agg.noncash.toLocaleString()})`
+          ? `${dateStr} 결제 ${agg.orderCount}건 자동 반영 · 이용권 ${(agg.ticketRevenue).toLocaleString()}원 / 부가 ${(agg.extraRevenue).toLocaleString()}원 (현금 ${agg.cash.toLocaleString()} · 상품권 ${(agg.voucher||0).toLocaleString()} · 카드 ${(agg.noncash-(agg.voucher||0)).toLocaleString()})`
           : `${dateStr} 결제 원장이 비어 있습니다. 매표 데스크에서 발권·결제를 진행하면 자동으로 채워집니다.`;
       }
       updateModalPreview();
@@ -2711,8 +2719,55 @@
       return BongplayID.computeCartPricing(cart, { forceRuleId: (ruleSel && ruleSel.value) || 'none' });
     }
 
+    /* ---- POS 복합 결제 배분 (매표 데스크와 동일 규칙) ---- */
+    let posAlloc = {};
+
+    function renderPosMethodRows(total) {
+      const wrap = document.getElementById('posMethodRows');
+      if (!wrap || !window.BongplayID) return { valid: false, payments: [], remain: total, sum: 0 };
+
+      wrap.innerHTML = BongplayID.getPaymentMethods().map(m => {
+        const amt = Number(posAlloc[m.id] || 0);
+        const active = amt > 0;
+        return `
+          <div class="flex items-center gap-1.5">
+            <button type="button" onclick="posAllocRemainTo('${m.id}')"
+              class="shrink-0 px-2 py-1.5 rounded-lg text-[11px] font-black ${active ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-300 hover:text-white'}"
+              title="잔여금 전액 배분">${m.icon} ${m.short}</button>
+            <input type="number" min="0" step="100" inputmode="numeric" value="${amt || ''}" placeholder="0"
+              oninput="posSetAlloc('${m.id}', this.value)"
+              class="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-right font-mono text-xs text-white outline-none">
+          </div>`;
+      }).join('');
+
+      const built = BongplayID.buildPayments(posAlloc, total);
+      document.getElementById('posAllocSum').textContent = built.sum.toLocaleString();
+      document.getElementById('posAllocTotal').textContent = total.toLocaleString();
+      const remainEl = document.getElementById('posAllocRemain');
+      remainEl.textContent = built.remain.toLocaleString() + '원';
+      remainEl.className = 'font-mono font-black ' + (built.remain === 0 ? 'text-emerald-400' : 'text-amber-300');
+      return built;
+    }
+
+    function posAllocRemainTo(methodId) {
+      const total = posPricing().summary.total;
+      const others = Object.keys(posAlloc)
+        .filter(id => id !== methodId)
+        .reduce((s, id) => s + (Number(posAlloc[id]) || 0), 0);
+      posAlloc[methodId] = Math.max(0, total - others);
+      updatePosSummary();
+    }
+
+    function posSetAlloc(methodId, value) {
+      const v = Math.max(0, Math.round(Number(value) || 0));
+      if (v === 0) delete posAlloc[methodId];
+      else posAlloc[methodId] = v;
+      updatePosSummary();
+    }
+
     function updatePosSummary() {
       const pricing = posPricing();
+      renderPosMethodRows(pricing.summary.total);
       const totalCount = pricing.items.reduce((s, i) => s + i.quantity, 0);
       const names = pricing.items.map(i => `${i.product_name}×${i.quantity}`);
 
@@ -2757,8 +2812,21 @@
 
       const visitSelect = document.getElementById('posVisitSelect');
       const visitId = visitSelect ? visitSelect.value : null;
-      const paymentMethod = document.getElementById('posPaymentMethod')?.value || 'card';
       const approvalNo = (document.getElementById('posApprovalNo')?.value || '').trim();
+
+      // 결제수단 배분 검증 (단일·복합 동일 경로)
+      const built = BongplayID.buildPayments(posAlloc, pricing.summary.total);
+      if (!built.valid) {
+        alert(built.remain > 0
+          ? `결제수단 배분이 ${built.remain.toLocaleString()}원 부족합니다.\n수단 버튼을 눌러 잔여금을 배분해 주십시오.`
+          : `배분 금액이 결제 금액을 ${Math.abs(built.remain).toLocaleString()}원 초과했습니다.`);
+        return;
+      }
+      const payments = built.payments.map(p => {
+        const m = BongplayID.getPaymentMethod(p.method);
+        return { method: p.method, amount: p.amount, approval_no: (m && m.needs_approval) ? (approvalNo || null) : null };
+      });
+      const paymentMethod = payments.slice().sort((a, b) => b.amount - a.amount)[0].method;
 
       if (window.BongplayID && BongplayID.createOrder) {
         const order = BongplayID.createOrder({
@@ -2767,7 +2835,8 @@
           payment_method: paymentMethod,
           approval_no: approvalNo || null,
           staff_id: 'op_staff_main',
-          items: items
+          items: items,
+          payments: payments
         });
 
         // 실적 패드가 열려 있으면 결제 원장 기준으로 즉시 재집계 (수기 가산 폐지)
@@ -2776,9 +2845,13 @@
         }
 
         // createOrder 반환값은 total_amount 입니다 (기존 order.total_paid 는 undefined 라 오류가 났습니다)
-        alert(`✅ 주문(${order.order_id})이 기록되었습니다.\n총 ${items.length}개 품목 / ${pricing.summary.total.toLocaleString()}원${approvalNo ? ' (승인 ' + approvalNo + ')' : ''}\n실적·마감에 자동 반영됩니다.`);
+        const payLabel = payments
+          .map(p => `${(BongplayID.getPaymentMethod(p.method) || {}).short || p.method} ${p.amount.toLocaleString()}원`)
+          .join(' + ');
+        alert(`✅ 주문(${order.order_id})이 기록되었습니다.\n총 ${items.length}개 품목 / ${pricing.summary.total.toLocaleString()}원\n결제: ${payLabel}${approvalNo ? ' (승인 ' + approvalNo + ')' : ''}\n실적·마감에 자동 반영됩니다.`);
         const approvalEl = document.getElementById('posApprovalNo');
         if (approvalEl) approvalEl.value = '';
+        posAlloc = {};
         clearPosCart();
         closePosModal();
       } else {

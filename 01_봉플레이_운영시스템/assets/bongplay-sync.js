@@ -951,6 +951,21 @@
         results.order_items = rOrders.data.length;
       }
 
+      // 3-2. order_payments (결제수단별 수납 원장 — 복합 결제/취소 상태 포함)
+      var rPays = await select('order_payments', '?select=*&paid_at=gte.' + since + 'T00:00:00&order=paid_at.desc&limit=2000');
+      if (rPays.ok && Array.isArray(rPays.data)) {
+        var payById = {};
+        rPays.data.forEach(function (row) { if (row.id) payById[row.id] = row; });
+        try {
+          var localPays = JSON.parse(localStorage.getItem('bongplay_order_payments') || '[]');
+          localPays.forEach(function (row) { if (row.id && !payById[row.id]) payById[row.id] = row; });
+        } catch (e) {}
+        var mergedPays = Object.keys(payById).map(function (k) { return payById[k]; });
+        mergedPays.sort(function (a, b) { return new Date(b.paid_at || 0) - new Date(a.paid_at || 0); });
+        localStorage.setItem('bongplay_order_payments', JSON.stringify(mergedPays));
+        results.order_payments = rPays.data.length;
+      }
+
       // 4. sales_records
       var rSales = await select('sales_records', '?select=*&order=date.desc&limit=90');
       if (rSales.ok && Array.isArray(rSales.data)) {
@@ -1032,7 +1047,7 @@
         supabaseRealtimeClient = global.supabase.createClient(cfg.url, cfg.key);
       }
       var channel = supabaseRealtimeClient.channel('bongplay-realtime-bus');
-      var tables = ['safety_consents', 'safety_audits', 'sales_records', 'closing_records', 'ticket_ledger', 'order_items'];
+      var tables = ['safety_consents', 'safety_audits', 'sales_records', 'closing_records', 'ticket_ledger', 'order_items', 'order_payments'];
 
       tables.forEach(function (tbl) {
         channel.on('postgres_changes', { event: '*', schema: 'public', table: tbl }, function (payload) {

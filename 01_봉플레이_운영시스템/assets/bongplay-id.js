@@ -193,6 +193,44 @@
     { key: 'merchandise',      label: '🧦 굿즈 / 용품' }
   ];
 
+  /* 결제수단 정의 (SSOT)
+     ------------------------------------------------------------
+     · bucket : 마감 정산에서 묶이는 계정 구분
+       - cash        : 금고 현금 실사 대상
+       - local_pay   : 지류 봉화사랑상품권 (실물 금고 보관 → 농협/군청 제출 정산)
+       - youth_voucher: 봉화 청소년 바우처 (지자체 정산 청구 대상)
+       - card        : 카드·간편결제 (단말기 매출 대사)
+     · 모든 화면에서 이 목록으로 버튼을 만들고, 복합(분할) 결제를 허용한다.
+  */
+  const PAYMENT_METHODS = [
+    { id: 'card',          label: '신용/체크카드',      short: '카드',     icon: '💳', bucket: 'card',          needs_approval: true,  color: 'sky' },
+    { id: 'cash',          label: '현금',               short: '현금',     icon: '💵', bucket: 'cash',          needs_approval: false, color: 'emerald' },
+    { id: 'local_pay',     label: '봉화사랑상품권(지류)', short: '상품권',  icon: '🎫', bucket: 'local_pay',     needs_approval: false, color: 'violet' },
+    { id: 'youth_voucher', label: '봉화 청소년 바우처',  short: '청소년바우처', icon: '🧒', bucket: 'youth_voucher', needs_approval: false, color: 'amber' },
+    { id: 'mobile_pay',    label: '간편결제(카카오/네이버)', short: '간편결제', icon: '📱', bucket: 'card',       needs_approval: true,  color: 'slate' }
+  ];
+
+  function getPaymentMethods() { return PAYMENT_METHODS.slice(); }
+  function getPaymentMethod(id) { return PAYMENT_METHODS.find(function (m) { return m.id === id; }) || null; }
+  function getPaymentBucket(id) {
+    const m = getPaymentMethod(id);
+    return m ? m.bucket : 'card';   // 미등록 수단은 보수적으로 카드 계정에 귀속
+  }
+
+  // 배분표 {method: amount} → 결제 건 배열 + 검증
+  function buildPayments(alloc, total) {
+    const payments = Object.keys(alloc || {})
+      .map(function (id) { return { method: id, amount: Math.round(Number(alloc[id]) || 0) }; })
+      .filter(function (p) { return p.amount > 0; });
+    const sum = payments.reduce(function (s, p) { return s + p.amount; }, 0);
+    return {
+      payments: payments,
+      sum: sum,
+      remain: Math.round(Number(total) || 0) - sum,
+      valid: payments.length > 0 && sum === Math.round(Number(total) || 0)
+    };
+  }
+
   // 할인 규칙: 중복 적용하지 않고 가장 유리한 1건만 적용 (입장권 계열에만)
   const DISCOUNT_RULES = [
     { id: 'group20',  label: '20인 이상 단체 20% 할인', rate: 0.20 },
@@ -541,6 +579,7 @@
     LEGACY_CONSENTS: 'bongtteurak_consents_v1',
     TICKETS: 'bongplay_ticket_ledger',
     ORDER_ITEMS: 'bongplay_order_items',
+    ORDER_PAYMENTS: 'bongplay_order_payments',
     FACILITY_EVENTS: 'bongplay_facility_usage_events',
     TELEMETRY: 'bongplay_congestion_telemetry',
     ACTION_LOGS: 'bongplay_operator_action_logs',
@@ -741,6 +780,29 @@
       orderItems.push(record);
     });
 
+    // 결제 수납 원장 (복합 결제 지원)
+    //   params.payments = [{ method, amount, approval_no }]  (없으면 단일 결제수단 1건으로 기록)
+    const totalPaid = orderItems.reduce((sum, it) => sum + it.paid_amount, 0);
+    const paymentsInput = Array.isArray(orderParams.payments) && orderParams.payments.length > 0
+      ? orderParams.payments
+      : [{ method: paymentMethod, amount: totalPaid, approval_no: orderParams.approval_no || null }];
+
+    const orderPayments = paymentsInput
+      .filter(p => p && Number(p.amount) > 0)
+      .map((p, idx) => ({
+        id: `${orderId}_pay${idx + 1}`,
+        order_id: orderId,
+        site_id: SITE_ID,
+        consent_id: orderParams.consent_id || null,
+        visit_id: visitId,
+        method: p.method,
+        amount: Number(p.amount),
+        approval_no: p.approval_no || null,
+        paid_at: now.toISOString(),
+        status: 'paid',
+        staff_id: staffId
+      }));
+
     // Save locally
     try {
       const existingRaw = localStorage.getItem(STORAGE_KEYS.ORDER_ITEMS) || '[]';
@@ -748,10 +810,18 @@
       orderItems.forEach(rec => list.unshift(rec));
       localStorage.setItem(STORAGE_KEYS.ORDER_ITEMS, JSON.stringify(list));
 
+      const payRaw = localStorage.getItem(STORAGE_KEYS.ORDER_PAYMENTS) || '[]';
+      const payList = JSON.parse(payRaw);
+      orderPayments.forEach(rec => payList.unshift(rec));
+      localStorage.setItem(STORAGE_KEYS.ORDER_PAYMENTS, JSON.stringify(payList));
+
       // Sync each item to Supabase
       if (global.BongplaySync && typeof global.BongplaySync.upsert === 'function') {
         orderItems.forEach(rec => {
           global.BongplaySync.upsert('order_items', rec);
+        });
+        orderPayments.forEach(rec => {
+          global.BongplaySync.upsert('order_payments', rec);
         });
       }
     } catch (e) {
@@ -762,6 +832,7 @@
       order_id: orderId,
       visit_id: visitId,
       items: orderItems,
+      payments: orderPayments,
       total_amount: orderItems.reduce((sum, it) => sum + it.paid_amount, 0),
       total_quantity: orderItems.reduce((sum, it) => sum + it.quantity, 0)
     };
@@ -783,6 +854,7 @@
         return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
       };
       // 같은 품목이 로컬·서버 양쪽에서 들어와도 한 번만 집계 (id 기준 중복 제거)
+      // 발권취소된 건(status='cancelled')은 실적·마감 집계에서 제외
       const seen = {};
       const filtered = items.filter(it => {
         const key = it.id || it.item_id;
@@ -790,6 +862,7 @@
           if (seen[key]) return false;
           seen[key] = true;
         }
+        if (it.status === 'cancelled') return false;
         return localYmd(it.purchased_at || it.created_at) === dateStr;
       });
 
@@ -815,6 +888,105 @@
       console.warn('[BongplayID] getOrdersByDate error:', e);
       return [];
     }
+  }
+
+  /* ---------- 4-2-2. 결제 수납 원장 조회 / 발권취소 ---------- */
+  // 일자별 결제수단 합계 (취소분 제외) — 마감 3원화 집계의 기준
+  function getPaymentsByDate(dateStr) {
+    if (!dateStr) return [];
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.ORDER_PAYMENTS) || '[]';
+      const list = JSON.parse(raw);
+      if (!Array.isArray(list)) return [];
+      const localYmd = (iso) => {
+        const d = new Date(iso || '');
+        if (isNaN(d.getTime())) return '';
+        const p = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+      };
+      const seen = {};
+      return list.filter(p => {
+        if (p.id) {
+          if (seen[p.id]) return false;
+          seen[p.id] = true;
+        }
+        if (p.status === 'cancelled') return false;
+        return localYmd(p.paid_at || p.created_at) === dateStr;
+      });
+    } catch (e) {
+      console.warn('[BongplayID] getPaymentsByDate error:', e);
+      return [];
+    }
+  }
+
+  // 결제수단 계정별 합계 { cash, local_pay, youth_voucher, card, total } — 취소분 제외
+  function getPaymentTotalsByDate(dateStr) {
+    const totals = { cash: 0, local_pay: 0, youth_voucher: 0, card: 0, total: 0 };
+    getPaymentsByDate(dateStr).forEach(p => {
+      const amt = Number(p.amount || 0);
+      totals.total += amt;
+      const bucket = getPaymentBucket(p.method);
+      totals[bucket] = (totals[bucket] || 0) + amt;
+    });
+    return totals;
+  }
+
+  // 발권취소: 원장을 삭제하지 않고 상태만 cancelled 로 전환 (법정 기록 보존 + 집계 자동 제외)
+  //   대상: order_items(품목) · order_payments(수납) · ticket_ledger(발권)
+  async function cancelOrdersByConsent(consentId, reason) {
+    if (!consentId) return { ok: false, reason: 'no_consent_id' };
+    const now = new Date().toISOString();
+    const patchData = { status: 'cancelled', cancelled_at: now, cancel_reason: reason || '현장 발권취소' };
+    const result = { order_items: 0, order_payments: 0, tickets: 0, order_ids: [] };
+
+    const readList = (key) => {
+      try { const v = JSON.parse(localStorage.getItem(key) || '[]'); return Array.isArray(v) ? v : []; }
+      catch (e) { return []; }
+    };
+    const saveList = (key, list) => {
+      try { localStorage.setItem(key, JSON.stringify(list)); } catch (e) {}
+    };
+
+    // 1) 품목 원장
+    const items = readList(STORAGE_KEYS.ORDER_ITEMS);
+    for (const it of items) {
+      if (it.consent_id === consentId && it.status !== 'cancelled') {
+        Object.assign(it, patchData);
+        result.order_items++;
+        if (it.order_id && result.order_ids.indexOf(it.order_id) === -1) result.order_ids.push(it.order_id);
+        if (global.BongplaySync) await global.BongplaySync.patch('order_items', it.id || it.item_id, patchData);
+      }
+    }
+    saveList(STORAGE_KEYS.ORDER_ITEMS, items);
+
+    // 2) 수납 원장
+    const pays = readList(STORAGE_KEYS.ORDER_PAYMENTS);
+    for (const p of pays) {
+      const linked = p.consent_id === consentId || result.order_ids.indexOf(p.order_id) !== -1;
+      if (linked && p.status !== 'cancelled') {
+        Object.assign(p, patchData);
+        result.order_payments++;
+        if (global.BongplaySync) await global.BongplaySync.patch('order_payments', p.id, patchData);
+      }
+    }
+    saveList(STORAGE_KEYS.ORDER_PAYMENTS, pays);
+
+    // 3) 발권 원장 (ticket_ledger 는 status 컬럼이 active/cancelled)
+    const tickets = readList(STORAGE_KEYS.TICKETS);
+    for (const t of tickets) {
+      const linked = t.consent_id === consentId || result.order_ids.indexOf(t.order_id) !== -1;
+      if (linked && t.status !== 'cancelled') {
+        t.status = 'cancelled';
+        t.cancelled_at = now;
+        result.tickets++;
+        if (global.BongplaySync) {
+          await global.BongplaySync.patch('ticket_ledger', t.ticket_id, { status: 'cancelled', cancelled_at: now }, 'ticket_id');
+        }
+      }
+    }
+    saveList(STORAGE_KEYS.TICKETS, tickets);
+
+    return Object.assign({ ok: true }, result);
   }
 
   /* ---------- 4-3. 시설 이용 이벤트 로거 (P0-3 Facility Usage Events) ---------- */
@@ -1111,7 +1283,12 @@
     try {
       const raw = localStorage.getItem(STORAGE_KEYS.EQUIPMENT_ASSETS) || '[]';
       const list = JSON.parse(raw);
-      return list.map(normalizeEquipmentAsset);
+      const normalized = list.map(normalizeEquipmentAsset);
+      // 복구된 값을 저장해 두어 다음 조회부터는 정상 표시
+      if (raw !== JSON.stringify(normalized)) {
+        try { localStorage.setItem(STORAGE_KEYS.EQUIPMENT_ASSETS, JSON.stringify(normalized)); } catch (e) {}
+      }
+      return normalized;
     } catch (e) { return []; }
   }
 
@@ -3519,6 +3696,14 @@
     isInfant: isInfant,
     isResidentDiscount: isResidentDiscount,
     getOrdersByDate: getOrdersByDate,
+    getPaymentsByDate: getPaymentsByDate,
+    getPaymentTotalsByDate: getPaymentTotalsByDate,
+    PAYMENT_METHODS: PAYMENT_METHODS,
+    getPaymentMethods: getPaymentMethods,
+    getPaymentMethod: getPaymentMethod,
+    getPaymentBucket: getPaymentBucket,
+    buildPayments: buildPayments,
+    cancelOrdersByConsent: cancelOrdersByConsent,
     getProduct: getProduct,
     getFacilityMaster: getFacilityMaster,
     getTarget: getTarget,

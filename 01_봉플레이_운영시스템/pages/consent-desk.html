@@ -433,13 +433,30 @@
             class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs font-mono outline-none">
         </div>
 
-        <!-- 결제수단 -->
+        <!-- 결제수단 (복합 결제 자유 조합) -->
         <div>
-          <p class="text-[11px] text-slate-400 mb-1.5">실물 단말기에서 승인을 마친 뒤, 결제수단을 누르면 발권과 원장 기록이 동시에 완료됩니다.</p>
-          <div class="grid grid-cols-3 gap-2">
-            <button type="button" onclick="confirmPayment('card')" class="py-3.5 rounded-2xl bg-sky-600 hover:bg-sky-500 text-white font-black text-sm shadow">💳 신용/체크카드</button>
-            <button type="button" onclick="confirmPayment('local_pay')" class="py-3.5 rounded-2xl bg-violet-600 hover:bg-violet-500 text-white font-black text-sm shadow">🎫 봉화사랑상품권</button>
-            <button type="button" onclick="confirmPayment('cash')" class="py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-sm shadow">💵 현금</button>
+          <p class="text-[11px] text-slate-400 mb-1.5">
+            실물 단말기 승인 후 결제수단을 누르면 <b class="text-slate-200">잔여금 전액</b>이 그 수단에 배분됩니다.
+            금액을 직접 고치면 여러 수단을 섞어 결제할 수 있습니다. (예: 청소년바우처 + 카드)
+          </p>
+
+          <!-- 수단별 배분 입력 -->
+          <div id="payMethodRows" class="space-y-1.5"></div>
+
+          <!-- 잔여금 & 완료 -->
+          <div class="mt-2 bg-slate-950 border border-slate-800 rounded-2xl p-3 flex items-center justify-between gap-3">
+            <div class="text-xs">
+              <span class="text-slate-400 block text-[10px]">배분 합계 / 결제 금액</span>
+              <span id="payAllocSummary" class="font-mono font-bold text-slate-200">0 / 0 원</span>
+            </div>
+            <div class="text-xs text-right">
+              <span class="text-slate-400 block text-[10px]">미배분 잔여금</span>
+              <span id="payAllocRemain" class="font-mono font-black text-amber-300">0 원</span>
+            </div>
+            <button type="button" id="payConfirmBtn" onclick="confirmPayment()"
+              class="px-5 py-3.5 rounded-2xl bg-brand-600 hover:bg-brand-500 text-white font-black text-sm shadow shrink-0">
+              결제 완료 &amp; 발권
+            </button>
           </div>
         </div>
       </div>
@@ -730,17 +747,33 @@
       return cancelTicketIssue(id);
     }
 
+    // 발권취소: 원장을 삭제하지 않고 cancelled 로 전환 → 실적·마감 집계에서 자동 제외
     async function cancelTicketIssue(id) {
       const item = consents.find(c => c.id === id);
       if (!item) return;
-      if (!confirm('발권을 취소하시겠습니까?\n(이미 기록된 결제 원장은 남습니다. 환불은 단말기에서 별도로 처리하십시오.)')) return;
+      if (!confirm('발권을 취소하시겠습니까?\n\n· 결제·수납·발권 원장이 [취소] 상태로 바뀌어 실적과 마감 집계에서 자동 제외됩니다.\n· 기록 자체는 법정 보존을 위해 남습니다.\n· 실제 환불은 카드 단말기에서 별도로 처리하십시오.')) return;
+
+      const reason = (prompt('취소 사유를 입력하십시오. (예: 고객 요청, 오발권)', '고객 요청') || '현장 발권취소').trim();
+
+      let result = { order_items: 0, order_payments: 0, tickets: 0 };
+      try {
+        result = await BongplayID.cancelOrdersByConsent(item.id, reason);
+      } catch (e) {
+        console.warn('원장 취소 처리 실패:', e);
+        alert('⚠️ 원장 취소 처리 중 오류가 발생했습니다. 마감 전에 금액을 직접 확인해 주십시오.');
+      }
 
       item.isIssued = false;
       item.is_issued = false;
+      item.cancelled_at = new Date().toISOString();
+      item.cancel_reason = reason;
       await BongplaySync.upsert('safety_consents', item);
+
       updateSummaryStats();
       renderAdminList();
       if (selectedConsentId === id) closeDetailModal();
+
+      alert(`↩️ 발권취소 완료\n\n· 품목 원장 ${result.order_items}건 · 수납 원장 ${result.order_payments}건 · 발권 ${result.tickets}매 취소 처리\n· 사유: ${reason}\n· 실적/마감 금액에서 자동 제외됩니다.`);
     }
 
     /* ================= 간이 매표·결제 모달 (BP-008) ================= */
@@ -758,7 +791,7 @@
       const cart = {};
       reco.cart.forEach(l => { cart[l.product_id] = (cart[l.product_id] || 0) + l.quantity; });
 
-      payCtx = { consentId: consentId, cart: cart, residence: reco.residence, morningPreset: reco.isMorningPreset };
+      payCtx = { consentId: consentId, cart: cart, residence: reco.residence, morningPreset: reco.isMorningPreset, alloc: {} };
 
       document.getElementById('payPassCode').textContent = rec.passCode || rec.pass_code || ('BP-' + String(rec.id).slice(0, 6));
       const resident = BongplayID.isResidentDiscount(reco.residence);
@@ -875,9 +908,72 @@
       document.getElementById('payDiscount').textContent = '-' + pricing.summary.discount.toLocaleString() + ' 원';
       document.getElementById('payDiscountLabel').textContent = pricing.summary.rule_label;
       document.getElementById('payTotal').textContent = pricing.summary.total.toLocaleString() + ' 원';
+
+      renderPaymentAllocation();
     }
 
-    async function confirmPayment(method) {
+    /* ---- 복합 결제 배분 (모든 수단 자유 조합) ---- */
+    function renderPaymentAllocation() {
+      if (!payCtx || !payCtx.pricing) return;
+      const total = payCtx.pricing.summary.total;
+      payCtx.alloc = payCtx.alloc || {};
+
+      const rows = BongplayID.getPaymentMethods().map(m => {
+        const amt = Number(payCtx.alloc[m.id] || 0);
+        const active = amt > 0;
+        return `
+          <div class="flex items-center gap-2 bg-slate-950/70 border ${active ? 'border-brand-700/70' : 'border-slate-800'} rounded-xl px-2.5 py-2">
+            <button type="button" onclick="allocRemainTo('${m.id}')"
+              class="shrink-0 px-2.5 py-2 rounded-lg text-xs font-black ${active ? 'bg-brand-600 text-white' : 'bg-slate-800 text-slate-300 hover:text-white'}"
+              title="잔여금 전액을 이 수단으로">${m.icon} ${m.short}</button>
+            <input type="number" min="0" step="100" inputmode="numeric" value="${amt || ''}" placeholder="0"
+              oninput="setAlloc('${m.id}', this.value)"
+              class="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-right font-mono text-sm text-white outline-none">
+            <span class="text-[10px] text-slate-500 shrink-0 w-6">원</span>
+            ${amt > 0 ? `<button type="button" onclick="setAlloc('${m.id}', 0)" class="shrink-0 w-7 h-7 rounded-lg bg-slate-800 text-slate-400 text-xs">×</button>` : '<span class="w-7"></span>'}
+          </div>`;
+      }).join('');
+      document.getElementById('payMethodRows').innerHTML = rows;
+
+      const built = BongplayID.buildPayments(payCtx.alloc, total);
+      payCtx.built = built;
+
+      document.getElementById('payAllocSummary').textContent =
+        `${built.sum.toLocaleString()} / ${total.toLocaleString()} 원`;
+      const remainEl = document.getElementById('payAllocRemain');
+      remainEl.textContent = built.remain.toLocaleString() + ' 원';
+      remainEl.className = 'font-mono font-black ' + (built.remain === 0 ? 'text-emerald-400' : 'text-amber-300');
+
+      const btn = document.getElementById('payConfirmBtn');
+      const ready = built.valid;
+      btn.disabled = !ready;
+      btn.className = ready
+        ? 'px-5 py-3.5 rounded-2xl bg-brand-600 hover:bg-brand-500 text-white font-black text-sm shadow shrink-0'
+        : 'px-5 py-3.5 rounded-2xl bg-slate-800 text-slate-500 font-black text-sm shrink-0 cursor-not-allowed';
+      btn.textContent = ready
+        ? (built.payments.length > 1 ? `복합 결제 완료 (${built.payments.length}건)` : '결제 완료 & 발권')
+        : (built.remain > 0 ? '결제수단을 선택하십시오' : '배분 금액이 총액을 초과했습니다');
+    }
+
+    function allocRemainTo(methodId) {
+      if (!payCtx) return;
+      const total = payCtx.pricing.summary.total;
+      const others = Object.keys(payCtx.alloc || {})
+        .filter(id => id !== methodId)
+        .reduce((s, id) => s + (Number(payCtx.alloc[id]) || 0), 0);
+      payCtx.alloc[methodId] = Math.max(0, total - others);
+      renderPaymentAllocation();
+    }
+
+    function setAlloc(methodId, value) {
+      if (!payCtx) return;
+      const v = Math.max(0, Math.round(Number(value) || 0));
+      if (v === 0) delete payCtx.alloc[methodId];
+      else payCtx.alloc[methodId] = v;
+      renderPaymentAllocation();
+    }
+
+    async function confirmPayment() {
       if (!payCtx || !payCtx.pricing) return;
       const rec = consents.find(c => c.id === payCtx.consentId);
       if (!rec) return;
@@ -897,26 +993,51 @@
       }
 
       const approvalNo = document.getElementById('payApprovalNo').value.trim();
-      if (method === 'card' && !approvalNo) {
+
+      // 배분표 → 결제 건 (단일·복합 동일 경로)
+      const built = payCtx.built || BongplayID.buildPayments(payCtx.alloc || {}, pricing.summary.total);
+      if (!built.valid) {
+        alert(built.remain > 0
+          ? `결제수단 배분이 ${built.remain.toLocaleString()}원 부족합니다.\n수단 버튼을 눌러 잔여금을 배분해 주십시오.`
+          : `배분 금액이 결제 금액을 ${Math.abs(built.remain).toLocaleString()}원 초과했습니다.`);
+        return;
+      }
+
+      // 승인번호는 카드·간편결제 건에만 부여
+      const payments = built.payments.map(p => {
+        const m = BongplayID.getPaymentMethod(p.method);
+        return { method: p.method, amount: p.amount, approval_no: (m && m.needs_approval) ? (approvalNo || null) : null };
+      });
+      const needsApproval = payments.some(p => {
+        const m = BongplayID.getPaymentMethod(p.method);
+        return m && m.needs_approval;
+      });
+      if (needsApproval && !approvalNo) {
         if (!confirm('단말기 승인번호가 비어 있습니다.\n승인번호가 없으면 마감 때 카드 매출 대사가 어렵습니다. 그래도 진행하시겠습니까?')) return;
       }
 
-      const methodLabel = { card: '신용/체크카드', cash: '현금', local_pay: '봉화사랑상품권(지류)' }[method] || method;
-      if (!confirm(`${methodLabel} ${pricing.summary.total.toLocaleString()}원으로 결제 완료 처리합니다.\n(실물 단말기 승인이 끝났는지 확인하십시오)`)) return;
+      // 대표 결제수단: 금액이 가장 큰 수단 (발권 원장 표기용)
+      const primaryMethod = payments.slice().sort((a, b) => b.amount - a.amount)[0].method;
+      const methodLabel = payments
+        .map(p => `${(BongplayID.getPaymentMethod(p.method) || {}).short || p.method} ${p.amount.toLocaleString()}원`)
+        .join(' + ');
+
+      if (!confirm(`${methodLabel} 으로 결제 완료 처리합니다.\n(실물 단말기 승인이 끝났는지 확인하십시오)`)) return;
 
       const now = new Date().toISOString();
       rec.visit_id = rec.visit_id || BongplayID.generateVisitId();
       rec.household_id = rec.household_id || BongplayID.generateHouseholdId(rec.guardianPhone || rec.guardian_phone);
 
-      // 1) 결제 원장 (order_items)
+      // 1) 품목 원장(order_items) + 수납 원장(order_payments, 복합 결제는 2건)
       const order = BongplayID.createOrder({
         visit_id: rec.visit_id,
         sales_channel: 'desk_ticketing',
-        payment_method: method,
+        payment_method: primaryMethod,
         approval_no: approvalNo || null,
         consent_id: rec.id,
         staff_id: 'desk_staff',
-        items: pricing.items
+        items: pricing.items,
+        payments: payments
       });
 
       // 2) 발권 원장 (ticket_ledger) — 입장권 계열 1매씩, 단가 포함
@@ -939,7 +1060,7 @@
             product_name: it.product_name,
             ticket_type: it.product_id === 'tkt_guardian' ? 'adult' : (it.product_id === 'tkt_infant_free' ? 'infant' : 'child'),
             price_paid: unitPaid,
-            payment_method: method,
+            payment_method: primaryMethod,
             issued_at: now,
             status: 'active'
           });
@@ -958,7 +1079,7 @@
       updateSummaryStats();
       renderAdminList();
 
-      alert(`✅ 발권 완료\n\n· 결제: ${methodLabel} ${pricing.summary.total.toLocaleString()}원${approvalNo ? ' (승인 ' + approvalNo + ')' : ''}\n· 발권: ${ticketIds.length}매 (손목 띠지 출력 후 게이트 안내)\n· 원장: 결제·발권·실적·마감에 자동 반영되었습니다.`);
+      alert(`✅ 발권 완료\n\n· 결제: ${methodLabel}${approvalNo ? ' (승인 ' + approvalNo + ')' : ''}\n· 발권: ${ticketIds.length}매 (손목 띠지 교부 후 게이트 안내)\n· 원장: 결제·수납·발권·실적·마감에 자동 반영되었습니다.`);
     }
 
     // 8. Detail Modal

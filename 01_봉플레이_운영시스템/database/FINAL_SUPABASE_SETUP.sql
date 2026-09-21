@@ -1,7 +1,7 @@
 -- ============================================================
 -- 🌟 봉플레이 운영시스템 — 최종 통합 마스터 DB 설정 스크립트 (FINAL_SUPABASE_SETUP.sql)
 -- ------------------------------------------------------------
--- 버전: v2026.FINAL-r3 (2026-09-20 발권·결제 안전 인터록 DB 트리거 강제)
+-- 버전: v2026.FINAL-r4 (2026-09-20 복합 결제 수납원장 + 발권취소 상태 전환)
 -- 포함 내용:
 --   1. 전체 29개 테이블 스키마 및 최신 컬럼 정의 (IF NOT EXISTS)
 --   1-12. 프런트 기록 필드 ↔ DB 컬럼 정합성 보강 (결제수단·사고연계·마감잠금 등)
@@ -12,6 +12,7 @@
 --   5-4. 마감 확정 후 원장 수정 차단
 --   5-7. pg_cron 새벽 3시 자동 마스킹
 --   5-8. [P0] 발권·결제 안전 인터록 DB 트리거 강제 (클라이언트 우회 차단)
+--   1-1b/1-1c. 발권취소 상태 전환(status=cancelled) 및 복합 결제 수납원장(order_payments)
 -- ------------------------------------------------------------
 -- 실행 방법:
 --   1. https://supabase.com 접속 ➔ 봉플레이 프로젝트 선택
@@ -424,6 +425,38 @@ alter table public.order_items add column if not exists discount_rule    text;  
 alter table public.order_items add column if not exists consent_id       text;   -- 매표 데스크 발권 시 연계 서약서
 create index if not exists idx_order_items_purchased on public.order_items (purchased_at desc);
 
+-- (1-1b) 발권취소 시 원장을 지우지 않고 상태만 전환 (법정 기록 보존 + 실적 자동 제외)
+alter table public.order_items add column if not exists status        text default 'paid';  -- paid / cancelled
+alter table public.order_items add column if not exists cancelled_at  timestamptz;
+alter table public.order_items add column if not exists cancel_reason text;
+create index if not exists idx_order_items_status on public.order_items (status);
+create index if not exists idx_order_items_consent on public.order_items (consent_id);
+
+-- (1-1c) order_payments: 한 주문의 결제수단별 실제 수납 내역 (복합 결제 지원)
+--   품목 원장(order_items)은 "무엇을 팔았나", 이 표는 "무엇으로 얼마를 받았나"를 기록한다.
+--   지류 상품권 35,000 + 현금 2,600 처럼 한 주문에 여러 줄이 생길 수 있으며,
+--   마감 정산의 현금/상품권/카드 3원화 집계는 이 표를 기준으로 한다.
+create table if not exists public.order_payments (
+  id            text primary key,
+  order_id      text not null,
+  site_id       text default 'bongplay_bonghwa',
+  consent_id    text,
+  visit_id      text,
+  method        text not null,                 -- card / cash / local_pay / mobile_pay
+  amount        bigint not null default 0,
+  approval_no   text,                          -- 외부 단말기 승인번호 (카드)
+  paid_at       timestamptz default now(),
+  status        text default 'paid',           -- paid / cancelled
+  cancelled_at  timestamptz,
+  cancel_reason text,
+  staff_id      text,
+  device_id     text,
+  device_label  text,
+  updated_at    timestamptz default now()
+);
+create index if not exists idx_order_payments_paid on public.order_payments (paid_at desc);
+create index if not exists idx_order_payments_order on public.order_payments (order_id);
+
 -- (1-2) ticket_ledger: 발권 사실만 남고 금액·결제수단이 없어 마감 대사가 불가능했음
 alter table public.ticket_ledger add column if not exists order_id       text;
 alter table public.ticket_ledger add column if not exists product_id     text;
@@ -431,7 +464,9 @@ alter table public.ticket_ledger add column if not exists product_name   text;
 alter table public.ticket_ledger add column if not exists price_paid     bigint default 0;
 alter table public.ticket_ledger add column if not exists payment_method text;
 alter table public.ticket_ledger add column if not exists consent_id     text;
+alter table public.ticket_ledger add column if not exists cancelled_at   timestamptz;
 create index if not exists idx_ticket_ledger_order on public.ticket_ledger (order_id);
+create index if not exists idx_ticket_ledger_consent on public.ticket_ledger (consent_id);
 
 -- (2) incident_logs: 비상 키오스크 사고 보고 (emergency.html) + 디스코드 트리거 참조 컬럼
 alter table public.incident_logs add column if not exists incident_date      date default current_date;
@@ -464,6 +499,8 @@ alter table public.closing_records add column if not exists voucher      jsonb;
 alter table public.closing_records add column if not exists system_voucher bigint default 0;
 alter table public.closing_records add column if not exists voucher_actual bigint default 0;
 alter table public.closing_records add column if not exists voucher_diff   bigint default 0;
+-- 봉화 청소년 바우처(youth_voucher): 실물 시재가 아니라 지자체 정산 청구 대상
+alter table public.closing_records add column if not exists system_youth_voucher bigint default 0;
 alter table public.closing_records add column if not exists raw_payload  jsonb;
 alter table public.closing_records add column if not exists is_locked    boolean not null default false;
 alter table public.closing_records add column if not exists locked_at    timestamptz;
@@ -504,6 +541,7 @@ alter table incident_logs                 enable row level security;
 alter table complaint_logs                enable row level security;
 alter table ticket_ledger                 enable row level security;
 alter table order_items                   enable row level security;
+alter table order_payments                enable row level security;
 alter table facility_usage_events         enable row level security;
 alter table congestion_telemetry          enable row level security;
 alter table operator_action_logs          enable row level security;
@@ -844,7 +882,7 @@ declare
   t text;
   tables text[] := array[
     'sales_records', 'group_bookings', 'incident_logs',
-    'complaint_logs', 'ticket_ledger', 'order_items', 'facility_usage_events',
+    'complaint_logs', 'ticket_ledger', 'order_items', 'order_payments', 'facility_usage_events',
     'congestion_telemetry', 'operator_action_logs', 'asset_measurements',
     'equipment_assets', 'facility_operating_intervals', 'marketing_campaigns',
     'customer_experience_surveys', 'staff_shifts', 'staff_assignment_events',
@@ -948,6 +986,12 @@ create trigger trg_safety_interlock
   before insert or update on public.order_items
   for each row execute function private.trg_safety_interlock();
 
+-- 복합 결제 수납 원장도 동일하게 서버 강제
+drop trigger if exists trg_safety_interlock on public.order_payments;
+create trigger trg_safety_interlock
+  before insert or update on public.order_payments
+  for each row execute function private.trg_safety_interlock();
+
 -- 트리거 함수는 PUBLIC 기본 EXECUTE 권한을 가져서는 안 된다.
 revoke all on function private.trg_safety_interlock() from public, anon, authenticated;
 
@@ -977,9 +1021,9 @@ order by tablename;
 select
   '안전 인터록 트리거 수' as check_item,
   count(*) as count,
-  case when count(*) = 2 then 'PASS (ticket_ledger/order_items 서버 강제 작동)'
+  case when count(*) = 3 then 'PASS (ticket_ledger/order_items/order_payments 서버 강제 작동)'
        else 'FAIL (5-8절 트리거 미등록 — 이 파일을 다시 실행하세요)' end as status
 from pg_trigger
 where tgname = 'trg_safety_interlock'
-  and tgrelid in ('public.ticket_ledger'::regclass, 'public.order_items'::regclass)
+  and tgrelid in ('public.ticket_ledger'::regclass, 'public.order_items'::regclass, 'public.order_payments'::regclass)
   and not tgisinternal;

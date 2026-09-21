@@ -304,9 +304,18 @@
                 </div>
               </div>
 
+              <!-- 봉화 청소년 바우처: 실물 보관 대상이 아니라 지자체 정산 청구 대상 -->
+              <div class="mt-3 p-3 rounded-xl border border-amber-800/50 bg-amber-950/20 flex items-center justify-between text-xs">
+                <div>
+                  <span class="text-slate-400 block text-[10px]">🧒 봉화 청소년 바우처 (전산)</span>
+                  <span class="text-[10px] text-amber-200/70">실물 시재 아님 · 지자체 정산 청구 대상</span>
+                </div>
+                <span id="systemYouthVoucherText" class="font-mono font-black text-amber-300">0원</span>
+              </div>
+
               <div id="voucherBalanceCard" class="mt-3 p-3 rounded-xl border border-slate-700 bg-slate-950 flex items-center justify-between text-xs">
                 <div>
-                  <span class="text-slate-400 block text-[10px]">전산 상품권 판매액</span>
+                  <span class="text-slate-400 block text-[10px]">전산 지류상품권 판매액</span>
                   <span id="systemVoucherText" class="font-mono font-bold text-violet-300">0원</span>
                 </div>
                 <div>
@@ -586,7 +595,7 @@
     <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #444; padding-top: 8px; font-size: 8pt;">
       <span>리틀포레스트 봉플레이 운영팀</span>
       <span>
-        마감책임자 확인 서명: <b id="prtSignName">홍성현</b> &nbsp;&nbsp; (서명 / 인)
+        마감책임자 확인 서명: <b id="prtSignName">-</b> &nbsp;&nbsp; (서명 / 인)
       </span>
     </div>
   </div>
@@ -779,6 +788,9 @@
       sysEl.innerText = system.toLocaleString() + '원';
       actEl.innerText = actual.toLocaleString() + '원';
 
+      const youthEl = document.getElementById('systemYouthVoucherText');
+      if (youthEl) youthEl.innerText = (systemLedger.youth || 0).toLocaleString() + '원';
+
       if (diff === 0) {
         diffEl.innerText = '일치 (±0원)';
         diffEl.className = 'font-black text-emerald-400';
@@ -860,7 +872,7 @@
     //   · 원장이 연동되면 현금 매출 칸은 읽기 전용이 됩니다. (사람이 장부 금액을 고칠 수 없음)
     //   · 결제수단 3원화: 현금(cash) / 지류 상품권(local_pay) / 카드·간편결제(card 등)
     //     지류 상품권은 실물이 금고에 보관되므로 현금과 별도로 실사·대조합니다.
-    let systemLedger = { linked: false, cash: 0, card: 0, voucher: 0, orderCount: 0, ticketRevenue: 0, fnbRevenue: 0 };
+    let systemLedger = { linked: false, cash: 0, card: 0, voucher: 0, youth: 0, orderCount: 0, ticketRevenue: 0, fnbRevenue: 0 };
 
     function syncSystemLedger() {
       const todayStr = document.getElementById('closingDate').value || (BongplaySync ? BongplaySync.toLocalDateStr(new Date()) : new Date().toISOString().slice(0, 10));
@@ -875,30 +887,40 @@
       } catch (e) { orders = []; }
 
       if (orders.length > 0) {
-        let cash = 0, card = 0, voucher = 0, fnb = 0;
+        let fnb = 0;
         orders.forEach(ord => {
-          const amt = Number(ord.final_amount || 0);
-          if (ord.payment_method === 'cash') cash += amt;
-          else if (ord.payment_method === 'local_pay') voucher += amt;
-          else card += amt;
           (ord.items || []).forEach(it => {
             if ((it.product_category || it.category) === 'fnb') fnb += Number(it.paid_amount || 0);
           });
         });
+
+        // 결제수단별 금액은 수납 원장(order_payments) 기준 — 복합 결제(바우처+카드 등)를 정확히 분해
+        const totals = BongplayID.getPaymentTotalsByDate(todayStr);
+        let cash = totals.cash, card = totals.card, voucher = totals.local_pay;
+        let youth = totals.youth_voucher || 0;
+        if (totals.total === 0) {
+          // 수납 원장이 없는 구버전 주문 대비 폴백 (주문 단위 결제수단)
+          orders.forEach(ord => {
+            const amt = Number(ord.final_amount || 0);
+            if (ord.payment_method === 'cash') cash += amt;
+            else if (ord.payment_method === 'local_pay') voucher += amt;
+            else card += amt;
+          });
+        }
         systemLedger = {
-          linked: true, cash: cash, card: card, voucher: voucher,
-          orderCount: orders.length, ticketRevenue: cash + card + voucher - fnb, fnbRevenue: fnb
+          linked: true, cash: cash, card: card, voucher: voucher, youth: youth,
+          orderCount: orders.length, ticketRevenue: cash + card + voucher + youth - fnb, fnbRevenue: fnb
         };
 
         cashInput.value = cash;
         cashInput.readOnly = true;
         cashInput.title = 'POS 결제 원장에서 자동 집계된 값입니다 (수정 불가)';
         if (badge) {
-          badge.innerHTML = `🔒 결제원장 연동: 현금 ${cash.toLocaleString()} / 상품권 ${voucher.toLocaleString()} / 카드 ${card.toLocaleString()}원 (${orders.length}건)`;
+          badge.innerHTML = `🔒 결제원장 연동: 현금 ${cash.toLocaleString()} / 지류상품권 ${voucher.toLocaleString()} / 청소년바우처 ${youth.toLocaleString()} / 카드 ${card.toLocaleString()}원 (${orders.length}건)`;
           badge.className = 'text-[10px] text-emerald-400 font-bold block mt-0.5';
         }
       } else {
-        systemLedger = { linked: false, cash: 0, card: 0, voucher: 0, orderCount: 0, ticketRevenue: 0, fnbRevenue: 0 };
+        systemLedger = { linked: false, cash: 0, card: 0, voucher: 0, youth: 0, orderCount: 0, ticketRevenue: 0, fnbRevenue: 0 };
         cashInput.readOnly = false;
         cashInput.title = '';
 
@@ -1047,6 +1069,7 @@
           system_voucher: systemLedger.voucher || 0,
           voucher_actual: actualVoucher,
           voucher_diff: voucherDiff,
+          system_youth_voucher: systemLedger.youth || 0,
           notes: data.notes,
           voucher: data.voucher,
           raw_payload: data,
