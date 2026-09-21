@@ -105,6 +105,12 @@ create table if not exists public.safety_audits (
   updated_at    timestamptz default now()
 );
 alter table public.safety_audits add column if not exists signature_data text;
+-- 점검 실시 시각·기상은 법정 일지 인쇄본에 그대로 출력되어야 하므로 별도 보존
+-- (audit_date 만 저장하던 탓에 클라우드에서 다시 불러오면 시각이 10:00 으로, 기온이 기본값으로 바뀌었음)
+alter table public.safety_audits add column if not exists audit_at    timestamptz;
+alter table public.safety_audits add column if not exists weather     text;
+alter table public.safety_audits add column if not exists temperature text;
+alter table public.safety_audits add column if not exists manager     text;
 
 -- 1-4. 마감 정산 보드
 create table if not exists public.closing_records (

@@ -94,8 +94,9 @@
         color: #000 !important;
         margin: 0 !important;
         padding: 0 !important;
-        font-size: 7pt !important;
-        line-height: 1.15 !important;
+        /* A4 1장에 맞추되 과도한 축소로 여백이 남지 않도록 본문 크기를 키움 */
+        font-size: 7.4pt !important;
+        line-height: 1.22 !important;
         -webkit-print-color-adjust: exact !important;
         print-color-adjust: exact !important;
       }
@@ -113,18 +114,29 @@
         max-width: 100% !important;
         box-sizing: border-box !important;
         page-break-inside: avoid !important;
+        /* 페이지 높이를 채워 하단 여백이 크게 남지 않도록 */
+        min-height: 268mm !important;
+        display: flex !important;
+        flex-direction: column !important;
+      }
+      #officialPrintReport .fill-rest {
+        flex: 1 1 auto !important;
       }
       .official-table {
         border-collapse: collapse !important;
         width: 100% !important;
-        margin-bottom: 3px !important;
+        margin-bottom: 5px !important;
       }
       .official-table th, .official-table td {
         border: 1px solid #222 !important;
-        padding: 1.5px 3px !important;
-        font-size: 6.8pt !important;
-        line-height: 1.15 !important;
+        padding: 2px 3.5px !important;
+        font-size: 7pt !important;
+        line-height: 1.2 !important;
         vertical-align: middle !important;
+      }
+      /* 본문 내 작은 글씨들도 최소 가독 크기 확보 */
+      #officialPrintReport [style*="6.5pt"], #officialPrintReport [style*="6.8pt"] {
+        font-size: 7.4pt !important;
       }
       .official-table th {
         background-color: #f1f5f9 !important;
@@ -544,9 +556,9 @@
       </tr>
       <tr>
         <th style="text-align: center;">현장점검자</th>
-        <td id="p-inspector" style="font-weight: bold;">홍성현</td>
+        <td id="p-inspector" style="font-weight: bold;">-</td>
         <th style="text-align: center;">안전관리책임자</th>
-        <td id="p-manager" style="font-weight: bold;">홍성현 (010-5931-4144)</td>
+        <td id="p-manager" style="font-weight: bold;">-</td>
       </tr>
       <tr>
         <th style="text-align: center;">종합 판정</th>
@@ -572,12 +584,13 @@
       </tbody>
     </table>
 
-    <!-- Deficiencies and Action Taken Summary Box -->
-    <div style="border: 1px solid #111; padding: 3px 5px; margin-bottom: 3px; font-size: 6.8pt;">
-      <div style="font-weight: bold; margin-bottom: 1px;">[지적사항 및 즉각 정비·조치 결과]</div>
-      <div id="p-actionNotes" style="min-height: 18px; white-space: pre-wrap; line-height: 1.25;">
+    <!-- Deficiencies and Action Taken Summary Box (남는 지면을 이 영역이 채움) -->
+    <div class="fill-rest" style="border: 1px solid #111; padding: 5px 7px; margin-bottom: 5px; font-size: 6.8pt; display: flex; flex-direction: column;">
+      <div style="font-weight: bold; margin-bottom: 3px;">[지적사항 및 즉각 정비·조치 결과]</div>
+      <div id="p-actionNotes" style="min-height: 46px; white-space: pre-wrap; line-height: 1.4; flex: 1 1 auto;">
         특이사항 없음. 전 구역 놀이기구 및 소방·응급 구호 장비 정상 가동 확인 완료.
       </div>
+      <div id="p-measure-summary" style="margin-top: 4px; padding-top: 3px; border-top: 1px dashed #999; line-height: 1.45;"></div>
     </div>
 
     <!-- Official Confirmation & Signatures -->
@@ -590,7 +603,7 @@
       
       <div style="display: flex; justify-content: space-around; align-items: center; padding: 0 20px;">
         <div style="display: flex; align-items: center; gap: 8px;">
-          <span>현장점검자: <b id="p-inspector-sign-name">홍성현</b></span>
+          <span>현장점검자: <b id="p-inspector-sign-name">-</b></span>
           <div style="width: 60px; height: 22px; border: 1px dashed #777; display: flex; align-items: center; justify-content: center; position: relative;">
             <img id="p-sign-img-inspector" style="max-height: 100%; max-width: 100%; object-fit: contain; display: none;">
             <span id="p-sign-text-inspector" style="font-size: 6.5pt; color: #888;">(서명)</span>
@@ -598,7 +611,7 @@
         </div>
 
         <div style="display: flex; align-items: center; gap: 8px;">
-          <span>안전관리책임자: <b id="p-manager-sign-name">홍성현</b></span>
+          <span>안전관리책임자: <b id="p-manager-sign-name">-</b></span>
           <div style="width: 60px; height: 22px; border: 1px dashed #777; display: flex; align-items: center; justify-content: center; position: relative;">
             <img id="p-sign-img-manager" style="max-height: 100%; max-width: 100%; object-fit: contain; display: none;">
             <span id="p-sign-text-manager" style="font-size: 6.5pt; color: #888;">(인)</span>
@@ -927,12 +940,13 @@
     // Data definition for 22 items with causal link keys (facility_id, asset_id)
     const inspectionItems = [
       // 1. 야외 포레스트 어드벤처 & 짚라인
-      { id: '1_1', facility_id: 'outdoor_coaster', asset_id: 'zip_wire_main', group: '야외 어드벤처', sub: '짚라인', title: '[짚라인] 메인 와이어 장력 및 마모 상태', desc: '출발대~도착대 와이어 처짐 없음, 꼬임/단선/소선 끊김 현상 없음 확인' },
+      { id: '1_1', facility_id: 'outdoor_coaster', asset_id: 'zip_rail_main', group: '야외 어드벤처', sub: '짚라인(레일)', title: '[짚라인] 주행 레일 이음부 단차 및 마모 상태', desc: '레일형 주행부 — 이음부 단차/유격 없음, 레일 표면 마모·변형·이물질 없음, 고정 볼트 풀림 없음' },
       { id: '1_2', facility_id: 'outdoor_coaster', asset_id: 'zip_trolley_01', group: '야외 어드벤처', sub: '짚라인', title: '[짚라인] 롤러 트롤리 & 완충 스프링 브레이크', desc: '도착지 스프링 완충기 볼트 결속 확인, 트롤리 베어링 회전 소음 및 유격 점검' },
       { id: '1_3', facility_id: 'outdoor_coaster', asset_id: 'zip_harness_02', group: '야외 어드벤처', sub: '보호장구', title: '[하네스/헬멧] 안전 보호구 결속 및 위생 소독', desc: '어린이 및 성인용 전신 하네스 웨빙 헤짐 없음, 카라비너 잠금장치 정상 작동' },
       { id: '1_4', facility_id: 'outdoor_net', asset_id: 'net_tree_anchor', group: '야외 어드벤처', sub: '네트어드벤처', title: '[네트 어드벤처] 로프 결속 및 지지목 브래킷', desc: '네트 그물코 찢어짐 없음, 수목 보호대 이탈 없음, 2중 안전 샤클 체결 상태' },
       { id: '1_5', facility_id: 'outdoor_coaster', asset_id: 'outdoor_ground_bark', group: '야외 어드벤처', sub: '하강바닥', title: '[하강구역 바닥] 우드칩(바크) 충격흡수재 두께(25cm)', desc: '낙하 위험구역 바크 포설 두께 25cm 이상 유지, 뾰족한 돌/유리 이물질 제거' },
       { id: '1_6', facility_id: 'outdoor_deck', asset_id: 'outdoor_deck_railing', group: '야외 어드벤처', sub: '데크시설', title: '[출발/도착 데크] 안전 난간 흔들림 및 미끄럼방지', desc: '목재 데크 결함(가시 돋침) 없음, 계단 미끄럼 방지 패드 부착 상태 양호' },
+      { id: '1_7', facility_id: 'outdoor_coaster', asset_id: 'zip_support_wire', group: '야외 어드벤처', sub: '지지구조', title: '[지지 와이어] 기둥 간 지지(가이드) 와이어 장력 및 고정', desc: '기둥과 기둥 사이 지지 와이어 늘어짐·꼬임 없음, 턴버클/클립 체결 및 기둥 앵커 고정 상태 확인' },
 
       // 2. 실내 놀이동
       { id: '2_1', facility_id: 'indoor_junglegym', asset_id: 'jg_padding_bolts', group: '실내 놀이동', sub: '정글짐', title: '[대형 정글짐] 안전 폼패딩 마감 및 연결 볼트 너트', desc: '스틸 파이프 외벽 보호 쿠션 찢어짐 없음, 노출된 볼트 캡 마감 이상 없음' },
@@ -941,13 +955,17 @@
       { id: '2_4', facility_id: 'indoor_foampit', asset_id: 'foampit_balls_clean', group: '실내 놀이동', sub: '볼풀/유아', title: '[볼풀장 & 토들러존] 찌그러진 공 수거 및 위생 소독', desc: '깨지거나 찌그러진 공 분리 수거, 편백나무 큐브 이물질 선별 및 분무 소독' },
       { id: '2_5', facility_id: 'indoor_junglegym', asset_id: 'indoor_fall_net', group: '실내 놀이동', sub: '추락방지망', title: '[추락방지 안전망] 2층 구조물 그물망 결속 상태', desc: '어린이 머리/손 끼임 방지 규격(8.9cm 이하 망목) 유지, 지퍼 마감 확인' },
       { id: '2_6', facility_id: 'indoor_cafe', asset_id: 'indoor_hvac_floor', group: '실내 놀이동', sub: '실내환경', title: '[실내 공조 및 바닥재] 환기 시스템 및 바닥 미끄럼', desc: '공기청정 환기 디퓨저 가동, 음료 쏟음 등 미끄럼 위험 구역 건조 및 청결' },
+      { id: '2_7', facility_id: 'indoor_junglegym', asset_id: 'indoor_climbing_wall', group: '실내 놀이동', sub: '클라이밍', title: '[클라이밍 월] 홀드 볼트 조임 및 착지 매트', desc: '홀드 전수 손으로 돌려 조임 상태 확인(헐거움·회전 없음), 볼트 탈락 없음, 하부 착지 매트 밀림·들뜸 없음' },
+      { id: '2_8', facility_id: 'indoor_cafe', asset_id: 'indoor_restroom', group: '실내 놀이동', sub: '휴게실/화장실', title: '[휴게실·화장실] 청결 상태 및 위생 소모품', desc: '바닥 물기·미끄럼 제거, 변기·세면대 청소 완료, 휴지·비누·소독제 보충, 악취 및 배수 막힘 없음' },
 
-      // 3. 야외 플레이존
-      { id: '3_1', facility_id: 'outdoor_sand', asset_id: 'sand_screen_mesh', group: '야외 플레이존', sub: '모래놀이', title: '[모래놀이터] 모래 이물질 및 동물 배설물 검사', desc: '모래 전면 갈퀴질 완료, 덮개 차광막 개방 후 건조, 유리조각 등 위험물 전무' },
-      { id: '3_2', facility_id: 'outdoor_sled', asset_id: 'sled_turf_pegs', group: '야외 플레이존', sub: '슬로프썰매', title: '[슬로프 썰매장] 언덕 슬로프 인조잔디 고정 핀 돌출', desc: '잔디 매트 고정용 스틸 팩 돌출 여부 전수 확인, 하부 완충 블록 정상' },
-      { id: '3_3', facility_id: 'outdoor_water', asset_id: 'water_drain_valves', group: '야외 플레이존', sub: '수로/세족', title: '[체험 수로/세족장] 수질 청결 및 배수 밸브 상태', desc: '세족장 배수구 막힘 없음, 야외 수도꼭지 누수 없음, 미끄럼 방지 발판' },
+      // 3. 야외 플레이존 (3_1~3_3 은 미구축 — 조성 완료 후 잠금 해제)
+      { id: '3_1', locked: true, lock_reason: '미구축 (조성 예정)', facility_id: 'outdoor_sand', asset_id: 'sand_screen_mesh', group: '야외 플레이존', sub: '모래놀이', title: '[모래놀이터] 모래 이물질 및 동물 배설물 검사', desc: '모래 전면 갈퀴질 완료, 덮개 차광막 개방 후 건조, 유리조각 등 위험물 전무' },
+      { id: '3_2', locked: true, lock_reason: '미구축 (조성 예정)', facility_id: 'outdoor_sled', asset_id: 'sled_turf_pegs', group: '야외 플레이존', sub: '슬로프썰매', title: '[슬로프 썰매장] 언덕 슬로프 인조잔디 고정 핀 돌출', desc: '잔디 매트 고정용 스틸 팩 돌출 여부 전수 확인, 하부 완충 블록 정상' },
+      { id: '3_3', locked: true, lock_reason: '미구축 (조성 예정)', facility_id: 'outdoor_water', asset_id: 'water_drain_valves', group: '야외 플레이존', sub: '수로/세족', title: '[체험 수로/세족장] 수질 청결 및 배수 밸브 상태', desc: '세족장 배수구 막힘 없음, 야외 수도꼭지 누수 없음, 미끄럼 방지 발판' },
       { id: '3_4', facility_id: 'outdoor_water', asset_id: 'well_lock_cover', group: '야외 플레이존', sub: '토목/관정', title: '[토목/관정 기반] 관정 덮개 잠금 및 사면 배수로', desc: '지하수 관정 보호 덮개 시건장치 확인, 토사 유실 방지 배수로 그레이팅 유격 없음' },
       { id: '3_5', facility_id: 'outdoor_deck', asset_id: 'sunshade_rope_pegs', group: '야외 플레이존', sub: '차광막', title: '[야외 차광막/텐트] 팩 지지 로프 결속 및 안전플래그', desc: '강풍 대비 스트링 장력 확인, 노란색 안전 플래그(어린이 걸림 방지) 장착' },
+      { id: '3_6', facility_id: 'outdoor_deck', asset_id: 'outdoor_playzone_deck', group: '야외 플레이존', sub: '데크', title: '[야외 데크] 바닥판 고정·단차 및 미끄럼 상태', desc: '데크 판재 들뜸·갈라짐·가시 돋침 없음, 고정 피스 돌출 없음, 우천 후 미끄럼·결빙 구간 확인' },
+      { id: '3_7', facility_id: 'outdoor_deck', asset_id: 'outdoor_pa_speaker', group: '야외 플레이존', sub: '방송설비', title: '[스피커/장내방송] 야외 스피커 송출 테스트', desc: '개장 전 시험 방송 1회 송출, 전 구역 음량 도달 확인, 비상 안내방송 정상 동작' },
 
       // 4. 소방 / 응급 / 방역
       { id: '4_1', facility_id: 'indoor_cafe', asset_id: 'aed_battery_pack', group: '소방/응급구호', sub: '구급/AED', title: '[구급약품함 & AED] 의약품 유효기간 및 AED 배터리', desc: '소독약, 멸균거즈, 붕대, 밴드 수량 확보 및 AED 자체진단 정상 녹색불 점등' },
@@ -983,16 +1001,16 @@
               <i data-lucide="gauge" class="w-3 h-3 mr-1"></i>정량 실측(P0-6)
             </span>
             <label class="flex items-center gap-1 text-[11px] text-slate-600">
-              <span>장력:</span>
-              <input type="number" step="0.1" id="meas_1_1_tension" placeholder="8.5" class="w-14 px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded font-mono text-center"> kN
+              <span>레일 이음부 단차:</span>
+              <input type="number" step="0.1" id="meas_1_1_gap" placeholder="0.5" class="w-14 px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded font-mono text-center"> mm
             </label>
             <label class="flex items-center gap-1 text-[11px] text-slate-600">
-              <span>처짐량:</span>
-              <input type="number" step="0.5" id="meas_1_1_sag" placeholder="12" class="w-14 px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded font-mono text-center"> cm
+              <span>레일 처짐량:</span>
+              <input type="number" step="0.5" id="meas_1_1_sag" placeholder="3" class="w-14 px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded font-mono text-center"> mm
             </label>
             <label class="flex items-center gap-1 text-[11px] text-slate-600">
-              <span>소선파손:</span>
-              <input type="number" step="1" id="meas_1_1_strands" placeholder="0" class="w-12 px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded font-mono text-center"> 개
+              <span>고정볼트 풀림:</span>
+              <input type="number" step="1" id="meas_1_1_bolts" placeholder="0" class="w-12 px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded font-mono text-center"> 개
             </label>
           </div>
         `;
@@ -1101,9 +1119,28 @@
         else if (item.id.startsWith('4_')) container = gSaf;
 
         const row = document.createElement('div');
-        row.className = 'p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 check-item border-b border-slate-100 last:border-0 hover:bg-slate-50/70 transition';
+        row.className = 'p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 check-item border-b border-slate-100 last:border-0 hover:bg-slate-50/70 transition'
+          + (item.locked ? ' bg-slate-100/80 opacity-70' : '');
         row.setAttribute('data-id', item.id);
-        const measurementHtml = getMeasurementInputHtml(item.id);
+        const measurementHtml = item.locked ? '' : getMeasurementInputHtml(item.id);
+
+        // 미구축 시설: 점검 대상에서 제외 (잠금). 조성 완료 후 locked 속성만 제거하면 즉시 복귀
+        if (item.locked) {
+          row.innerHTML = `
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center space-x-2 flex-wrap gap-y-0.5">
+                <span class="font-mono font-black text-xs text-slate-500 bg-slate-200 border border-slate-300 px-1.5 py-0.2 rounded">${item.id.replace('_', '-')}</span>
+                <h4 class="text-sm font-bold text-slate-500 line-through">${item.title}</h4>
+                <span class="text-[10px] font-black px-2 py-0.5 rounded-full bg-slate-700 text-white">🔒 ${item.lock_reason || '점검 제외'}</span>
+              </div>
+              <p class="text-xs text-slate-400 mt-1 leading-relaxed">시설 조성 완료 후 점검 항목으로 전환됩니다. (현재 점검 대상·판정 집계에서 제외)</p>
+            </div>
+            <div class="shrink-0 text-xs font-bold text-slate-400 px-3">해당 없음</div>
+          `;
+          container.appendChild(row);
+          return;
+        }
+
         row.innerHTML = `
           <div class="flex-1 min-w-0">
             <div class="flex items-center space-x-2 flex-wrap gap-y-0.5">
@@ -1144,6 +1181,10 @@
         canvas.width = canvas.offsetWidth * ratio;
         canvas.height = canvas.offsetHeight * ratio;
         canvas.getContext('2d').scale(ratio, ratio);
+        // 크기 변경으로 지워진 서명을 원본에서 복원
+        if (signaturePad && lastSignatureData) {
+          try { signaturePad.fromDataURL(lastSignatureData); } catch (e) {}
+        }
       }
       window.addEventListener('resize', resizeCanvas);
       resizeCanvas();
@@ -1158,9 +1199,14 @@
       signaturePad.addEventListener('beginStroke', () => {
         document.getElementById('signPlaceholder').classList.add('hidden');
       });
+      // 획이 끝날 때마다 원본 보관
+      signaturePad.addEventListener('endStroke', () => {
+        lastSignatureData = signaturePad.isEmpty() ? null : signaturePad.toDataURL();
+      });
     }
 
     function clearSignature() {
+      lastSignatureData = null;
       if (signaturePad) {
         signaturePad.clear();
         document.getElementById('signPlaceholder').classList.remove('hidden');
@@ -1193,8 +1239,10 @@
     }
 
     function markAllPass() {
-      initDateTime(); // 항상 현재 시각으로 일시 갱신
-      inspectionItems.forEach(item => {
+      // 점검 일시는 덮어쓰지 않는다.
+      // (09:30 에 점검하고 이 버튼을 누르면 시각이 현재로 바뀌어 기록부에 잘못 찍히던 문제)
+      initDateTime(); // 비어 있을 때만 현재 시각으로 채움
+      activeInspectionItems().forEach(item => {   // 미구축(잠금) 항목 제외
         currentChecklist[item.id] = '양호';
         renderItemButtons(item.id, '양호');
       });
@@ -1204,9 +1252,9 @@
         const el = document.getElementById(id);
         if (el && !el.value) el.value = val;
       };
-      setVal('meas_1_1_tension', 8.5);
-      setVal('meas_1_1_sag', 12);
-      setVal('meas_1_1_strands', 0);
+      setVal('meas_1_1_gap', 0.5);
+      setVal('meas_1_1_sag', 3);
+      setVal('meas_1_1_bolts', 0);
       setVal('meas_1_2_noise', 42);
       setVal('meas_1_2_play', 0.5);
       setVal('meas_1_4_tension', 3.2);
@@ -1231,7 +1279,7 @@
       inspectionItems.forEach(item => {
         renderItemButtons(item.id, null);
       });
-      ['meas_1_1_tension','meas_1_1_sag','meas_1_1_strands','meas_1_2_noise','meas_1_2_play','meas_1_4_tension','meas_1_4_def','meas_1_5_depth','meas_4_1_battery','meas_4_1_pad','meas_4_2_pressure','meas_4_5_drop','meas_4_5_storage'].forEach(id => {
+      ['meas_1_1_gap','meas_1_1_sag','meas_1_1_bolts','meas_1_2_noise','meas_1_2_play','meas_1_4_tension','meas_1_4_def','meas_1_5_depth','meas_4_1_battery','meas_4_1_pad','meas_4_2_pressure','meas_4_5_drop','meas_4_5_storage'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
       });
@@ -1253,6 +1301,11 @@
       showToast('점검표가 초기화되었습니다.');
     }
 
+    // 미구축(잠금) 항목을 제외한 실제 점검 대상
+    function activeInspectionItems() {
+      return inspectionItems.filter(it => !it.locked);
+    }
+
     function updateStats() {
       let good = 0, warn = 0, bad = 0;
       inspectionItems.forEach(item => {
@@ -1262,7 +1315,7 @@
         else if (s === '불량') bad++;
       });
 
-      const total = inspectionItems.length;
+      const total = activeInspectionItems().length;   // 잠금(미구축) 항목 제외
       const done = good + warn + bad;
       const pct = Math.round((done / total) * 100);
 
@@ -1290,8 +1343,8 @@
       const stopBox = document.getElementById('lbl-stop');
       const badge = document.getElementById('overallStatusBadge');
 
-      const checkedCount = Object.keys(currentChecklist).filter(k => currentChecklist[k]).length;
-      const total = inspectionItems.length;
+      const checkedCount = activeInspectionItems().filter(it => currentChecklist[it.id]).length;
+      const total = activeInspectionItems().length;
 
       [passBox, warnBox, stopBox].forEach(b => {
         if (b) {
@@ -1416,8 +1469,22 @@
       
       inspectionItems.forEach((item, index) => {
         const tr = document.createElement('tr');
+
+        // 미구축(잠금) 항목: 점검 대상 아님을 기록부에 명시
+        if (item.locked) {
+          tr.innerHTML = `
+            <td style="text-align: center; font-weight: bold; color:#666;">${index + 1}</td>
+            <td style="font-weight: 600; white-space: nowrap; color:#666;">${item.group} &gt; ${item.sub}</td>
+            <td style="color:#666;"><b>${item.title.replace(/\[.*?\]\s*/, '')}</b><span style="color:#777;"> (${item.lock_reason || '미구축'})</span></td>
+            <td style="text-align: center; white-space: nowrap; color:#666;">— 해당없음</td>
+            <td style="text-align: center; white-space: nowrap; color:#666;">시설 미조성</td>
+          `;
+          tbody.appendChild(tr);
+          return;
+        }
+
         const st = currentChecklist[item.id] || '양호';
-        
+
         let statusBadge = '';
         let noteText = '-';
         if (st === '양호') {
@@ -1444,9 +1511,35 @@
       const notes = document.getElementById('actionNotes').value.trim();
       document.getElementById('p-actionNotes').innerText = notes ? notes : '특이사항 없음. 전 구역 놀이시설 및 소방·응급 구호 장비 이상 없음 (정상 가동 승인).';
 
+      // 4-1. 정량 실측값 요약 (기록부 하단 여백을 실제 데이터로 채움)
+      const measFields = [
+        ['레일 이음부 단차', 'meas_1_1_gap', 'mm'], ['레일 처짐량', 'meas_1_1_sag', 'mm'], ['고정볼트 풀림', 'meas_1_1_bolts', '개'],
+        ['트롤리 베어링 소음', 'meas_1_2_noise', 'dB'], ['트롤리 유격', 'meas_1_2_play', 'mm'],
+        ['네트 로프 장력', 'meas_1_4_tension', 'kN'], ['네트 변형량', 'meas_1_4_def', 'cm'],
+        ['바크 포설 두께', 'meas_1_5_depth', 'cm'],
+        ['AED 배터리', 'meas_4_1_battery', '%'], ['AED 패드 잔여', 'meas_4_1_pad', '일'],
+        ['소화기 압력', 'meas_4_2_pressure', 'MPa'],
+        ['CCTV 영상끊김', 'meas_4_5_drop', '분'], ['CCTV 저장잔여', 'meas_4_5_storage', '일']
+      ];
+      const measParts = measFields
+        .map(([label, id, unit]) => {
+          const el = document.getElementById(id);
+          const v = el && el.value !== '' ? el.value : null;
+          return v === null ? null : `${label} ${v}${unit}`;
+        })
+        .filter(Boolean);
+      const lockedCount = inspectionItems.filter(i => i.locked).length;
+      const summaryEl = document.getElementById('p-measure-summary');
+      if (summaryEl) {
+        summaryEl.innerHTML =
+          `<b>[정량 실측 기록]</b> ${measParts.length ? measParts.join(' · ') : '해당 실측 항목 미입력'}`
+          + (lockedCount ? `<br><b>[점검 제외]</b> 미구축 시설 ${lockedCount}개 항목 (조성 완료 후 점검 대상 전환)` : '');
+      }
+
       // 5. Signature image
-      if (signaturePad && !signaturePad.isEmpty()) {
-        const signData = signaturePad.toDataURL();
+      const signDataForPrint = getSignatureData();
+      if (signDataForPrint) {
+        const signData = signDataForPrint;
         
         const imgInspector = document.getElementById('p-sign-img-inspector');
         imgInspector.src = signData;
@@ -1492,7 +1585,7 @@
     }
 
     function saveChecklist() {
-      const unchecked = inspectionItems.filter(item => !currentChecklist[item.id]);
+      const unchecked = activeInspectionItems().filter(item => !currentChecklist[item.id]);
       const decisionVal = document.querySelector('input[name="finalDecision"]:checked')?.value;
 
       // 적합(PASS) 판정은 매표소 발권 잠금을 해제하는 법정 기록이므로
@@ -1502,7 +1595,7 @@
           alert(`미점검 항목이 ${unchecked.length}개 있어 적합(PASS) 판정을 저장할 수 없습니다.\n모든 항목을 점검하거나, 조건부/운영중지로 판정을 변경하십시오.`);
           return;
         }
-        if (signaturePad.isEmpty()) {
+        if (!getSignatureData()) {
           alert('적합(PASS) 판정에는 점검자 자필 서명이 필수입니다.\n서명란에 서명한 뒤 다시 저장하십시오.');
           return;
         }
@@ -1539,7 +1632,7 @@
         checklist: { ...currentChecklist },
         actionNotes: document.getElementById('actionNotes').value,
         photos: attachedPhotos,
-        signature: signaturePad.isEmpty() ? null : signaturePad.toDataURL(),
+        signature: getSignatureData(),
         decision: decisionVal, // 기본값 'pass' 제거: 판정 미선택이 합격으로 저장되던 문제
         timestamp: new Date().toISOString()
       };
@@ -1569,9 +1662,9 @@
           recordedMeasurements.push(rec);
         };
 
-        checkAndRecord('1_1_tension', 'outdoor_coaster', 'zip_wire_main', '와이어 장력', 'meas_1_1_tension', 'kN', 7.0, 10.0, v => v < 7.0 || v > 10.0);
-        checkAndRecord('1_1_sag', 'outdoor_coaster', 'zip_wire_main', '와이어 처짐량', 'meas_1_1_sag', 'cm', 0, 20, v => v > 20);
-        checkAndRecord('1_1_strands', 'outdoor_coaster', 'zip_wire_main', '소선 파손수', 'meas_1_1_strands', '개', 0, 0, v => v > 0);
+        checkAndRecord('1_1_gap', 'outdoor_coaster', 'zip_rail_main', '레일 이음부 단차', 'meas_1_1_gap', 'mm', 0, 1.0, v => v > 1.0);
+        checkAndRecord('1_1_sag', 'outdoor_coaster', 'zip_rail_main', '레일 처짐량', 'meas_1_1_sag', 'mm', 0, 5.0, v => v > 5.0);
+        checkAndRecord('1_1_bolts', 'outdoor_coaster', 'zip_rail_main', '고정볼트 풀림수', 'meas_1_1_bolts', '개', 0, 0, v => v > 0);
         checkAndRecord('1_2_noise', 'outdoor_coaster', 'zip_trolley_01', '베어링 소음', 'meas_1_2_noise', 'dB', 20, 55, v => v > 55);
         checkAndRecord('1_2_play', 'outdoor_coaster', 'zip_trolley_01', '베어링 유격', 'meas_1_2_play', 'mm', 0, 1.0, v => v > 1.0);
         checkAndRecord('1_4_tension', 'outdoor_net', 'net_tree_anchor', '네트 로프 장력', 'meas_1_4_tension', 'kN', 2.5, 5.0, v => v < 2.5 || v > 5.0);
@@ -1597,6 +1690,11 @@
           staff_id: staffId,
           facility_id: 'all_facilities',
           audit_date: (log.date || '').slice(0, 10),
+          // 인쇄본 복원용: 실제 점검 시각·기상·점검책임자까지 보존
+          audit_at: log.date ? new Date(log.date).toISOString() : new Date().toISOString(),
+          weather: log.weather || '',
+          temperature: log.temperature || '',
+          manager: log.manager || '',
           inspector: log.inspector,
           decision: log.decision,
           items: log.checklist,
@@ -1647,7 +1745,7 @@
                 <span class="px-2 py-0.5 rounded-full text-[11px] font-bold border ${badgeCls}">${decText}</span>
               </div>
               <p class="text-xs text-slate-600 mt-0.5">
-                기록시간: <b>${timeStr}</b> │ 점검자: <b>${todayLog.inspector || '김주성'}</b> │ 관리책임자: <b>${todayLog.manager || '홍성현'}</b> │ 서명 및 실측치 기록 완료
+                기록시간: <b>${timeStr}</b> │ 점검자: <b>${todayLog.inspector || '-'}</b> │ 관리책임자: <b>${todayLog.manager || '-'}</b> │ 서명 및 실측치 기록 완료
               </p>
             </div>
           </div>
@@ -1690,7 +1788,7 @@
       if (!confirm('오늘의 점검표를 새로 작성하시겠습니까? 현재 화면의 내용이 빈 점검표로 초기화됩니다.')) return;
       currentChecklist = {};
       inspectionItems.forEach(item => renderItemButtons(item.id, null));
-      ['meas_1_1_tension','meas_1_1_sag','meas_1_1_strands','meas_1_2_noise','meas_1_2_play','meas_1_4_tension','meas_1_4_def','meas_1_5_depth','meas_4_1_battery','meas_4_1_pad','meas_4_2_pressure','meas_4_5_drop','meas_4_5_storage'].forEach(id => {
+      ['meas_1_1_gap','meas_1_1_sag','meas_1_1_bolts','meas_1_2_noise','meas_1_2_play','meas_1_4_tension','meas_1_4_def','meas_1_5_depth','meas_4_1_battery','meas_4_1_pad','meas_4_2_pressure','meas_4_5_drop','meas_4_5_storage'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
       });
@@ -1796,7 +1894,7 @@
       renderPhotoGrid();
 
       if (target.signature) {
-        signaturePad.fromDataURL(target.signature);
+        setSignatureData(target.signature);
         document.getElementById('signPlaceholder').classList.add('hidden');
       } else {
         clearSignature();
@@ -1837,6 +1935,35 @@
       renderTodayAuditBanner(todayLog);
     }
 
+    // 기온·날씨 자동 입력: 관측값이 미확인이면 'null℃' 대신 빈칸으로 두고,
+    // Open-Meteo 실측을 받아온 뒤 다시 채운다. (직원이 직접 입력한 값은 덮어쓰지 않음)
+    function applyWeatherToForm(force) {
+      if (!window.BongplayID || typeof BongplayID.getLatestWeather !== 'function') return;
+      const tempEl = document.getElementById('temperature');
+      const wtrEl = document.getElementById('weatherSelect');
+      const wtr = BongplayID.getLatestWeather();
+      const hasTemp = wtr && wtr.temperature !== null && wtr.temperature !== undefined && isFinite(Number(wtr.temperature));
+
+      if (tempEl && (force || !tempEl.dataset.userEdited)) {
+        tempEl.value = hasTemp ? `${Number(wtr.temperature).toFixed(1)}℃` : '';
+        tempEl.placeholder = hasTemp ? '기온' : '기상 수신 중…';
+      }
+      if (wtrEl && wtr && wtr.status !== 'UNKNOWN') {
+        if (Number(wtr.rainfall) > 0 || String(wtr.weather_warning || '').includes('rain')) wtrEl.value = '비';
+        else if (Number(wtr.wind_gust) >= 12.0 || String(wtr.weather_warning || '').includes('wind')) wtrEl.value = '흐림';
+        else wtrEl.value = '맑음';
+      }
+
+      // 관측값이 없으면 실시간 기상 1회 수신 후 재적용
+      if (!hasTemp && typeof BongplayID.fetchLiveWeather === 'function' && !applyWeatherToForm._fetching) {
+        applyWeatherToForm._fetching = true;
+        BongplayID.fetchLiveWeather().then(() => {
+          applyWeatherToForm._fetching = false;
+          applyWeatherToForm(true);
+        }).catch(() => { applyWeatherToForm._fetching = false; });
+      }
+    }
+
     function loadLatestOrNew() {
       const now = new Date();
       now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
@@ -1845,20 +1972,8 @@
       const logs = JSON.parse(localStorage.getItem(CHECKLIST_STORAGE_KEY) || '[]');
       const todayLog = logs.find(l => (l.date || '').slice(0, 10) === todayYmd);
 
-      // 날씨/기온 자동 연동
-      if (window.BongplayID && typeof BongplayID.getLatestWeather === 'function') {
-        const wtr = BongplayID.getLatestWeather();
-        if (wtr) {
-          const tempEl = document.getElementById('temperature');
-          const wtrEl = document.getElementById('weatherSelect');
-          if (tempEl) tempEl.value = `${wtr.temperature}℃`;
-          if (wtrEl) {
-            if (wtr.rainfall > 0 || (wtr.weather_warning || '').includes('rain')) wtrEl.value = '비';
-            else if (wtr.wind_gust >= 12.0 || (wtr.weather_warning || '').includes('wind')) wtrEl.value = '흐림';
-            else wtrEl.value = '맑음';
-          }
-        }
-      }
+      // 날씨/기온 자동 연동 (관측값이 없으면 빈칸으로 두고 실제 기상을 받아와 채움)
+      applyWeatherToForm();
 
       if (todayLog) {
         // 오늘 이미 작성한 일지가 있으면 불러오기
@@ -1868,7 +1983,7 @@
         // 오늘 점검이 아직 없으면 0/22 빈 점검표로 초기화 (자동 전체양호 실행 방지)
         currentChecklist = {};
         inspectionItems.forEach(item => renderItemButtons(item.id, null));
-        ['meas_1_1_tension','meas_1_1_sag','meas_1_1_strands','meas_1_2_noise','meas_1_2_play','meas_1_4_tension','meas_1_4_def','meas_1_5_depth','meas_4_1_battery','meas_4_1_pad','meas_4_2_pressure','meas_4_5_drop','meas_4_5_storage'].forEach(id => {
+        ['meas_1_1_gap','meas_1_1_sag','meas_1_1_bolts','meas_1_2_noise','meas_1_2_play','meas_1_4_tension','meas_1_4_def','meas_1_5_depth','meas_4_1_battery','meas_4_1_pad','meas_4_2_pressure','meas_4_5_drop','meas_4_5_storage'].forEach(id => {
           const el = document.getElementById(id);
           if (el) el.value = '';
         });

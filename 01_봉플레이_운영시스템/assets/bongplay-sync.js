@@ -864,9 +864,17 @@
           return {
             id: row.id,
             site_id: row.site_id || 'bongplay_bonghwa',
-            date: row.audit_date ? row.audit_date + 'T10:00' : toLocalDatetimeLocalStr(),
+            // 실제 점검 시각(audit_at)이 있으면 그대로 사용. 없을 때만 날짜만 복원한다.
+            // (이전에는 무조건 'T10:00' 을 붙여 인쇄본 점검시각이 10:00 으로 바뀌었음)
+            date: row.audit_at ? toLocalDatetimeLocalStr(new Date(row.audit_at))
+                 : (row.audit_date ? row.audit_date + 'T00:00' : toLocalDatetimeLocalStr()),
             audit_date: row.audit_date,
+            audit_at: row.audit_at || null,
             inspector: row.inspector || '점검자',
+            manager: row.manager || '',
+            weather: row.weather || '',
+            temperature: row.temperature || '',
+            signature: row.signature_data || null,
             decision: row.decision || 'pass',
             checklist: row.items || {},
             actionNotes: row.note || '',
