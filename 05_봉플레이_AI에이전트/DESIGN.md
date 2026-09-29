@@ -97,13 +97,14 @@ content · faq · sales는 파일에 쓰지 않는다. 표준 출력과 API 호�
 }
 ```
 
-**상태 3종과 사용 규칙**
+**상태 4종과 사용 규칙** (004b에서 `unresolved` 추가 — BEN-004 "서로 다르면 unresolved")
 
 | status | 뜻 | 고객에게 나가는 글 (faq·content·sales) | 내부 분석 (cashflow·admin) |
 |---|---|---|---|
 | `confirmed` | 대표 확인 또는 1차 공문서로 확인 | 사용 | 사용 |
 | `system_default` | 운영시스템 코드·DB 기본값. 현장 확정 여부 미확인 | **사용하지 않음** → "확정 후 안내" | 사용하되 출력에 "(시스템 기본값)" 표시 |
-| `unverified` | 출처 불명확·상충 | 사용하지 않음 | 사용하지 않음 → 누락 경고 |
+| `unverified` | 미정이거나 출처 불명확 | 사용하지 않음 | 사용하지 않음 → 누락 경고 |
+| `unresolved` | 출처끼리 값이 달라 결정 필요 | 사용하지 않음 | 사용하지 않음 |
 
 필드가 없거나 `value`가 `null`이면 에이전트는 추정하지 않는다. 이것은 원본 `config.py`의 "미확정이면 지어내지 않는다" 원칙을 그대로 이은 것이다.
 
@@ -112,8 +113,8 @@ content · faq · sales는 파일에 쓰지 않는다. 표준 출력과 API 호�
 - **2단계 (별도 작업, 벤 조정):** Supabase `master_products` / `master_targets`에서 읽기 전용으로 생성하는 스크립트. 운영 DB 키와 권한 설계가 필요하다.
 - **하지 않는 것:** Python에서 `bongplay-*.js`를 실행하거나 해석하는 것. 공통 `assets/` 수정.
 
-### 3-4. 어긋남 감지 (선택, 벤 판단 필요)
-JSON의 요금과 `bongplay-id.js`의 `list_price` 리터럴이 다를 때 **테스트가 경고만** 내는 방안이다. 방식은 정규식으로 숫자만 읽는 것이고, 실행하지는 않는다. 파일 형식이 바뀌면 깨지기 쉬우므로 채택 여부는 벤이 결정한다.
+### 3-4. 어긋남 감지 — 필수, 실패로 처리 (BEN-004 결정 1로 확정)
+~~경고만 내는 방안~~은 채택되지 않았다. `core/price_check.py`가 confirmed 요금·할인마다 **profile 값 = 카탈로그 = 고객 고지**를 대조하고, 다음은 모두 **실패**(종료코드 1)다: 불일치, 추출 실패, 선언·id·필드 중복, 형식 변경(중첩 객체, 숫자 아닌 값, 금액 표기 변경), 고지에서 품목이 사라짐, **계약에 없는 새 고지 품목**. JS는 실행하지 않고 범위를 좁힌 정적 추출만 한다. profile을 자동으로 고치거나 승격하지 않는다.
 
 ---
 
@@ -138,18 +139,20 @@ JSON의 요금과 `bongplay-id.js`의 `list_price` 리터럴이 다를 때 **테
 05_봉플레이_AI에이전트/
   DESIGN.md              ← 이 문서
   README.md              ← 004b에서 작성
-  requirements.txt       ← anthropic, pydantic (원본과 동일)
-  .env.example           ← 키 템플릿만. 실제 키 커밋 금지
+  requirements.txt       ← 004c에서 추가 (anthropic, pydantic). 004b는 표준 라이브러리만
+  env.template           ← 키 템플릿만 (루트 .gitignore 가 .env.* 를 무시). 실제 키 커밋 금지
   site_profile.json      ← 3절 계약 (004b)
   core/
     profile.py           ← 계약 로더·상태 규칙 (API 키 불필요)
     gate.py              ← 안전·분쟁 키워드 (faq·review 공용)
+    price_check.py       ← 요금 대조 (004b)
+    settings.py          ← ANTHROPIC_MODEL 확인 (004b)
     calc.py              ← 순수 계산: 요일계수, 월별 현금 예측
     client.py            ← Anthropic 클라이언트·캐싱 (원본 client.py)
   agents/
     content.py  faq.py  sales.py  review.py  admin.py  cashflow.py
   tests/
-    test_profile.py  test_gate.py  test_calc.py  test_no_writes.py
+    test_profile.py  test_gate.py  test_price_check.py  test_settings.py  test_no_side_effects.py  (004d: test_calc.py)
 ```
 
 ---
@@ -161,7 +164,7 @@ JSON의 요금과 `bongplay-id.js`의 `list_price` 리터럴이 다를 때 **테
 | `test_profile` | 상태별 사용 규칙. `system_default` 요금이 고객용 문구에 들어가지 않음. 필드 누락·`null` 시 "확정 후 안내"로 대체됨. 스키마 버전 불일치 시 즉시 종료 | 없음 (신규) |
 | `test_gate` | 안전·분쟁 키워드 이관, 활용형 포함 | `test_escalation.py` 21건 그대로 |
 | `test_calc` | 요일계수(표본 3일 미만 대체), 분납 4개월 반영, 과거 실적 이중계상 없음, 기준일이 속한 달의 잔여일 계산 | `test_cashflow.py`·`test_tier3.py` 중 순수 계산 부분만. **`store` 의존 케이스는 스냅샷 입력으로 다시 쓴다** |
-| `test_no_writes` | 모든 명령을 임시 작업 폴더에서 실행한 뒤 **새 파일이 0개인지** 확인. `data/` 폴더가 생기지 않는지도 확인 | 없음 (신규). 2-2절의 숨은 쓰기 경로 재발 방지 |
+| `test_no_side_effects` (004b 구현) | 모듈 폴더·입력 원본 폴더·작업 폴더의 파일 해시와 디렉터리 목록을 전후 비교해 **생성·수정·삭제·디렉터리 생성**을 모두 잡는다. 대상 코드는 bytecode 쓰기를 끈 자식 프로세스에서 네트워크·subprocess·쓰기 모드 open을 막고 실행. 검사기가 네 종류 변화를 실제로 잡는지도 확인 (BEN-004) | 없음 (신규). 2-2절의 숨은 쓰기 경로 재발 방지 |
 | 리뷰 차단 | 위생·차별 등 추가 키워드 차단, 호평 오탐 없음 | `test_tier3.py` 리뷰 부분 |
 
 **원본 94건 중 이관되지 않는 테스트:** `test_tier2.py`의 점검 기한·민원 3일 기한 케이스는 safety·complaint가 보류이므로 옮기지 않는다. 원본 브랜치에는 그대로 남는다.
@@ -177,7 +180,7 @@ JSON의 요금과 `bongplay-id.js`의 `list_price` 리터럴이 다를 때 **테
 | **004a (이 PR)** | 설계 문서 | `05_…/DESIGN.md`, 작업표 |
 | 004b | `site_profile.json` + `core/profile.py` + `core/gate.py` + 테스트 | `05_` 안에서만 |
 | 004c | content · faq · sales 이관 (파일 쓰기가 원래 없는 3종) | `05_` 안에서만 |
-| 004d | review · admin · cashflow를 상태 없는(스냅샷 입력) 방식으로 이관 + `test_no_writes` | `05_` 안에서만 |
+| 004d | review · admin · cashflow를 상태 없는(스냅샷 입력) 방식으로 이관 + `test_no_side_effects` 대상에 추가 | `05_` 안에서만 |
 | 별도 | Supabase 읽기 전용 생성기, 어긋남 감지 | 벤 범위 조정 필요 |
 
 각 단계에서 원본 대비 바뀐 동작(없어진 명령, 달라진 인자)을 README 표로 남긴다.
@@ -194,11 +197,34 @@ JSON의 요금과 `bongplay-id.js`의 `list_price` 리터럴이 다를 때 **테
 
 **충돌 보고:** 고객용 예약 화면 `01_봉플레이_운영시스템/pages/booking.html` 468행에 "운영 시간 10:00 ~ 18:00 (입장 마감 17:00)"이 이미 고지돼 있다. 대표 결정(미정)과 다르다. 이 PR은 운영 화면을 고치지 않는다 — 화면 담당과 벤의 조정이 필요하다.
 
-## 9. 결정이 필요한 것
+## 9. 9절 질문의 결정 (BEN-004)
 
-| # | 질문 | 누구 |
-|---|---|---|
-| 1 | 3-4 어긋남 감지(정규식 읽기)를 둘지 | 벤 |
-| 2 | 이후 값을 `confirmed`로 올리는 절차 (이번에는 대표가 대화로 확인 → 클로이가 출처에 기록). 운영시간 확정 시 같은 방식으로 갱신 | 벤 |
-| 3 | 원본 에이전트의 시설 설명 중 "실내 짚라인형"은 **틀린 정보**다. 짚코스터는 야외 시설이다. 이관 시 시설 설명문을 새로 써야 하는데, 이 문구도 `site_profile.json`의 `confirmed` 값에서 만들지 | 벤·대표 |
-| 4 | 기본 모델 ID (`claude-opus-5`, `claude-haiku-4-5`)를 원본대로 유지할지 | 벤 |
+| # | 질문 | 결정 | 004b 반영 |
+|---|---|---|---|
+| 1 | 어긋남 감지 | 필수. 경고만으로 통과 금지 | `core/price_check.py`, `tests/test_price_check.py` |
+| 2 | confirmed 승격 절차 | 출처·확인자·확인일(·시행일)을 기록한 PR을 벤이 검토 | 로더가 confirmed 에 `confirmed_by`·`confirmed_at`·`source.revision` 없으면 거부 |
+| 3 | 시설 설명 | 확인된 기준정보로 생성. 규격 자동 보충 금지 | `profile.facility_description()` — confirmed 값만 사용 |
+| 4 | 모델 ID | 하드코딩 금지, `ANTHROPIC_MODEL` 명시 | `core/settings.require_model()`, core 안 모델 ID 문자열 금지 테스트 |
+
+## 10. 004b 구현 결과
+
+### 요금 품목 대조 (고객 고지 `pages/booking.html` @ `d7ac76c` ↔ `PRODUCT_CATALOG` @ `3bada78`)
+
+| 고지 품목 | 고지 | 카탈로그 | 판정 |
+|---|---|---|---|
+| 보호자 입장권 | 5,000원 | `tkt_guardian` 5,000 | **confirmed** |
+| 단체 종합이용권 (20인 이상) | 16,800원 (정가 21,000) | `tkt_allday` 21,000 × (1 − `group20` 0.20) | **confirmed** |
+| 봉화군민 우대 | 20% (현장 신분증 확인) | `resident` 0.20 | **confirmed** |
+| 어린이 기본이용권 (2시간) | **14,000원** 오픈할인 (정가 15,000) | `tkt_basic` 15,000 · 같은 파일 주석 "2026-09-20 대표 결정: 11월 개장을 할인 요금으로 시작하지 않음" | **unresolved** — 대표 결정 필요 |
+| 어린이집·유치원 평일 지원 단체권 | 7,000원 "지자체 보조·바우처 전용" | 없음 (구 목록 `PROD_GROUP_VOUCHER`에만) | **unresolved** — 보조·바우처 근거 미확인 |
+| 청소년·성인 액티비티권 | 10,000원 | 없음 | **unresolved** |
+| 국가유공자·장애인 우대 | 비율 없음 | 없음 | **unresolved** |
+| (고지 안 됨) 개인 종합권 · 조조권 | — | 21,000 · 18,000 | system_default |
+
+**참고:** `bongplay-id.js` 안에 요금 목록이 두 벌 있다 — `PRODUCT_CATALOG`("2026 공식 요금표", SSOT 주석)와 그 아래 구 목록(`PROD_*`, 프로모션 14,000·바우처 7,000 포함). 고객 고지는 구 목록 쪽과 일치하는 항목이 있다. 또 고지의 "실내 924㎡ 돔놀이터"는 BEN-002 기준 건물 연면적이며 놀이공간 면적(657.8㎡)이 아니다. 두 사항 모두 이 PR 범위(05) 밖이라 수정하지 않았다.
+
+### 파일
+`site_profile.json`, `core/{profile,price_check,gate,settings}.py`, `tests/test_*.py` 5종, `README.md`, `env.template`
+
+### 검증
+`python3 -B -m unittest discover -s tests` — 54건 통과 (키·모델·네트워크 없이). LLM 호출·운영 DB 접근은 하지 않았다.
