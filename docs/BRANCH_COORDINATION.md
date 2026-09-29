@@ -58,11 +58,11 @@
 | COORD-001 | Ben | `ben/repository-coordination` | `8acbb77` | `AGENTS.md`, 본 문서, PR 템플릿 | 계보·보존 계획·협업 규칙 작성 및 검증, 인증 후 PR | PR #1 병합 완료 |
 | CLAUDE-001 | Claude | `claude/CLAUDE-001-branch-asset-inventory` | `068e704` | `docs/migration/CLAUDE-001_클로드브랜치_자산목록.md`, 본 작업표 1행 | 기존 Claude 브랜치 고유 자산 목록·이관 권고 작성 (파일 이동 없음) | PR #2 병합 완료 |
 | CLAUDE-002 | Claude | `claude/CLAUDE-002-analysis-docs` | `3830fad` | `docs/분석/` 신규 2개, 본 작업표 1행 | JEV 분석·지식시스템 v2 설계를 원문 그대로 이관하고 원본 SHA·전제·적용 상태 머리말 추가, 인용·경로 대조 | 벤 검토 통과 / 이력 보존 통합 |
-| GEO-001 | 지오 | `aside/GEO-001-worklog-audit` (예정) | 착수 시 최신 master SHA 기록 | 검증 보고서·합성 증거·본 행 | 코드 비교 및 배포·시트 연결 검증, 미실행 구분, master 대상 PR | 사용자 전달 완료 / 실행 보고 대기 |
-| ANT-001 | 아난티 | `antigravity/ANT-001-operations-integrity` (예정) | 착수 시 최신 master SHA 기록 | 01 운영 UI·공통 JS·테스트·검증 보고서·본 행 | 전체 화면·핵심 흐름 검증, 재현된 P0/P1 수정, 면적 의미 분리, 회귀 테스트와 PR | 사용자 전달 완료 / 실행 보고 대기 |
+| GEO-001 | 지오 | `aside/GEO-001-worklog-audit` | `bb0fcec3af437cbb8f171c7cf182874387ce0e57` | `docs/migration/GEO-001_업무로그_비교및실사용검증.md`, 본 행 | 코드 비교 및 배포·시트 연결 검증, 미실행 구분, master 대상 PR | PR #10 병합 완료 aeede4f / 경량 추가 확인 |
+| ANT-001 | 아난티 | `antigravity/ANT-001-operations-integrity` | `6769559` 검토 | 01 운영 UI·공통 JS·테스트·검증 보고서·본 행 | 전체 화면·핵심 흐름 검증, 재현된 P0/P1 수정, 면적 의미 분리, 회귀 테스트와 PR | PR #11 병합 보류 / R1~R4·행동검증 보완 |
 | CLAUDE-003 | Claude | `claude/CLAUDE-003-legacy-business-docs` | `3830fad` | `03_봉뜨락_도면및행정자료/_참고_초기기획_20260830/` 신규 5개(원본 4 + README), 본 작업표 1행 | 운영계획서·손익 그리드·채용 제안서 2종을 원본 그대로(blob 동일) 보존, README에 원본 SHA·구버전·현행 판단 미사용 명시. 제안서 2종은 대표 결정(2026-09-29)으로 보관 전용 | 벤 검토 통과 / 이력 보존 통합 |
 | CLAUDE-004 | Claude | `claude/CLAUDE-004-agents-design` | `3830fad` | `05_봉플레이_AI에이전트/DESIGN.md` 신규, 본 작업표 1행 | 6종 이관 1차 설계: 기준정보 JSON 계약·입력 스냅샷·숨은 쓰기 경로·테스트 계획·PR 순서 (코드 이동 없음) | 설계 벤 검토 통과 / 이력 보존 통합 |
-| CLAUDE-004b | 클로이 | `claude/CLAUDE-004b-profile-contract` | `2314e75` | 05 계약·검증·gate·테스트 (`site_profile.json`, `core/`, `tests/`, README, `env.template`, DESIGN 갱신) | BEN-004 조건 반영, 키 없는 테스트와 PR | 구현 완료 (키 없이 57건 통과, 대표 결정 09-29 반영) / 벤 검토 대기 / 004c~d는 별도 배정 |
+| CLAUDE-004b | 클로이 | `claude/CLAUDE-004b-profile-contract` | `2314e75` (+ master `ed5a2ce` 병합) | 05 계약·검증·gate·테스트 (`site_profile.json`, `core/`, `tests/`, README, `env.template`, DESIGN 갱신) | PR #9 R1/R2 요금 추출 누락 보완 후 재검토 | 벤 `0197ffe` 검토 재현 2건 → `4613a7a`에서 보완, 키 없이 82건 통과 / 벤 재검토 대기 |
 | ASIDE-001 | 지오 | `aside/ASIDE-001-institution-directory` (예정) | 착수 시 기록 | 공식 공개 기관 목록, 방법 보고서·본 행 | 9칸 커버리지, CSV는 저장소 밖 대표 전달 | GEO-001 PR 인계 후 착수 |
 | ASIDE-HIST-001 | 지오·대표 | 해당 없음 | 대표 보고 2026-09-29 | 네이버 블로그 자동화 기존 운영 | 대표 운영 성공 보고 기록 | 보고 기준 완료 / 벤 미검증 / 신규 게시 미배정 |
 | COORD-004 | Ben | `ben/COORD-004-chloe-review` | `bb0fcec` | PR #4~#6 이력 통합·작업표·결정문·추가 지시 | 원본 검증·작업행 보존·통합 PR | 검토 및 통합 |
@@ -86,3 +86,13 @@ ANT-001 실행 범위와 완료 기준은 [아난티 작업 지시서](tasks/ANT
 ## BEN-004 조정 결과
 
 PR #4~#6 검토, 대표 결정, 모델·기준정보 검증 조건, 구현 담당 변경은 [BEN-004](migration/BEN-004_클로이_PR검토와_기준정보결정.md)를 따른다. 운영시간 정정은 ANT-001에 추가했고 ASIDE-001은 [기관 목록 수집 지시서](tasks/ASIDE-001_단체영업_기관목록_수집.md)에 따라 GEO-001 인계 뒤 진행한다. 네이버 블로그는 기존 운영 성공 보고만 기록했으며 새 게시를 배정하지 않았다.
+
+## 2026-09-30 PR #9 검토 및 정정 배정
+
+[PR #9 벤 검토](qa/PR-009_Ben_review.md)에 재현한 요금 추출 누락 2건과 테스트 환경 한계를 기록했다. #9는 보완 전 병합 보류다. [ANT-001](tasks/ANT-001_운영시스템_전수검증과_결함수정.md)에 기본권 15,000원·명칭·폐지 3건 정정을 추가했다. 클로이는 05 검사 보완, 아난티는 01 고지 정정을 병행한다. 두 변경 병합 후 클로이가 계약 승격/폐지 항목 제거를 진행한다.
+
+## 2026-09-30 PR #10·#11 검토
+
+COORD-006 / Ben / ben/COORD-006-review-handoffs / 기준 aeede4f / 검토 기록·작업표 / 문서 diff 및 실제 함수 재현 확인.
+
+[검토 결과와 담당별 지시](qa/PR-010_011_Ben_review.md)를 따른다. GEO-001은 문서 병합 완료, 지오는 경량 무인증 확인 후 ASIDE-001 진행. ANT-001은 보완 우선, ANT-002와 004c/d는 착수 대기. 클로이는 PR #9 검사 보완을 병행한다.
