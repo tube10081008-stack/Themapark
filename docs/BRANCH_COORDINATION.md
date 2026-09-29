@@ -57,6 +57,7 @@
 |---|---|---|---|---|---|---|
 | COORD-001 | Ben | `ben/repository-coordination` | `8acbb77` | `AGENTS.md`, 본 문서, PR 템플릿 | 계보·보존 계획·협업 규칙 작성 및 검증, 인증 후 PR | PR #1 병합 완료 |
 | CLAUDE-001 | Claude | `claude/CLAUDE-001-branch-asset-inventory` | `068e704` | `docs/migration/CLAUDE-001_클로드브랜치_자산목록.md`, 본 작업표 1행 | 기존 Claude 브랜치 고유 자산 목록·이관 권고 작성 (파일 이동 없음) | PR #2 병합 완료 |
+| CLAUDE-003 | Claude | `claude/CLAUDE-003-legacy-business-docs` | `3830fad` | `03_봉뜨락_도면및행정자료/_참고_초기기획_20260830/` 신규 3개(원본 2 + README), 본 작업표 1행 | 운영계획서·손익 그리드를 원본 그대로(blob 동일) 보존, README에 원본 SHA·구버전·현행 판단 미사용 명시. 제안서 2종 제외 | 문서 완료 / 벤 검토 대기 |
 
 새 작업은 이 표에 추가한다. 다른 에이전트의 폴더/브랜치 및 미푸시 변경은 이번 로컬 복제로 확인할 수 없으므로 담당자가 인계해야 한다.
 
