@@ -336,23 +336,58 @@ test('6. [R4 P1] 취소 이용권 체류 인원 유지 및 게이트 퇴장 처�
     assert.ok(gateHtml.includes('alert(\'취소·환불된 이용권은 신규 입장이 불가합니다.\');'), '취소 이용권 신규 입장 차단 알림 확인');
   });
 
-  await t.test('6-2. [행동 검증] 입장 → 매표소 환불 취소 → 체류 인원 유지 → 퇴장 완료 라이프사이클', () => {
-    // Synthetic visitor data: 1 guardian + 1 child = 2 people
+  await t.test('6-2. [행동 검증] gate.html 실제 executeGateAction 라이프사이클 및 에러 처리 검증', async () => {
+    const gateHtml = readFile('pages/gate.html');
+    
+    // gate.html에서 실제 사용하는 executeGateAction 추출
+    const fnStart = gateHtml.indexOf('async function executeGateAction(id, actionType) {');
+    assert.ok(fnStart > 0, 'executeGateAction 함수가 gate.html에 존재해야 함');
+    const fnEnd = gateHtml.indexOf('\n    }\n\n    // 출입 로그는', fnStart);
+    assert.ok(fnEnd > fnStart, 'executeGateAction 종료 지점 확인');
+    const gateActionCode = gateHtml.substring(fnStart, fnEnd + 6);
+
+    const today = new Date().toISOString().slice(0, 10);
     const consents = [
       {
-        id: 'c_test_001',
-        pass_code: 'BP-1001',
-        guardian_name: '홍길동',
-        children: [{ name: '홍아이' }],
+        id: 'c_001',
+        passCode: 'BP-PASS-001',
+        guardianName: '홍길동',
+        created_date: today,
+        children: [{ name: '홍아이', birth: '2020-01-01' }],
+        status: 'active',
         is_issued: true,
         entry_at: null,
-        exit_at: null,
-        status: 'active'
+        exit_at: null
       }
     ];
 
+    let lastAlert = null;
+    let chimes = [];
+    let activityLogs = [];
+    let scanResults = [];
+    let upsertCalls = [];
+    let shouldFailUpsert = false;
+
+    const mockAlert = (msg) => { lastAlert = msg; };
+    const mockPlayChime = (type) => { chimes.push(type); };
+    const mockAddActivityLog = (log) => { activityLogs.push(log); };
+    const mockRenderScanResult = (rec, isExit) => { scanResults.push({ rec, isExit }); };
+    const mockBongplaySync = {
+      toLocalTimeStr: (iso) => (iso ? iso.slice(11, 16) : ''),
+      toLocalDateStr: (d) => (d ? (d.toISOString ? d.toISOString().slice(0, 10) : String(d).slice(0, 10)) : ''),
+      upsert: async (tbl, rec) => {
+        upsertCalls.push({ tbl, rec });
+        if (shouldFailUpsert) {
+          throw new Error('Supabase storage write error (simulated network or DB issue)');
+        }
+        return { ok: true };
+      }
+    };
+
     function calcOccupancy(list) {
-      let cumEntry = 0, insideCount = 0, cumExit = 0;
+      let insideCount = 0;
+      let cumEntry = 0;
+      let cumExit = 0;
       list.forEach(r => {
         const people = ((r.children && r.children.length) || 0) + 1;
         if (r.entry_at) {
@@ -368,80 +403,178 @@ test('6. [R4 P1] 취소 이용권 체류 인원 유지 및 게이트 퇴장 처�
       return { cumEntry, insideCount, cumExit };
     }
 
-    function executeGate(c, action) {
-      if (c.status === 'cancelled' || c.cancelled_at) {
-        if (action === 'entry') throw new Error('신규 입장 불가');
-        if (action === 'exit' && !c.entry_at) throw new Error('입장 기록 없음');
-      }
-      if (action === 'entry') {
-        if (c.entry_at) throw new Error('이미 입장');
-        c.entry_at = '2026-09-30T10:00:00Z';
-      } else if (action === 'exit') {
-        if (c.exit_at) throw new Error('이미 퇴장');
-        c.exit_at = '2026-09-30T11:30:00Z';
-      }
-    }
-
-    const rec = consents[0];
+    let isExecutingGateAction = false;
+    const executeGateAction = new Function(
+      'consents', 'alert', 'playChime', 'addActivityLog', 'renderScanResult', 'recalcOccupancy', 'BongplaySync', 'isExecutingGateAction',
+      `return (${gateActionCode});`
+    )(consents, mockAlert, mockPlayChime, mockAddActivityLog, mockRenderScanResult, () => {}, mockBongplaySync, isExecutingGateAction);
 
     // State 1: Before entry
     assert.equal(calcOccupancy(consents).insideCount, 0, '입장 전 원내 0명');
 
     // State 2: Customer enters gate
-    executeGate(rec, 'entry');
+    await executeGateAction('c_001', 'entry');
+    assert.ok(consents[0].entry_at, '입장 일시 설정');
     assert.equal(calcOccupancy(consents).insideCount, 2, '입장 후 원내 2명');
     assert.equal(calcOccupancy(consents).cumEntry, 2);
+    assert.equal(chimes[0], 'entry');
 
-    // State 3: Customer requests refund at POS -> Ticket cancelled while inside
-    rec.status = 'cancelled';
-    rec.cancelled_at = '2026-09-30T10:45:00Z';
+    // State 3: Re-entry attempt blocked
+    await executeGateAction('c_001', 'entry');
+    assert.equal(lastAlert, '이미 입장 처리된 이용권입니다.');
+
+    // State 4: Customer requests refund at POS -> Ticket cancelled while inside
+    consents[0].status = 'cancelled';
+    consents[0].cancelled_at = '2026-09-30T10:45:00Z';
     // Occupancy MUST STILL BE 2! Customer is physically inside the facility!
     assert.equal(calcOccupancy(consents).insideCount, 2, '환불 취소되어도 퇴장 전까지 원내 2명 유지');
 
-    // State 4: Cancelled ticket tries to enter AGAIN -> Must be blocked
-    assert.throws(() => executeGate(rec, 'entry'), /신규 입장 불가|이미 입장/);
+    // State 5: Cancelled ticket tries to enter AGAIN -> Must be blocked
+    lastAlert = null;
+    await executeGateAction('c_001', 'entry');
+    assert.equal(lastAlert, '취소·환불된 이용권은 신규 입장이 불가합니다.');
 
-    // State 5: Customer scans exit gate
-    executeGate(rec, 'exit');
-    assert.ok(rec.exit_at, '퇴장 일시가 기록되어야 함');
+    // State 6: Customer scans exit gate with storage failure injected (must handle error safely without crashing)
+    shouldFailUpsert = true;
+    await executeGateAction('c_001', 'exit');
+    assert.ok(consents[0].exit_at, '스토리지 예외 발생 시에도 안전하게 퇴장 일시 기록');
     assert.equal(calcOccupancy(consents).insideCount, 0, '퇴장 후 원내 0명');
     assert.equal(calcOccupancy(consents).cumExit, 2, '누적 퇴장 2명 기록');
+    assert.ok(consents[0].stay_duration_minutes !== undefined, '체류 시간 분 단위 계산 완료');
+    assert.equal(scanResults.length, 2, '스캔 결과 UI 렌더링 호출 완료');
+
+    // State 7: Exit again attempt blocked
+    lastAlert = null;
+    await executeGateAction('c_001', 'exit');
+    assert.equal(lastAlert, '이미 퇴장 처리된 이용권입니다.');
   });
 });
 
 // -----------------------------------------------------------------------------
-// 7. [추가 조건 1] 안전서약 취소 PATCH 서버 계약 및 오프라인 큐/전파 검증
+// 7. [추가 조건 1] 안전서약 취소 PATCH 서버 계약 및 오프라인 큐/전파 전수 검증
 // -----------------------------------------------------------------------------
-test('7. [추가 조건 1] 안전서약 취소 PATCH 서버 계약 및 오프라인 큐/전파 검증', async (t) => {
+test('7. [추가 조건 1] 안전서약 취소 PATCH 서버 계약 및 오프라인 큐/전파 전수 검증', async (t) => {
   const migrationSql = readFile('database/PROPOSED_MIGRATION_safety_consents_cancellation.sql');
   assert.ok(migrationSql.includes('alter table public.safety_consents'), 'safety_consents 제안 SQL 확인');
   assert.ok(migrationSql.includes('add column if not exists status text'), 'status 컬럼 제안 확인');
   assert.ok(migrationSql.includes('cancelled_at timestamptz'), 'cancelled_at 컬럼 제안 확인');
 
-  // Verify synthetic server failure handling & offline queueing
-  const outbox = [];
-  function sendConsentCancellation(id, reason, isServerOnline) {
-    const payload = {
-      id: id,
-      status: 'cancelled',
-      cancelled_at: new Date().toISOString(),
-      cancel_reason: reason
-    };
+  const syncJs = readFile('assets/bongplay-sync.js');
 
-    if (!isServerOnline) {
-      outbox.push({ table: 'safety_consents', action: 'update', data: payload });
-      return { ok: false, queued: true, reason: 'NETWORK_OFFLINE' };
-    }
-    return { ok: true, queued: false, data: payload };
+  function createSyncEnv(initialStorage = {}) {
+    const store = { ...initialStorage };
+    const sessionStore = {};
+    const mockStorage = {
+      getItem(k) { return store[k] || null; },
+      setItem(k, v) { store[k] = String(v); },
+      removeItem(k) { delete store[k]; }
+    };
+    const mockSession = {
+      getItem(k) { return sessionStore[k] || null; },
+      setItem(k, v) { sessionStore[k] = String(v); },
+      removeItem(k) { delete sessionStore[k]; }
+    };
+    global.localStorage = mockStorage;
+    global.sessionStorage = mockSession;
+    const mockWindow = {
+      location: { pathname: '/pages/operations.html' },
+      localStorage: mockStorage,
+      sessionStorage: mockSession,
+      navigator: { onLine: true },
+      fetch: null,
+      document: {
+        querySelectorAll: () => [],
+        getElementById: () => null
+      }
+    };
+    new Function('window', syncJs)(mockWindow);
+    return { mockWindow, store, sessionStore };
   }
 
-  const offResult = sendConsentCancellation('c_100', '기상악화', false);
-  assert.equal(offResult.ok, false, '오프라인 시 서버 성공을 보고하지 않음');
-  assert.equal(offResult.queued, true, '오프라인 아웃박스에 저장');
-  assert.equal(outbox.length, 1, '아웃박스 큐 1건 확인');
+  // 1. Server Failure -> Persistent Outbox Queue (bongplay_outbox_queue_v2)
+  const { mockWindow: devA, store: storeA } = createSyncEnv({
+    'bongplay_supabase_config': JSON.stringify({ url: 'https://test.supabase.co', key: 'anon-key' })
+  });
+  devA.fetch = async () => { throw new Error('Network offline or 500 error'); };
 
-  const onResult = sendConsentCancellation('c_101', '고객요청', true);
-  assert.equal(onResult.ok, true, '온라인 시 성공 처리');
+  const resPatch = await devA.BongplaySync.patch('safety_consents', 'c_101', {
+    status: 'cancelled',
+    cancelled_at: '2026-09-30T10:00:00Z',
+    cancel_reason: '기상악화'
+  });
+  assert.equal(resPatch.queued, true, '오프라인/장애 시 영속 큐 적재');
+  const outboxRaw = storeA['bongplay_outbox_queue_v2'];
+  assert.ok(outboxRaw, '영속 큐(bongplay_outbox_queue_v2)에 저장');
+  const outbox = JSON.parse(outboxRaw);
+  assert.equal(outbox.length, 1);
+  assert.equal(outbox[0].action, 'patch');
+  assert.equal(outbox[0].idVal, 'c_101');
+  assert.equal(outbox[0].payload.status, 'cancelled');
+
+  // 2. Restart Simulation (Process/Browser reload with persisted localStorage)
+  const { mockWindow: devARestarted } = createSyncEnv(storeA);
+  const pendingCount = await devARestarted.BongplaySync.getPendingCount();
+  assert.equal(pendingCount, 1, '재시작 후에도 영속 큐 1건 온전히 복원');
+
+  // 3. Reconnection -> Flush Outbox
+  let sentBody = null;
+  const mockFetch = async (url, options) => {
+    if (options && options.method === 'PATCH') {
+      sentBody = JSON.parse(options.body);
+      return { ok: true, status: 200, text: async () => '[]' };
+    }
+    return { ok: true, status: 200, text: async () => '[]' };
+  };
+  global.fetch = mockFetch;
+  devARestarted.fetch = mockFetch;
+
+  const flushRes = await devARestarted.BongplaySync.flushOutbox();
+  assert.equal(sentBody.status, 'cancelled', '서버로 취소 상태 전송 확인');
+  const pendingAfterFlush = await devARestarted.BongplaySync.getPendingCount();
+  assert.equal(pendingAfterFlush, 0, '전송 완료 후 큐가 0으로 해소');
+
+  // 4. Reflection on another terminal (Device B sync pullAll)
+  const { mockWindow: devB } = createSyncEnv({
+    'bongplay_supabase_config': JSON.stringify({ url: 'https://test.supabase.co', key: 'anon-key' }),
+    'bongplay_safety_consents': JSON.stringify([{ id: 'c_101', status: 'active', is_issued: true }])
+  });
+  const fetchDevB = async (url) => {
+    if (url.includes('safety_consents')) {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify([{ id: 'c_101', status: 'cancelled', is_issued: false, cancelled_at: '2026-09-30T10:00:00Z' }])
+      };
+    }
+    return { ok: true, status: 200, text: async () => '[]' };
+  };
+  global.fetch = fetchDevB;
+  devB.fetch = fetchDevB;
+
+  await devB.BongplaySync.pullAll();
+  const cachedDevB = devB.BongplaySync.getCached('safety_consents');
+  assert.equal(cachedDevB[0].status, 'cancelled', 'Device B에 취소 상태 전파 반영 확인');
+
+  // 5. Unapplied Proposed SQL schema test (Supabase schema cache misses 'status' column)
+  const { mockWindow: devUnmigrated, sessionStore } = createSyncEnv({
+    'bongplay_supabase_config': JSON.stringify({ url: 'https://test.supabase.co', key: 'anon-key' })
+  });
+  const fetchUnmigrated = async () => {
+    return {
+      ok: false,
+      status: 400,
+      text: async () => "Could not find the 'status' column of 'safety_consents' in the schema cache"
+    };
+  };
+  global.fetch = fetchUnmigrated;
+  devUnmigrated.fetch = fetchUnmigrated;
+
+  const resUnmigrated = await devUnmigrated.BongplaySync.patch('safety_consents', 'c_999', {
+    status: 'cancelled',
+    cancelled_at: '2026-09-30T10:00:00Z'
+  });
+  assert.ok(resUnmigrated.ok, '미적용 컬럼 오류 시에도 크래시 없이 정상 반환');
+  assert.ok(sessionStore['bongplay_invalid_columns'].includes('status'), 'invalidColumnCache에 누락 컬럼 등록되어 재발 방지');
 });
 
 // -----------------------------------------------------------------------------

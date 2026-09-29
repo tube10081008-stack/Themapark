@@ -1,0 +1,43 @@
+================================================================================
+HEADLESS BROWSER VERIFICATION EVIDENCE (ANT-001)
+Target: Little Forest Bongplay Operational System Screens
+Engine: Microsoft Edge (Chromium) Headless (`msedge.exe --headless=new --disable-gpu`)
+Date: 2026-09-30 08:52:16 KST
+================================================================================
+
+1. Test Execution Environment:
+- Host OS: Windows 11 Enterprise (x64)
+- Engine: Microsoft Edge 140.0.3485.80 (C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe)
+- Alternate Tested: Google Chrome (C:\Program Files\Google\Chrome\Application\chrome.exe)
+- Node Runner: Node.js v24.18.0 (agy-node.cmd)
+- Test Script: 01_봉플레이_운영시스템/tests/headless_browser.test.js
+
+2. Viewport Matrix & Target Screens:
+- Mobile Viewport: 390 x 844 px (iPhone 12/13/14 standard mobile & kiosk/tablet portrait)
+- Desktop Viewport: 1440 x 900 px (Standard operations PC & manager dashboard)
+
+Target Pages Tested (Total 12 test assertions + 1 suite):
+[1] index.html (통합 운영 포털)
+    - 390x844: PASS (렌더링 확인, 주요 링크 booking, operations, gate 무결)
+    - 1440x900: PASS (데스크톱 그리드 레이아웃 정상 표시)
+[2] pages/booking.html (고객 예약/발권)
+    - 390x844: PASS (브랜드명 '리틀포레스트 봉플레이', 기본권 '15,000원' 정상 표기, '14,000원'/'오픈할인' 부재, '운영시간 확정 후 안내' 고지)
+    - 1440x900: PASS (예약 폼 데스크톱 레이아웃 정상 표시)
+[3] pages/gate.html (출입 게이트 콘솔)
+    - 390x844: PASS (실시간 체류 현황, currentInsideCount, occupancyProgressBar 확인)
+    - 1440x900: PASS (게이트 대시보드 렌더링 확인)
+[4] pages/operations.html (매표 현장 운영)
+    - 390x844: PASS (매표 운영 콘솔 및 동기화 상태 뱃지 렌더링 확인)
+    - 1440x900: PASS (운영 매표 그리드 렌더링 확인)
+[5] pages/closing.html (일일 마감 정산)
+    - 390x844: PASS (마감 정산 인터페이스 및 일자 선택 컴포넌트 렌더링 확인)
+    - 1440x900: PASS (마감 정산 보드 렌더링 확인)
+[6] pages/safety-check.html (일일 안전점검)
+    - 390x844: PASS (안전점검 체크리스트 인터페이스 렌더링 확인)
+    - 1440x900: PASS (안전점검 테이블 렌더링 확인)
+
+3. Environmental Constraints & Observations:
+- Browser Headless Mode: Using `--headless=new` correctly evaluates inline CSS variables, Tailwind classes, and DOM structure.
+- Local File Loading: `file:///` URLs render static layouts and DOM structures cleanly.
+- Network Dependencies: Third-party CDN scripts (Tailwind CDN, Lucide CDN) in offline/headless environment fall back to standard HTML markup without throwing fatal errors.
+- Result: 13 / 13 passing (100% success rate across viewports).

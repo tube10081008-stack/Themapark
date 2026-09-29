@@ -21,10 +21,39 @@
   var DB_NAME = 'BongplayLocalDB_v1';
   var DB_VERSION = 1;
 
+  function getStorage() {
+    if (typeof window !== 'undefined' && window.localStorage) return window.localStorage;
+    if (typeof global !== 'undefined' && global.localStorage) return global.localStorage;
+    if (typeof localStorage !== 'undefined') return localStorage;
+    return null;
+  }
+  function getSession() {
+    if (typeof window !== 'undefined' && window.sessionStorage) return window.sessionStorage;
+    if (typeof global !== 'undefined' && global.sessionStorage) return global.sessionStorage;
+    if (typeof sessionStorage !== 'undefined') return sessionStorage;
+    return null;
+  }
+  function isOnline() {
+    if (typeof window !== 'undefined' && window.navigator && typeof window.navigator.onLine === 'boolean') {
+      return window.navigator.onLine;
+    }
+    if (typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean') {
+      return navigator.onLine;
+    }
+    return true;
+  }
+  function getFetch() {
+    if (typeof window !== 'undefined' && typeof window.fetch === 'function') return window.fetch;
+    if (typeof global !== 'undefined' && typeof global.fetch === 'function') return global.fetch;
+    if (typeof fetch === 'function') return fetch;
+    return null;
+  }
+
   // 컬럼 캐시 (스키마에 존재하지 않는 컬럼을 기억하여 자동 제외)
   var invalidColumnCache = {};
   try {
-    var rawCache = sessionStorage.getItem('bongplay_invalid_columns');
+    var sess = getSession();
+    var rawCache = sess ? sess.getItem('bongplay_invalid_columns') : null;
     if (rawCache) invalidColumnCache = JSON.parse(rawCache);
   } catch (e) {}
 
@@ -72,12 +101,16 @@
   // localStorage 폴백 함수군
   function getLsOutbox() {
     try {
-      var raw = localStorage.getItem(LS_OUTBOX_KEY);
+      var s = getStorage();
+      var raw = s ? s.getItem(LS_OUTBOX_KEY) : null;
       return raw ? JSON.parse(raw) : [];
     } catch (e) { return []; }
   }
   function saveLsOutbox(arr) {
-    try { localStorage.setItem(LS_OUTBOX_KEY, JSON.stringify(arr)); } catch (e) {}
+    try {
+      var s = getStorage();
+      if (s) s.setItem(LS_OUTBOX_KEY, JSON.stringify(arr));
+    } catch (e) {}
   }
 
   // 아웃박스 적재 (Enqueue)
@@ -168,24 +201,28 @@
 
   /* ---------- 기기 식별 ---------- */
   function getDeviceId() {
-    var id = localStorage.getItem(DEVICE_KEY);
+    var s = getStorage();
+    var id = s ? s.getItem(DEVICE_KEY) : null;
     if (!id) {
       id = 'dev_' + Math.random().toString(36).slice(2, 8);
-      localStorage.setItem(DEVICE_KEY, id);
+      if (s) s.setItem(DEVICE_KEY, id);
     }
     return id;
   }
   function getDeviceLabel() {
-    return localStorage.getItem('bongplay_device_label') || '현장단말';
+    var s = getStorage();
+    return (s ? s.getItem('bongplay_device_label') : null) || '현장단말';
   }
   function setDeviceLabel(label) {
-    localStorage.setItem('bongplay_device_label', label);
+    var s = getStorage();
+    if (s) s.setItem('bongplay_device_label', label);
   }
 
   /* ---------- 설정 ---------- */
   function getConfig() {
     try {
-      var raw = localStorage.getItem(CFG_KEY);
+      var s = getStorage();
+      var raw = s ? s.getItem(CFG_KEY) : null;
       if (raw) return JSON.parse(raw);
       if (global.BONGPLAY_CONFIG && global.BONGPLAY_CONFIG.SUPABASE_URL) {
         return {
@@ -197,11 +234,14 @@
     } catch (e) { return null; }
   }
   function setConfig(url, anonKey) {
-    if (!url || !anonKey) { localStorage.removeItem(CFG_KEY); return false; }
-    localStorage.setItem(CFG_KEY, JSON.stringify({
-      url: url.replace(/\/+$/, ''),
-      key: anonKey.trim()
-    }));
+    var s = getStorage();
+    if (!url || !anonKey) { if (s) s.removeItem(CFG_KEY); return false; }
+    if (s) {
+      s.setItem(CFG_KEY, JSON.stringify({
+        url: url.replace(/\/+$/, ''),
+        key: anonKey.trim()
+      }));
+    }
     initRealtime();
     return true;
   }
@@ -223,7 +263,7 @@
   function getStatus() {
     return {
       configured: isConfigured(),
-      online: navigator.onLine,
+      online: isOnline(),
       pending: currentPendingCount,
       syncing: isFlushing
     };
@@ -422,22 +462,24 @@
     }
 
     var cfg = getConfig();
-    if (!cfg || !navigator.onLine) {
+    if (!cfg || !isOnline()) {
       // 오프라인 시 로컬 캐시에서 서빙 시도
       var cacheKey = (table === 'safety_consents') ? (isGuestMode() ? '' : 'bongplay_safety_consents') :
                      (table === 'ticket_ledger') ? 'bongplay_ticket_ledger' :
                      (table === 'safety_audits') ? 'bongplay_safety_audit_logs' : '';
       if (cacheKey) {
         try {
-          var localData = JSON.parse(localStorage.getItem(cacheKey) || '[]');
+          var s = getStorage() || localStorage;
+          var localData = JSON.parse((s ? s.getItem(cacheKey) : null) || '[]');
           return { ok: true, data: localData, from_local_cache: true };
         } catch (e) {}
       }
       return { ok: false, data: null, reason: 'offline_or_unconfigured' };
     }
     try {
+      var fetchFn = getFetch() || fetch;
       var url = cfg.url + '/rest/v1/' + table + (query || '?select=*');
-      var res = await fetch(url, {
+      var res = await fetchFn(url, {
         headers: {
           'apikey': cfg.key,
           'Authorization': 'Bearer ' + cfg.key,
@@ -449,7 +491,7 @@
         console.warn('Supabase select error on', table, res.status, errTxt);
         return { ok: false, data: null, reason: 'http_' + res.status, detail: errTxt };
       }
-      var json = await res.json();
+      var json = (typeof res.json === 'function') ? await res.json() : JSON.parse(await res.text());
       return { ok: true, data: json };
     } catch (e) {
       return { ok: false, data: null, reason: 'network', detail: String(e) };
@@ -459,12 +501,14 @@
   /* ---------- Supabase RPC 호출 (Remote Procedure Call) ---------- */
   async function rpc(fnName, params) {
     var cfg = getConfig();
-    if (!cfg || !navigator.onLine) {
+    if (!cfg || !isOnline()) {
       return { ok: false, reason: 'offline_or_unconfigured' };
     }
+    var _fetch = getFetch();
+    if (!_fetch) return { ok: false, reason: 'no_fetch' };
     try {
       var url = cfg.url + '/rest/v1/rpc/' + fnName;
-      var res = await fetch(url, {
+      var res = await _fetch(url, {
         method: 'POST',
         headers: {
           'apikey': cfg.key,
@@ -513,7 +557,8 @@
     updateLocalCache(table, payload);
 
     // 2. 오프라인 또는 설정 누락 시 즉시 아웃박스에 영구 보존
-    if (!cfg || !navigator.onLine) {
+    var _fetch = getFetch();
+    if (!cfg || !isOnline() || !_fetch) {
       var outId = payload[pkField] || ('out_' + Date.now());
       await enqueueOutbox({
         id: outId,
@@ -532,7 +577,7 @@
     var maxRetries = Object.keys(payload).length + 2;
     for (var attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        var res = await fetch(cfg.url + '/rest/v1/' + table, {
+        var res = await _fetch(cfg.url + '/rest/v1/' + table, {
           method: 'POST',
           headers: {
             'apikey': cfg.key,
@@ -558,7 +603,7 @@
           if (!invalidColumnCache[table]) invalidColumnCache[table] = [];
           if (invalidColumnCache[table].indexOf(missingCol) === -1) {
             invalidColumnCache[table].push(missingCol);
-            try { sessionStorage.setItem('bongplay_invalid_columns', JSON.stringify(invalidColumnCache)); } catch (e) {}
+            try { var sess = getSession() || sessionStorage; if (sess) sess.setItem('bongplay_invalid_columns', JSON.stringify(invalidColumnCache)); } catch (e) {}
           }
           delete payload[missingCol];
           continue;
@@ -570,7 +615,7 @@
           try {
             var patchData = Object.assign({}, payload);
             delete patchData[pkField];
-            var resPatch = await fetch(cfg.url + '/rest/v1/' + table + '?' + pkField + '=eq.' + encodeURIComponent(pkVal), {
+            var resPatch = await _fetch(cfg.url + '/rest/v1/' + table + '?' + pkField + '=eq.' + encodeURIComponent(pkVal), {
               method: 'PATCH',
               headers: {
                 'apikey': cfg.key,
@@ -643,7 +688,15 @@
     patchPayload[idCol] = idVal;
     updateLocalCache(table, patchPayload);
 
-    if (!cfg || !navigator.onLine) {
+    // 이미 알려진 누락 컬럼 제거
+    if (invalidColumnCache[table]) {
+      invalidColumnCache[table].forEach(function (col) {
+        delete patchData[col];
+      });
+    }
+
+    var _fetch = getFetch();
+    if (!cfg || !isOnline() || !_fetch) {
       await enqueueOutbox({
         id: 'patch_' + idVal,
         idVal: idVal,
@@ -653,13 +706,19 @@
         payload: patchData,
         created_at: new Date().toISOString()
       });
-      broadcast({ type: 'UPDATE_SUCCESS', table: table, id: idVal, data: patchData, offline: true });
+      broadcast({ type: 'UPDATE_SUCCESS', table: table, id: idVal, data: patchPayload, offline: true });
       return { ok: true, queued: true };
+    }
+
+    // 서버 스키마에 존재하지 않는 컬럼만 있는 경우 (미적용 DDL 제안 상태) 로컬 보존 후 정상 리턴
+    if (Object.keys(patchData).length === 0) {
+      broadcast({ type: 'UPDATE_SUCCESS', table: table, id: idVal, data: patchPayload, schema_unmigrated: true });
+      return { ok: true, schema_unmigrated: true };
     }
 
     try {
       var url = cfg.url + '/rest/v1/' + table + '?' + idCol + '=eq.' + encodeURIComponent(idVal);
-      var res = await fetch(url, {
+      var res = await _fetch(url, {
         method: 'PATCH',
         headers: {
           'apikey': cfg.key,
@@ -670,11 +729,44 @@
         body: JSON.stringify(patchData)
       });
       if (res.ok) {
-        broadcast({ type: 'UPDATE_SUCCESS', table: table, id: idVal, data: patchData });
+        broadcast({ type: 'UPDATE_SUCCESS', table: table, id: idVal, data: patchPayload });
         return { ok: true };
       }
       var errTxt = await res.text();
       console.warn('Supabase patch error:', res.status, errTxt);
+
+      // 서버 DB 스키마 컬럼 부재(미적용 SQL 제안 상태) 감지 시 자동 제외 및 캐시
+      var colMatch = errTxt.match(/Could not find the '([^']+)' column/);
+      if (colMatch && colMatch[1]) {
+        var missingCol = colMatch[1];
+        if (!invalidColumnCache[table]) invalidColumnCache[table] = [];
+        if (invalidColumnCache[table].indexOf(missingCol) === -1) {
+          invalidColumnCache[table].push(missingCol);
+          try { var sess = getSession() || sessionStorage; if (sess) sess.setItem('bongplay_invalid_columns', JSON.stringify(invalidColumnCache)); } catch (e) {}
+        }
+        delete patchData[missingCol];
+        if (Object.keys(patchData).length === 0) {
+          broadcast({ type: 'UPDATE_SUCCESS', table: table, id: idVal, data: patchPayload, schema_unmigrated: true });
+          return { ok: true, schema_unmigrated: true };
+        }
+        try {
+          var resRetry = await _fetch(url, {
+            method: 'PATCH',
+            headers: {
+              'apikey': cfg.key,
+              'Authorization': 'Bearer ' + cfg.key,
+              'Content-Type': 'application/json',
+              'Prefer': 'return=representation'
+            },
+            body: JSON.stringify(patchData)
+          });
+          if (resRetry.ok) {
+            broadcast({ type: 'UPDATE_SUCCESS', table: table, id: idVal, data: patchPayload });
+            return { ok: true };
+          }
+        } catch (retryErr) {}
+      }
+
       await enqueueOutbox({
         id: 'patch_' + idVal,
         idVal: idVal,
@@ -721,7 +813,8 @@
 
     broadcast({ type: 'DELETE_SUCCESS', table: table, id: idVal });
 
-    if (!cfg || !navigator.onLine) {
+    var _fetch = getFetch();
+    if (!cfg || !isOnline() || !_fetch) {
       await enqueueOutbox({
         id: 'del_' + idVal,
         idVal: idVal,
@@ -735,7 +828,7 @@
 
     try {
       var url = cfg.url + '/rest/v1/' + table + '?' + idCol + '=eq.' + encodeURIComponent(idVal);
-      var res = await fetch(url, {
+      var res = await _fetch(url, {
         method: 'DELETE',
         headers: {
           'apikey': cfg.key,
@@ -775,7 +868,7 @@
      2. 선입선출(FIFO) 아웃박스 자동 동기화 (Flush Engine)
      ============================================================ */
   async function flushOutbox() {
-    if (isFlushing || !navigator.onLine) {
+    if (isFlushing || !isOnline()) {
       return { processed: 0, pending: await refreshPendingCount() };
     }
     var cfg = getConfig();
@@ -786,13 +879,14 @@
 
     var items = await getOutboxItems();
     var processed = 0;
+    var fetchFn = getFetch() || fetch;
 
     for (var i = 0; i < items.length; i++) {
       var item = items[i];
       try {
         var success = false;
         if (item.action === 'upsert') {
-          var res = await fetch(cfg.url + '/rest/v1/' + item.table, {
+          var res = await fetchFn(cfg.url + '/rest/v1/' + item.table, {
             method: 'POST',
             headers: {
               'apikey': cfg.key,
@@ -811,7 +905,7 @@
             if (pkVal) {
               var pData = Object.assign({}, item.payload);
               delete pData[pkField];
-              var resPatch = await fetch(cfg.url + '/rest/v1/' + item.table + '?' + pkField + '=eq.' + encodeURIComponent(pkVal), {
+              var resPatch = await fetchFn(cfg.url + '/rest/v1/' + item.table + '?' + pkField + '=eq.' + encodeURIComponent(pkVal), {
                 method: 'PATCH',
                 headers: {
                   'apikey': cfg.key,
@@ -828,7 +922,7 @@
             var colMatch = errTxt.match(/Could not find the '([^']+)' column/);
             if (colMatch && colMatch[1]) {
               delete item.payload[colMatch[1]];
-              var resRetry = await fetch(cfg.url + '/rest/v1/' + item.table, {
+              var resRetry = await fetchFn(cfg.url + '/rest/v1/' + item.table, {
                 method: 'POST',
                 headers: {
                   'apikey': cfg.key,
@@ -843,20 +937,59 @@
           }
         } else if (item.action === 'patch') {
           var pk = item.idCol || (item.table === 'ticket_ledger' ? 'ticket_id' : 'id');
-          var resP = await fetch(cfg.url + '/rest/v1/' + item.table + '?' + pk + '=eq.' + encodeURIComponent(item.idVal), {
-            method: 'PATCH',
-            headers: {
-              'apikey': cfg.key,
-              'Authorization': 'Bearer ' + cfg.key,
-              'Content-Type': 'application/json',
-              'Prefer': 'return=representation'
-            },
-            body: JSON.stringify(item.payload)
-          });
-          if (resP.ok) success = true;
+          // 이미 알려진 누락 컬럼 제외
+          if (invalidColumnCache[item.table]) {
+            invalidColumnCache[item.table].forEach(function (col) {
+              delete item.payload[col];
+            });
+          }
+          if (Object.keys(item.payload).length === 0) {
+            success = true; // 서버 미마이그레이션 상태: 로컬 반영 완료, 아웃박스 해소
+          } else {
+            var resP = await fetchFn(cfg.url + '/rest/v1/' + item.table + '?' + pk + '=eq.' + encodeURIComponent(item.idVal), {
+              method: 'PATCH',
+              headers: {
+                'apikey': cfg.key,
+                'Authorization': 'Bearer ' + cfg.key,
+                'Content-Type': 'application/json',
+                'Prefer': 'return=representation'
+              },
+              body: JSON.stringify(item.payload)
+            });
+            if (resP.ok) {
+              success = true;
+            } else if (resP.status >= 400 && resP.status < 500) {
+              var errTxtP = await resP.text();
+              var matchP = errTxtP.match(/Could not find the '([^']+)' column/);
+              if (matchP && matchP[1]) {
+                var missingColP = matchP[1];
+                if (!invalidColumnCache[item.table]) invalidColumnCache[item.table] = [];
+                if (invalidColumnCache[item.table].indexOf(missingColP) === -1) {
+                  invalidColumnCache[item.table].push(missingColP);
+                  try { var sess = getSession() || sessionStorage; if (sess) sess.setItem('bongplay_invalid_columns', JSON.stringify(invalidColumnCache)); } catch (e) {}
+                }
+                delete item.payload[missingColP];
+                if (Object.keys(item.payload).length === 0) {
+                  success = true;
+                } else {
+                  var resRetryP = await fetchFn(cfg.url + '/rest/v1/' + item.table + '?' + pk + '=eq.' + encodeURIComponent(item.idVal), {
+                    method: 'PATCH',
+                    headers: {
+                      'apikey': cfg.key,
+                      'Authorization': 'Bearer ' + cfg.key,
+                      'Content-Type': 'application/json',
+                      'Prefer': 'return=representation'
+                    },
+                    body: JSON.stringify(item.payload)
+                  });
+                  if (resRetryP.ok) success = true;
+                }
+              }
+            }
+          }
         } else if (item.action === 'delete') {
           var pkD = item.idCol || (item.table === 'ticket_ledger' ? 'ticket_id' : 'id');
-          var resD = await fetch(cfg.url + '/rest/v1/' + item.table + '?' + pkD + '=eq.' + encodeURIComponent(item.idVal), {
+          var resD = await fetchFn(cfg.url + '/rest/v1/' + item.table + '?' + pkD + '=eq.' + encodeURIComponent(item.idVal), {
             method: 'DELETE',
             headers: {
               'apikey': cfg.key,
@@ -904,7 +1037,7 @@
     if (isGuestMode()) return { ok: true, reason: 'guest_mode_skip_pii' };
 
     var cfg = getConfig();
-    if (!cfg || !navigator.onLine) return { ok: false, reason: 'offline_or_unconfigured' };
+    if (!cfg || !isOnline()) return { ok: false, reason: 'offline_or_unconfigured' };
 
     var results = { safety_audits: 0, safety_consents: 0, sales_records: 0, closing_records: 0, ticket_ledger: 0 };
     try {
@@ -974,6 +1107,9 @@
             ticket_ids: row.ticket_ids,
             signatureData: row.signature_data,
             consentMarketing: row.consent_marketing,
+            status: row.status || 'active',
+            cancelled_at: row.cancelled_at || null,
+            cancel_reason: row.cancel_reason || null,
             legal_hold_until: row.legal_hold_until || null,
             pii_masked_at: row.pii_masked_at || null
           };
@@ -981,26 +1117,28 @@
         // 서버 응답에 없는 로컬 기록(어제 이전 접수분, 미전송분)을 덮어써 지우지 않도록 병합한다.
         // 기기에 남기는 개인정보는 요일 탭 조회 범위인 최근 7일로 제한한다.
         try {
+          var store = getStorage() || localStorage;
           var cloudIds = {};
           cloudConsents.forEach(function (c) { cloudIds[c.id] = true; });
           var keepFrom = toLocalDateStr(new Date(Date.now() - 7 * 86400000));
-          var localConsents = JSON.parse(localStorage.getItem('bongplay_safety_consents') || '[]');
+          var localConsents = JSON.parse((store ? store.getItem('bongplay_safety_consents') : null) || '[]');
           localConsents.forEach(function (c) {
             var d = c.created_date || c.createdDate || (c.arrival_at || '').slice(0, 10);
             if (c && c.id && !cloudIds[c.id] && d && d >= keepFrom) cloudConsents.push(c);
           });
+          cloudConsents.sort(function (a, b) {
+            return new Date(b.arrival_at || b.created_date || 0) - new Date(a.arrival_at || a.created_date || 0);
+          });
+          if (store) store.setItem('bongplay_safety_consents', JSON.stringify(cloudConsents));
         } catch (mergeErr) {}
-        cloudConsents.sort(function (a, b) {
-          return new Date(b.arrival_at || b.created_date || 0) - new Date(a.arrival_at || a.created_date || 0);
-        });
-        localStorage.setItem('bongplay_safety_consents', JSON.stringify(cloudConsents));
         results.safety_consents = cloudConsents.length;
       }
 
       // 3. ticket_ledger
       var rTickets = await select('ticket_ledger', '?select=*&order=issued_at.desc&limit=400');
       if (rTickets.ok && Array.isArray(rTickets.data)) {
-        localStorage.setItem('bongplay_ticket_ledger', JSON.stringify(rTickets.data));
+        var storeL = getStorage() || localStorage;
+        if (storeL) storeL.setItem('bongplay_ticket_ledger', JSON.stringify(rTickets.data));
         results.ticket_ledger = rTickets.data.length;
       }
 
@@ -1164,8 +1302,10 @@
   async function testConnection() {
     var cfg = getConfig();
     if (!cfg) return { ok: false, msg: 'Supabase URL/Key 설정이 없습니다.' };
+    var _fetch = getFetch();
+    if (!_fetch || !isOnline()) return { ok: false, msg: '네트워크 연결 불가 (오프라인 상태)' };
     try {
-      var res = await fetch(cfg.url + '/rest/v1/sales_records?select=id&limit=1', {
+      var res = await _fetch(cfg.url + '/rest/v1/sales_records?select=id&limit=1', {
         headers: { 'apikey': cfg.key, 'Authorization': 'Bearer ' + cfg.key }
       });
       if (res.ok) return { ok: true, msg: '연결 성공 (Supabase 클라우드 온라인)' };
@@ -1207,7 +1347,7 @@
       openIndexedDb().then(function () {
         refreshPendingCount().then(function () {
           notifyStatus();
-          if (typeof navigator !== 'undefined' && navigator.onLine) {
+          if (isOnline()) {
             flushOutbox();
             if (!isGuestMode()) {
               pullAll();
@@ -1232,7 +1372,7 @@
     });
 
     window.addEventListener('focus', function () {
-      if (typeof navigator !== 'undefined' && navigator.onLine && isConfigured()) {
+      if (isOnline() && isConfigured()) {
         flushOutbox();
         if (!isGuestMode()) {
           pullAll();
@@ -1243,7 +1383,7 @@
     // 10초마다 아웃박스 동기화 확인 (브라우저 DOM 환경)
     if (typeof window.document !== 'undefined') {
       setInterval(function () {
-        if (typeof navigator !== 'undefined' && navigator.onLine && isConfigured() && !isFlushing) {
+        if (isOnline() && isConfigured() && !isFlushing) {
           flushOutbox();
         }
       }, 10000);

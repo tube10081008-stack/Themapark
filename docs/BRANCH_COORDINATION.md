@@ -59,7 +59,7 @@
 | CLAUDE-001 | Claude | `claude/CLAUDE-001-branch-asset-inventory` | `068e704` | `docs/migration/CLAUDE-001_클로드브랜치_자산목록.md`, 본 작업표 1행 | 기존 Claude 브랜치 고유 자산 목록·이관 권고 작성 (파일 이동 없음) | PR #2 병합 완료 |
 | CLAUDE-002 | Claude | `claude/CLAUDE-002-analysis-docs` | `3830fad` | `docs/분석/` 신규 2개, 본 작업표 1행 | JEV 분석·지식시스템 v2 설계를 원문 그대로 이관하고 원본 SHA·전제·적용 상태 머리말 추가, 인용·경로 대조 | 벤 검토 통과 / 이력 보존 통합 |
 | GEO-001 | 지오 | `aside/GEO-001-worklog-audit` | `bb0fcec3af437cbb8f171c7cf182874387ce0e57` | `docs/migration/GEO-001_업무로그_비교및실사용검증.md`, 본 행 | 코드 비교 및 배포·시트 연결 검증, 미실행 구분, master 대상 PR | PR #10 병합 완료 aeede4f / 경량 추가 확인 |
-| ANT-001 | 아난티 | `antigravity/ANT-001-operations-integrity` | `aeede4f` 병합 | 01 운영 UI·공통 JS·테스트·검증 보고서·본 행 | 전체 화면·핵심 흐름 검증, P0/P1 수정, R1~R4 및 추가 조건 완결, 회귀 48건 통과 | PR #11 보완 완료 / 벤 재검토 요청 |
+| ANT-001 | 아난티 | `antigravity/ANT-001-operations-integrity` | `1bc6ff1` 병합 | 01 운영 UI·공통 JS·테스트·검증 보고서·본 행 | 전체 화면·핵심 흐름 검증, P0/P1 수정, R1~R4·추가조건 완결, 실제 동기화(BongplaySync patch/flush)·실제게이트(executeGateAction)·헤드리스 브라우저(390x844/1440x900) 전수 통과 (총 61건), BEN-008 정합 | PR #11 2차 보완 완료 / 벤 재검토 요청 |
 | CLAUDE-003 | Claude | `claude/CLAUDE-003-legacy-business-docs` | `3830fad` | `03_봉뜨락_도면및행정자료/_참고_초기기획_20260830/` 신규 5개(원본 4 + README), 본 작업표 1행 | 운영계획서·손익 그리드·채용 제안서 2종을 원본 그대로(blob 동일) 보존, README에 원본 SHA·구버전·현행 판단 미사용 명시. 제안서 2종은 대표 결정(2026-09-29)으로 보관 전용 | 벤 검토 통과 / 이력 보존 통합 |
 | CLAUDE-004 | Claude | `claude/CLAUDE-004-agents-design` | `3830fad` | `05_봉플레이_AI에이전트/DESIGN.md` 신규, 본 작업표 1행 | 6종 이관 1차 설계: 기준정보 JSON 계약·입력 스냅샷·숨은 쓰기 경로·테스트 계획·PR 순서 (코드 이동 없음) | 설계 벤 검토 통과 / 이력 보존 통합 |
 | CLAUDE-004b | 클로이 | `claude/CLAUDE-004b-profile-contract` | `0197ffe` 검토 | 05 계약·검증·gate·테스트 | PR #9 R1/R2 요금 추출 누락 보완 후 재검토 | PR #9 병합 보류 / 벤 재현 2건 |

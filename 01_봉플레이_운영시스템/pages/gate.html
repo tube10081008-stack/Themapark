@@ -926,7 +926,11 @@
         }
 
         // Save via BongplaySync
-        await BongplaySync.upsert('safety_consents', rec);
+        try {
+          await BongplaySync.upsert('safety_consents', rec);
+        } catch (saveErr) {
+          console.error('[Gate] 저장 동기화 실패 (오프라인/로컬 보존):', saveErr);
+        }
         recalcOccupancy();
         renderScanResult(rec, actionType === 'exit');
       } finally {
