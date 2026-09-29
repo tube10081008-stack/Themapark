@@ -57,6 +57,7 @@
 |---|---|---|---|---|---|---|
 | COORD-001 | Ben | `ben/repository-coordination` | `8acbb77` | `AGENTS.md`, 본 문서, PR 템플릿 | 계보·보존 계획·협업 규칙 작성 및 검증, 인증 후 PR | PR #1 병합 완료 |
 | CLAUDE-001 | Claude | `claude/CLAUDE-001-branch-asset-inventory` | `068e704` | `docs/migration/CLAUDE-001_클로드브랜치_자산목록.md`, 본 작업표 1행 | 기존 Claude 브랜치 고유 자산 목록·이관 권고 작성 (파일 이동 없음) | PR #2 병합 완료 |
+| CLAUDE-002 | Claude | `claude/CLAUDE-002-analysis-docs` | `3830fad` | `docs/분석/` 신규 2개, 본 작업표 1행 | JEV 분석·지식시스템 v2 설계를 원문 그대로 이관하고 원본 SHA·전제·적용 상태 머리말 추가, 인용·경로 대조 | 문서 완료 / 벤 검토 대기 |
 
 | GEO-001 | 지오 | `aside/GEO-001-worklog-audit` (예정) | 착수 시 최신 master SHA 기록 | 검증 보고서·합성 증거·본 행 | 코드 비교 및 배포·시트 연결 검증, 미실행 구분, master 대상 PR | 배정 확정 / 전달 대기 |
 | ANT-001 | 아난티 | `antigravity/ANT-001-operations-integrity` (예정) | 착수 시 최신 master SHA 기록 | 01 운영 UI·공통 JS·테스트·검증 보고서·본 행 | 전체 화면·핵심 흐름 검증, 재현된 P0/P1 수정, 면적 의미 분리, 회귀 테스트와 PR | 배정 확정 / 전달 대기 |
