@@ -82,8 +82,14 @@ content · faq · sales는 파일에 쓰지 않는다. 표준 출력과 API 호�
     },
     "price.tkt_allday": {
       "value": 21000,
-      "source": "bongplay-id.js PRODUCT_CATALOG tkt_allday.list_price",
-      "status": "system_default",
+      "source": "봉플레이 웹 고지 요금 (pages/booking.html 정가 21,000원) · 대표 확인 2026-09-29",
+      "status": "confirmed",
+      "checked_at": "2026-09-29"
+    },
+    "hours.open": {
+      "value": null,
+      "source": "대표 확인 2026-09-29: 운영시간 미정",
+      "status": "unverified",
       "checked_at": "2026-09-29"
     }
   }
@@ -177,11 +183,21 @@ JSON의 요금과 `bongplay-id.js`의 `list_price` 리터럴이 다를 때 **테
 
 ---
 
-## 8. 결정이 필요한 것
+## 8. 대표 결정 반영 (2026-09-29)
+
+| 항목 | 결정 | 계약 반영 |
+|---|---|---|
+| 요금 | **봉플레이 웹에 고지된 그대로** 간다 | 웹(`pages/booking.html` 등)에 고객용으로 고지된 권종·가격만 `confirmed`. 운영시스템 카탈로그에만 있고 웹에 고지되지 않은 품목은 `system_default` 유지. 004b에서 고지 화면과 카탈로그를 품목별로 대조해 목록을 확정한다 |
+| 주소 | **경상북도 봉화군 봉화읍 유록길 22** | `address.road` = `confirmed`. 지번은 건물별로 다르다 — 놀이동 석평리 1214-22 (`bongplay-site.js`), 사무동 1214-21 (구 운영계획서) — 에이전트는 도로명만 쓴다 |
+| 운영시간 | **미정** | `hours.*` = `null` / `unverified`. faq·content는 "확정 후 안내"로 답한다. `bongplay-site.js`의 10:00~18:00은 쓰지 않는다 |
+
+**충돌 보고:** 고객용 예약 화면 `01_봉플레이_운영시스템/pages/booking.html` 468행에 "운영 시간 10:00 ~ 18:00 (입장 마감 17:00)"이 이미 고지돼 있다. 대표 결정(미정)과 다르다. 이 PR은 운영 화면을 고치지 않는다 — 화면 담당과 벤의 조정이 필요하다.
+
+## 9. 결정이 필요한 것
 
 | # | 질문 | 누구 |
 |---|---|---|
 | 1 | 3-4 어긋남 감지(정규식 읽기)를 둘지 | 벤 |
-| 2 | 고객용 문구에 쓸 값을 `confirmed`로 올리는 절차 — 예: 요금·운영시간·주소를 대표가 확인 | 대표 |
+| 2 | 이후 값을 `confirmed`로 올리는 절차 (이번에는 대표가 대화로 확인 → 클로이가 출처에 기록). 운영시간 확정 시 같은 방식으로 갱신 | 벤 |
 | 3 | 원본 에이전트의 시설 설명 중 "실내 짚라인형"은 **틀린 정보**다. 짚코스터는 야외 시설이다. 이관 시 시설 설명문을 새로 써야 하는데, 이 문구도 `site_profile.json`의 `confirmed` 값에서 만들지 | 벤·대표 |
 | 4 | 기본 모델 ID (`claude-opus-5`, `claude-haiku-4-5`)를 원본대로 유지할지 | 벤 |
