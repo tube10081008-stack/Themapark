@@ -56,5 +56,6 @@
 | ID | 담당 | 브랜치 | 기준 SHA | 수정 범위 | 완료 조건 | 상태 |
 |---|---|---|---|---|---|---|
 | COORD-001 | Ben | `ben/repository-coordination` | `8acbb77` | `AGENTS.md`, 본 문서, PR 템플릿 | 계보·보존 계획·협업 규칙 작성 및 검증, 인증 후 PR | 문서 준비 완료 / PR 반영 대상 |
+| CLAUDE-001 | Claude | `claude/CLAUDE-001-branch-asset-inventory` | `068e704` | `docs/migration/CLAUDE-001_클로드브랜치_자산목록.md`, 본 작업표 1행 | 기존 Claude 브랜치 고유 자산 목록·이관 권고 작성 (파일 이동 없음) | 문서 완료 / 벤 검토 대기 |
 
 새 작업은 이 표에 추가한다. 다른 에이전트의 폴더/브랜치 및 미푸시 변경은 이번 로컬 복제로 확인할 수 없으므로 담당자가 인계해야 한다.
