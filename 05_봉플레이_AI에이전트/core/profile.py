@@ -147,7 +147,11 @@ def load_profile(path: str | Path | None = None) -> Profile:
         raise ProfileError(f"계약 파일이 없습니다: {p}") from e
     except json.JSONDecodeError as e:
         raise ProfileError(f"계약 파일 JSON 오류: {p} ({e})") from e
+    return profile_from_data(data, p)
 
+
+def profile_from_data(data: object, path: Path | None = None) -> Profile:
+    """이미 읽은 계약 데이터로 Profile 을 만든다 (같은 검증). 파일을 쓰지 않는다."""
     if not isinstance(data, dict):
         raise ProfileError("최상위는 객체여야 합니다")
     if data.get("schema_version") != SCHEMA_VERSION:
@@ -158,7 +162,7 @@ def load_profile(path: str | Path | None = None) -> Profile:
         raise ProfileError("fields 가 비어 있습니다")
 
     fields = {k: _validate_field(k, v) for k, v in raw_fields.items()}
-    return Profile(fields, p)
+    return Profile(fields, path)
 
 
 # ── 시설 설명 (confirmed 값으로만 생성) ─────────────────────────────

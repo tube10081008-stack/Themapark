@@ -1,7 +1,6 @@
 import copy
 import json
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -9,18 +8,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core.profile import (  # noqa: E402
     DEFAULT_PATH, PENDING_TEXT, ProfileError, facility_description, lint_keys, load_profile,
+    profile_from_data,
 )
 
 BASE = json.loads(DEFAULT_PATH.read_text(encoding="utf-8"))
 
 
+FIX = Path(__file__).resolve().parent / "fixtures"
+
+
 def load_variant(mutate):
+    """임시 파일 없이 같은 검증을 거친다 (Windows 임시폴더 권한 문제 회피)."""
     data = copy.deepcopy(BASE)
     mutate(data)
-    with tempfile.TemporaryDirectory() as d:
-        p = Path(d) / "p.json"
-        p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-        return load_profile(p)
+    return profile_from_data(data)
 
 
 class RealProfile(unittest.TestCase):
@@ -100,11 +101,12 @@ class Validation(unittest.TestCase):
             load_profile("/nonexistent/site_profile.json")
 
     def test_bad_json(self):
-        with tempfile.TemporaryDirectory() as d:
-            p = Path(d) / "p.json"
-            p.write_text("{", encoding="utf-8")
-            with self.assertRaises(ProfileError):
-                load_profile(p)
+        with self.assertRaises(ProfileError):
+            load_profile(FIX / "bad_profile.json")
+
+    def test_non_object_data(self):
+        with self.assertRaises(ProfileError):
+            profile_from_data([])
 
     def test_schema_version(self):
         self.assertRejects(lambda d: d.update(schema_version=2), "schema_version")

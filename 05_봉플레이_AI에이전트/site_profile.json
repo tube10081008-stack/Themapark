@@ -110,7 +110,10 @@
       "price_check": {
         "catalog_id": "tkt_guardian",
         "notice_title": "보호자 입장권",
-        "notice_field": "sale"
+        "notice_field": "sale",
+        "notice_allowed_text": [
+          "음료 포함 실질 0원"
+        ]
       }
     },
     "price.group_allday": {

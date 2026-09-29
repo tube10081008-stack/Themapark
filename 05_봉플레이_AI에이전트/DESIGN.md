@@ -229,4 +229,13 @@ content · faq · sales는 파일에 쓰지 않는다. 표준 출력과 API 호�
 `site_profile.json`, `core/{profile,price_check,gate,settings}.py`, `tests/test_*.py` 5종, `README.md`, `env.template`
 
 ### 검증
-`python3 -B -m unittest discover -s tests` — 57건 통과 (키·모델·네트워크 없이). LLM 호출·운영 DB 접근은 하지 않았다.
+`python3 -B -m unittest discover -s tests` — 82건 통과 (키·모델·네트워크 없이). LLM 호출·운영 DB 접근은 하지 않았다.
+
+## 11. BEN PR-009 R1·R2 보완 (2026-09-30)
+
+| ID | 재현 | 보완 |
+|---|---|---|
+| R1 | 따옴표 중복 키 `'list_price': 6000` 이 정규식을 빠져나가 불일치가 통과 | `core/js_static.py` — 토큰 단위 제한적 파서. 키를 따옴표 유무와 무관하게 정규화해 중복을 거부. 계산 키·spread·축약 속성·비리터럴 값·중첩·`${}` 템플릿 거부. 선언 뒤 재선언·재할당·배열 변경 메서드·인덱스 접근과 파일 전체의 `list_price`/`rate` 대입·증감·delete 거부. 주석·문자열 속 글자는 속성으로 보지 않음. 실제 코드의 `p.price = p.list_price` 복사는 변경이 아니므로 허용 |
+| R2 | `py-3` 클래스의 새 요금 카드가 탐지되지 않음 | 카드 = 판매가 앵커(`<strong>N원</strong>`)를 하나만 포함하는 가장 큰 요소. 클래스·태그와 무관. 카드 밖 금액은 추출 실패, 카드 안의 판매가·정가와 다른 금액은 계약이 정확한 문장으로 허용하지 않으면 실패(`notice_allowed_text`, 현재 보호자 카드 "음료 포함 실질 0원" 1건), 카드 밖 할인율은 계약 라벨이 없으면 실패 |
+| 추가 | `PendingNoticeFix` 가 실제 화면의 14,000원을 전제 | 옛 고지는 `tests/fixtures/` 고정본으로 옮김. 실제 파일 테스트는 현재 confirmed 값 일치만 검사하므로 01 화면 정정을 되돌리기를 요구하지 않음 |
+| 추가 | Windows 임시폴더 권한으로 21건 오류 | 계약 변형 테스트를 `profile_from_data()` 로 임시 파일 없이 실행. 부수효과 테스트 2종은 격리 작업 폴더가 필요해 여전히 임시 디렉터리를 쓴다 |
