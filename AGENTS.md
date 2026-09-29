@@ -3,7 +3,8 @@
 ## 기준과 책임
 - 통합 기준은 `master`다. GitHub 기본 브랜치 전환 여부는 `docs/BRANCH_COORDINATION.md`를 확인한다.
 - 메인 오케스트레이터는 벤(Ben)이다. 작업 범위 배정, 충돌 조정, 리뷰와 통합을 담당한다.
-- 협업 자원은 클로이(Claude Code Pro), Antigravity(Google Pro), 어사이드(Sakana Fugu Pro 연동)다. 실제 접속 및 실행 가능 여부는 별도로 확인한다.
+- 협업 자원은 클로이(Claude Code Pro), 아난티(Antigravity/Google Pro), 지오(Aside × Sakana Fugu Pro 연동)다. 실제 접속 및 실행 가능 여부는 별도로 확인한다.
+- 사용자 지정 배정 원칙: 범위가 크고 구체적인 구현·전수검증·회귀수정 과업은 아난티를 우선 활용한다. 클로이는 기존 자산 이관·설계, 지오는 브라우저를 통한 서비스 간 실사용 검증을 맡되, 실제 범위는 작업 지시서로 확정한다.
 - 작업 시작 시 이 파일과 `docs/BRANCH_COORDINATION.md`를 읽는다. 기존 사용자 지시는 이 문서보다 우선한다.
 
 ## 브랜치와 작업 공간
