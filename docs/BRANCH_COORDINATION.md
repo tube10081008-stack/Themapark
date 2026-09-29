@@ -55,7 +55,17 @@
 
 | ID | 담당 | 브랜치 | 기준 SHA | 수정 범위 | 완료 조건 | 상태 |
 |---|---|---|---|---|---|---|
-| COORD-001 | Ben | `ben/repository-coordination` | `8acbb77` | `AGENTS.md`, 본 문서, PR 템플릿 | 계보·보존 계획·협업 규칙 작성 및 검증, 인증 후 PR | 문서 준비 완료 / PR 반영 대상 |
-| CLAUDE-001 | Claude | `claude/CLAUDE-001-branch-asset-inventory` | `068e704` | `docs/migration/CLAUDE-001_클로드브랜치_자산목록.md`, 본 작업표 1행 | 기존 Claude 브랜치 고유 자산 목록·이관 권고 작성 (파일 이동 없음) | 문서 완료 / 벤 검토 대기 |
+| COORD-001 | Ben | `ben/repository-coordination` | `8acbb77` | `AGENTS.md`, 본 문서, PR 템플릿 | 계보·보존 계획·협업 규칙 작성 및 검증, 인증 후 PR | PR #1 병합 완료 |
+| CLAUDE-001 | Claude | `claude/CLAUDE-001-branch-asset-inventory` | `068e704` | `docs/migration/CLAUDE-001_클로드브랜치_자산목록.md`, 본 작업표 1행 | 기존 Claude 브랜치 고유 자산 목록·이관 권고 작성 (파일 이동 없음) | PR #2 병합 완료 |
 
 새 작업은 이 표에 추가한다. 다른 에이전트의 폴더/브랜치 및 미푸시 변경은 이번 로컬 복제로 확인할 수 없으므로 담당자가 인계해야 한다.
+
+## 2026-09-29 후속 결정
+
+- 클로이의 CLAUDE-001을 PR #2로 검토·통합했다.
+- 면적 근거, 이관 위치와 범위는 [BEN-002 결정 기록](migration/BEN-002_이관결정과_면적근거.md)을 따른다.
+- CLAUDE-002: 분석 문서 2개 이관, 클로이 진행 가능.
+- CLAUDE-003: 운영계획·손익 그리드 구버전 보존은 진행 가능. 제안서·디자인 프롬프트는 대표 의사 확인 대기.
+- CLAUDE-004: 05_봉플레이_AI에이전트 위치 승인. 첫 PR은 기준정보 어댑터·입출력·저장 설계부터 진행.
+- COORD-002: Ben / ben/COORD-002-migration-decisions / 기준 b354662 / 공동 규칙과 본 문서 및 BEN-002 결정 기록 / 근거 확인 및 문서 diff 검증.
+- 위 후속 작업은 범위 결정이며 외부 에이전트에 직접 전달·실행하지 않았다. 실제 착수 시 담당자가 작업표에 브랜치와 기준 SHA를 기록한다.

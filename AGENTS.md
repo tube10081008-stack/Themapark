@@ -3,7 +3,7 @@
 ## 기준과 책임
 - 통합 기준은 `master`다. GitHub 기본 브랜치 전환 여부는 `docs/BRANCH_COORDINATION.md`를 확인한다.
 - 메인 오케스트레이터는 벤(Ben)이다. 작업 범위 배정, 충돌 조정, 리뷰와 통합을 담당한다.
-- 협업 자원은 Claude Pro, Antigravity(Google Pro), 어사이드(Sakana Fugu Pro 연동)다. 실제 접속 및 실행 가능 여부는 별도로 확인한다.
+- 협업 자원은 클로이(Claude Code Pro), Antigravity(Google Pro), 어사이드(Sakana Fugu Pro 연동)다. 실제 접속 및 실행 가능 여부는 별도로 확인한다.
 - 작업 시작 시 이 파일과 `docs/BRANCH_COORDINATION.md`를 읽는다. 기존 사용자 지시는 이 문서보다 우선한다.
 
 ## 브랜치와 작업 공간
@@ -12,7 +12,7 @@
 - 한 브랜치에는 한 작업만 담는다. 각 에이전트는 별도 checkout 또는 worktree를 사용한다.
 - 같은 폴더에서 다른 에이전트가 작업 중일 때 브랜치를 전환하거나 파일을 덮어쓰지 않는다.
 - `master` 직접 푸시, 공유 브랜치 강제 푸시, 타인의 커밋 재작성은 하지 않는다.
-- 과거 `claude/*` 브랜치는 `master`와 공통 조상이 없다. `--allow-unrelated-histories`로 일괄 병합하지 않는다. 필요한 파일을 비교해 별도 이관 작업으로 처리한다.
+- 최초 감사의 과거 Claude 브랜치 4개(greeting, dreamy, jev-routing-analysis, video-analysis-insights)는 `master`와 공통 조상이 없다. 이후 master에서 만든 `claude/CLAUDE-*` 작업 브랜치는 별개다. 과거 이력을 `--allow-unrelated-histories`로 일괄 병합하지 않는다. 필요한 파일을 비교해 별도 이관 작업으로 처리한다.
 
 ## 작업 배정과 인수인계
 - 시작 전에 작업표에 작업 ID, 담당, 브랜치, 기준 커밋, 수정할 폴더/파일, 완료 조건을 기록한다.
