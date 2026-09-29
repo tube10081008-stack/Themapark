@@ -26,7 +26,18 @@ python3 -B -m unittest discover -s tests   # 전체 테스트 (키·모델·네�
 python3 -B -m core.price_check             # 요금 대조. 실패가 있으면 종료코드 1
 ```
 
-Python 3.10 이상, 표준 라이브러리만 쓴다.
+Python 3.10 이상, 표준 라이브러리만 쓴다. 확인한 환경: Linux, Python 3.11.15 — 전체 통과.
+
+부수효과 테스트 3건(`test_no_side_effects`)은 격리된 작업 폴더가 필요하다. 기본은 시스템 임시폴더다.
+임시폴더를 만들 수 없는 환경(권한이 막힌 Windows 샌드박스 등)에서는 쓰기 가능한 기존 폴더를 지정한다.
+감시 대상(05 폴더, `01_…/assets`, `01_…/pages`) 안은 거부한다.
+
+```bash
+# Linux/macOS
+BONGPLAY_TEST_WORKDIR=/path/to/writable python3 -B -m unittest discover -s tests
+# Windows PowerShell
+$env:BONGPLAY_TEST_WORKDIR="C:\path\to\writable"; python -B -m unittest discover -s tests
+```
 
 ## 기준정보 규칙
 

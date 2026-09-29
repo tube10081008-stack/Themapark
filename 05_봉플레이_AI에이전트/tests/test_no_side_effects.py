@@ -7,10 +7,18 @@
   업무 코드의 쓰기와 구분한다. 자식 안에서는 네트워크·subprocess 를 막고, 쓰기 모드 open 과
   파일시스템 변경 함수도 막아 시도 자체를 실패로 만든다.
 - 검사기가 실제로 변화를 잡는지(생성·수정·삭제·디렉터리 생성)도 따로 확인한다.
+
+작업 폴더: 기본은 시스템 임시폴더(tempfile). 임시폴더를 만들 수 없는 환경(예: 권한이 막힌
+Windows 샌드박스)에서는 쓰기 가능한 기존 폴더를 BONGPLAY_TEST_WORKDIR 로 지정한다. 그 안에
+테스트마다 고유 하위 폴더를 만들고 끝나면 지운다. 감시 대상(모듈·입력 원본 폴더) 안은 거부한다.
+작업 폴더 삭제 실패(Windows 파일 잠금 등)는 검사 결과와 무관하므로 무시한다.
 """
 
+import contextlib
 import hashlib
 import os
+import shutil
+import uuid
 import subprocess
 import sys
 import tempfile
@@ -92,6 +100,30 @@ MISBEHAVE = textwrap.dedent("""
 """)
 
 
+WORKDIR_ENV = "BONGPLAY_TEST_WORKDIR"
+
+
+@contextlib.contextmanager
+def work_dir():
+    base = os.environ.get(WORKDIR_ENV, "").strip()
+    if not base:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+            yield d
+        return
+    base_p = Path(base).resolve()
+    if not base_p.is_dir():
+        raise RuntimeError(f"{WORKDIR_ENV}={base} 가 존재하는 폴더가 아닙니다")
+    for watched in (MODULE_DIR, *INPUT_DIRS):
+        if base_p == watched or watched in base_p.parents:
+            raise RuntimeError(f"{WORKDIR_ENV} 는 감시 대상 폴더 밖이어야 합니다: {watched}")
+    d = base_p / f"nse-{uuid.uuid4().hex[:12]}"
+    d.mkdir()
+    try:
+        yield str(d)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 def snapshot(roots):
     files, dirs = {}, set()
     for root in roots:
@@ -125,7 +157,7 @@ def run_child(code, cwd, guarded=True):
 
 class NoSideEffects(unittest.TestCase):
     def test_core_leaves_everything_unchanged(self):
-        with tempfile.TemporaryDirectory() as work:
+        with work_dir() as work:
             (Path(work) / "keep.txt").write_text("sentinel", encoding="utf-8")
             roots = [MODULE_DIR, *INPUT_DIRS, Path(work)]
             before = snapshot(roots)
@@ -139,11 +171,26 @@ class NoSideEffects(unittest.TestCase):
         self.assertFalse((MODULE_DIR / "data").exists())
 
 
+class WorkDirOverride(unittest.TestCase):
+    def test_rejects_watched_dir(self):
+        old = os.environ.get(WORKDIR_ENV)
+        os.environ[WORKDIR_ENV] = str(MODULE_DIR)
+        try:
+            with self.assertRaises(RuntimeError):
+                with work_dir():
+                    pass
+        finally:
+            if old is None:
+                os.environ.pop(WORKDIR_ENV, None)
+            else:
+                os.environ[WORKDIR_ENV] = old
+
+
 class DetectorSanity(unittest.TestCase):
     """검사기가 네 종류 변화를 모두 잡는지 — 가드 없이 일부러 쓰는 자식으로 확인."""
 
     def test_detects_create_modify_delete_mkdir(self):
-        with tempfile.TemporaryDirectory() as work:
+        with work_dir() as work:
             (Path(work) / "keep.txt").write_text("sentinel", encoding="utf-8")
             (Path(work) / "gone.txt").write_text("bye", encoding="utf-8")
             before = snapshot([Path(work)])
@@ -157,7 +204,7 @@ class DetectorSanity(unittest.TestCase):
         self.assertTrue(any(p.endswith("newdir") for p in d["dirs_created"]))
 
     def test_guards_block_write_attempts(self):
-        with tempfile.TemporaryDirectory() as work:
+        with work_dir() as work:
             proc = run_child('open("x.txt", "w")', work)
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("쓰기 모드 open 차단", proc.stderr)
