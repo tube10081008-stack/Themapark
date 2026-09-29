@@ -1,3 +1,5 @@
+> **2026-09-30 운영 대상 정정:** chat2는 구 MVP입니다. 현행은 bongplay.netlify.app 및 bongplaychat.netlify.app/archive.html입니다. 기존 라이브 관찰을 현행 결함으로 적용하지 마세요. 지오는 [GEO-002 최신 지시](/docs/tasks/GEO-002_현행배포_대상정정.md)를 우선 수행합니다.
+
 # PR #10·#11 검토 및 후속 배정
 
 벤, 2026-09-30. 기준 master `aeede4f`.
