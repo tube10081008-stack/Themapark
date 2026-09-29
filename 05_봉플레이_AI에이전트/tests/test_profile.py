@@ -38,7 +38,6 @@ class RealProfile(unittest.TestCase):
         self.assertEqual(self.p.customer_text("hours.open"), PENDING_TEXT)
 
     def test_system_default_not_for_customers(self):
-        self.assertIsNone(self.p.customer_value("facility.name"))
         self.assertIsNone(self.p.customer_value("price.tkt_allday"))
         self.assertEqual(self.p.internal_value("price.tkt_allday"), (21000, "system_default"))
 
@@ -47,6 +46,18 @@ class RealProfile(unittest.TestCase):
             with self.subTest(key=f.key):
                 self.assertIsNone(self.p.customer_value(f.key))
                 self.assertIsNone(self.p.internal_value(f.key))
+
+    def test_owner_decisions_20260929(self):
+        # 대외 시설명 확정
+        self.assertEqual(self.p.customer_value("facility.name"), "리틀포레스트 봉플레이")
+        # 기본권 15,000원 결정은 기록하되, 고객 고지 정정 전까지 어디에도 쓰지 않는다
+        f = self.p.field("price.tkt_basic")
+        self.assertEqual((f.value, f.status), (15000, "unresolved"))
+        self.assertIsNone(self.p.customer_value("price.tkt_basic"))
+        self.assertIsNone(self.p.internal_value("price.tkt_basic"))
+        # 폐지 결정 3건
+        for k in ("price.daycare_group_voucher", "price.teen_adult_activity", "discount.merit_disability"):
+            self.assertIn("폐지", self.p.field(k).note)
 
     def test_areas_are_separate_fields(self):
         self.assertEqual(self.p.customer_value("area.play_space_m2"), 657.785)
@@ -60,18 +71,17 @@ class Description(unittest.TestCase):
         self.assertIn("657.8㎡(약 199평)", text)
         self.assertIn("야외에는 짚코스터·네트챌린지가", text)
         self.assertIn(PENDING_TEXT, text)
-        self.assertNotIn("봉플레이", text)          # facility.name 은 system_default
+        self.assertTrue(text.startswith("리틀포레스트 봉플레이는 "))  # 대표 확정 (2026-09-29)
         self.assertNotIn("실내 짚라인", text)        # 원본의 오류 문구
         self.assertNotIn("924", text)               # 건물 연면적은 놀이공간 설명에 쓰지 않음
         self.assertNotRegex(text, r"\d+\s*m\b|높이|길이")  # 확인 안 된 규격 보충 금지
 
-    def test_confirmed_name_used_with_particle(self):
+    def test_unconfirmed_name_omitted(self):
         def m(d):
-            f = d["fields"]["facility.name"]
-            f.update(status="confirmed", confirmed_by="테스트", confirmed_at="2026-09-29")
-            f["source"]["revision"] = "test"
+            d["fields"]["facility.name"]["status"] = "system_default"
         text = facility_description(load_variant(m))
-        self.assertTrue(text.startswith("리틀포레스트 봉플레이는 "))
+        self.assertTrue(text.startswith("이 시설은 "))
+        self.assertNotIn("봉플레이", text)
 
     def test_unconfirmed_outdoor_omitted(self):
         def m(d):

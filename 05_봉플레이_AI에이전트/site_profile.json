@@ -3,14 +3,24 @@
   "fields": {
     "facility.name": {
       "value": "리틀포레스트 봉플레이",
-      "status": "system_default",
-      "source": {"path": "01_봉플레이_운영시스템/assets/bongplay-site.js", "item": "SITE.facility.name", "revision": "3bada78"},
-      "note": "운영시스템 표기. 사용·수익허가 계약서상 명칭은 '리틀 포레스트 봉뜨락'. 대외 명칭 확정 전까지 고객용 문구에 쓰지 않는다."
+      "status": "confirmed",
+      "source": {
+        "path": "docs/migration/CLAUDE-004b_대표결정_20260929.md",
+        "item": "결정 2 — 대외 시설명",
+        "revision": "v1 (2026-09-29)"
+      },
+      "confirmed_by": "대표 (2026-09-29 결정, 클로이 대화 경유)",
+      "confirmed_at": "2026-09-29",
+      "note": "운영시스템 bongplay-site.js SITE.facility.name 과 일치. 사용·수익허가 계약서상 명칭은 '리틀 포레스트 봉뜨락'."
     },
     "address.road": {
       "value": "경상북도 봉화군 봉화읍 유록길 22",
       "status": "confirmed",
-      "source": {"path": "docs/migration/BEN-004_클로이_PR검토와_기준정보결정.md", "item": "대표 결정의 적용 범위 — 도로명 주소", "revision": "c81eddf"},
+      "source": {
+        "path": "docs/migration/BEN-004_클로이_PR검토와_기준정보결정.md",
+        "item": "대표 결정의 적용 범위 — 도로명 주소",
+        "revision": "c81eddf"
+      },
       "confirmed_by": "대표 (2026-09-29 결정, 클로이 보고 경유 / 벤 BEN-004 기록)",
       "confirmed_at": "2026-09-29",
       "note": "시설명세 붙임1 위치 '봉화군 봉화읍 유록길 22'와 일치 (hwpx_facility_spec.txt 4행). 지번은 건물별로 다르므로 쓰지 않는다."
@@ -18,25 +28,41 @@
     "hours.open": {
       "value": null,
       "status": "unverified",
-      "source": {"path": "docs/migration/BEN-004_클로이_PR검토와_기준정보결정.md", "item": "대표 결정 — 운영시간 미정", "revision": "c81eddf"},
+      "source": {
+        "path": "docs/migration/BEN-004_클로이_PR검토와_기준정보결정.md",
+        "item": "대표 결정 — 운영시간 미정",
+        "revision": "c81eddf"
+      },
       "note": "bongplay-site.js 의 10:00 은 계획값. 고객 안내는 '운영시간 확정 후 안내'."
     },
     "hours.close": {
       "value": null,
       "status": "unverified",
-      "source": {"path": "docs/migration/BEN-004_클로이_PR검토와_기준정보결정.md", "item": "대표 결정 — 운영시간 미정", "revision": "c81eddf"}
+      "source": {
+        "path": "docs/migration/BEN-004_클로이_PR검토와_기준정보결정.md",
+        "item": "대표 결정 — 운영시간 미정",
+        "revision": "c81eddf"
+      }
     },
     "hours.last_entry": {
       "value": null,
       "status": "unverified",
-      "source": {"path": "docs/migration/BEN-004_클로이_PR검토와_기준정보결정.md", "item": "대표 결정 — 입장 마감 미정", "revision": "c81eddf"}
+      "source": {
+        "path": "docs/migration/BEN-004_클로이_PR검토와_기준정보결정.md",
+        "item": "대표 결정 — 입장 마감 미정",
+        "revision": "c81eddf"
+      }
     },
     "area.play_space_m2": {
       "value": 657.785,
       "unit": "㎡",
       "scope": "실내놀이시설장 (실내 놀이공간)",
       "status": "confirmed",
-      "source": {"path": "03_봉뜨락_도면및행정자료/20260907151214551_d62df234-93ad-509f-021f-3831ba7a45b0.hwpx", "item": "붙임1 주요시설 세부내역 — 실내놀이시설장", "revision": "40edd1a"},
+      "source": {
+        "path": "03_봉뜨락_도면및행정자료/20260907151214551_d62df234-93ad-509f-021f-3831ba7a45b0.hwpx",
+        "item": "붙임1 주요시설 세부내역 — 실내놀이시설장",
+        "revision": "40edd1a"
+      },
       "confirmed_by": "Ben (BEN-002, HWPX 원본 XML 확인)",
       "confirmed_at": "2026-09-29"
     },
@@ -45,15 +71,26 @@
       "unit": "㎡",
       "scope": "놀이동 건물 연면적 (놀이공간 면적 아님)",
       "status": "confirmed",
-      "source": {"path": "03_봉뜨락_도면및행정자료/놀이동(봉화읍석평리1214-22)건축물대장.pdf", "item": "1쪽 연면적 (2026-09-04 발급본)", "revision": "40edd1a"},
+      "source": {
+        "path": "03_봉뜨락_도면및행정자료/놀이동(봉화읍석평리1214-22)건축물대장.pdf",
+        "item": "1쪽 연면적 (2026-09-04 발급본)",
+        "revision": "40edd1a"
+      },
       "confirmed_by": "Ben (BEN-002, 텍스트 추출·렌더 이미지 확인)",
       "confirmed_at": "2026-09-29"
     },
     "facility.outdoor_attractions": {
-      "value": ["짚코스터", "네트챌린지"],
+      "value": [
+        "짚코스터",
+        "네트챌린지"
+      ],
       "scope": "야외 놀이시설",
       "status": "confirmed",
-      "source": {"path": "03_봉뜨락_도면및행정자료/hwpx_facility_spec.txt", "item": "붙임1 외부시설현황 — 놀이시설 (63~74행)", "revision": "40edd1a"},
+      "source": {
+        "path": "03_봉뜨락_도면및행정자료/hwpx_facility_spec.txt",
+        "item": "붙임1 외부시설현황 — 놀이시설 (63~74행)",
+        "revision": "40edd1a"
+      },
       "confirmed_by": "Ben (BEN-004 결정 3: 시설명세 외부시설 목록을 출처로)",
       "confirmed_at": "2026-09-29",
       "note": "높이·길이·운영조건은 확인되지 않아 넣지 않는다."
@@ -63,44 +100,77 @@
       "unit": "원",
       "scope": "보호자 입장권 1인",
       "status": "confirmed",
-      "source": {"path": "01_봉플레이_운영시스템/pages/booking.html", "item": "이용 요금 — '보호자 입장권' 판매가", "revision": "d7ac76c"},
+      "source": {
+        "path": "01_봉플레이_운영시스템/pages/booking.html",
+        "item": "이용 요금 — '보호자 입장권' 판매가",
+        "revision": "d7ac76c"
+      },
       "confirmed_by": "대표 (2026-09-29 '웹 고지 요금 그대로') + 클로이 품목 대조",
       "confirmed_at": "2026-09-29",
-      "price_check": {"catalog_id": "tkt_guardian", "notice_title": "보호자 입장권", "notice_field": "sale"}
+      "price_check": {
+        "catalog_id": "tkt_guardian",
+        "notice_title": "보호자 입장권",
+        "notice_field": "sale"
+      }
     },
     "price.group_allday": {
       "value": 16800,
       "unit": "원",
       "scope": "단체 종합이용권 1인 (20인 이상, 짚코스터 1회 포함)",
       "status": "confirmed",
-      "source": {"path": "01_봉플레이_운영시스템/pages/booking.html", "item": "이용 요금 — '단체 종합이용권 (20인 이상)' 판매가", "revision": "d7ac76c"},
+      "source": {
+        "path": "01_봉플레이_운영시스템/pages/booking.html",
+        "item": "이용 요금 — '단체 종합이용권 (20인 이상)' 판매가",
+        "revision": "d7ac76c"
+      },
       "confirmed_by": "대표 (2026-09-29 '웹 고지 요금 그대로') + 클로이 품목 대조",
       "confirmed_at": "2026-09-29",
-      "price_check": {"catalog_id": "tkt_allday", "discount_rule": "group20", "notice_title": "단체 종합이용권 (20인 이상)", "notice_field": "sale", "notice_list_matches_catalog": true}
+      "price_check": {
+        "catalog_id": "tkt_allday",
+        "discount_rule": "group20",
+        "notice_title": "단체 종합이용권 (20인 이상)",
+        "notice_field": "sale",
+        "notice_list_matches_catalog": true
+      }
     },
     "discount.resident_rate": {
       "value": 0.2,
       "scope": "봉화군민 우대 할인 (현장 신분증 확인)",
       "status": "confirmed",
-      "source": {"path": "01_봉플레이_운영시스템/pages/booking.html", "item": "이용 요금 — '봉화군민 20% 우대 할인'", "revision": "d7ac76c"},
+      "source": {
+        "path": "01_봉플레이_운영시스템/pages/booking.html",
+        "item": "이용 요금 — '봉화군민 20% 우대 할인'",
+        "revision": "d7ac76c"
+      },
       "confirmed_by": "대표 (2026-09-29 '웹 고지 요금 그대로') + 클로이 품목 대조",
       "confirmed_at": "2026-09-29",
-      "price_check": {"discount_rule": "resident", "notice_label": "봉화군민"}
+      "price_check": {
+        "discount_rule": "resident",
+        "notice_label": "봉화군민"
+      }
     },
     "price.tkt_basic": {
-      "value": null,
+      "value": 15000,
       "unit": "원",
       "scope": "어린이 기본이용권 1인 (2시간)",
       "status": "unresolved",
-      "source": {"path": "01_봉플레이_운영시스템/pages/booking.html", "item": "이용 요금 — '어린이 기본이용권 (2시간)'", "revision": "d7ac76c"},
-      "note": "고지 판매가 14,000원(오픈할인, 정가 15,000원) / PRODUCT_CATALOG tkt_basic 15,000원 / bongplay-id.js 주석 '2026-09-20 대표 결정: 11월 개장을 할인 요금으로 시작하지 않음'. 세 근거가 달라 대표 결정 필요."
+      "source": {
+        "path": "01_봉플레이_운영시스템/pages/booking.html",
+        "item": "이용 요금 — '어린이 기본이용권 (2시간)'",
+        "revision": "d7ac76c"
+      },
+      "note": "대표 결정(2026-09-29): 할인 없이 15,000원 — 공식 요금표 tkt_basic 과 일치. 고객 고지(booking.html)가 아직 14,000원 오픈할인이므로 고지 정정 전까지 unresolved. 정정 후 confirmed 승격 (docs/migration/CLAUDE-004b_대표결정_20260929.md)."
     },
     "price.tkt_allday": {
       "value": 21000,
       "unit": "원",
       "scope": "어린이 종합이용권 1인 (개인)",
       "status": "system_default",
-      "source": {"path": "01_봉플레이_운영시스템/assets/bongplay-id.js", "item": "PRODUCT_CATALOG tkt_allday.list_price", "revision": "3bada78"},
+      "source": {
+        "path": "01_봉플레이_운영시스템/assets/bongplay-id.js",
+        "item": "PRODUCT_CATALOG tkt_allday.list_price",
+        "revision": "3bada78"
+      },
       "note": "고지에는 단체권의 정가(취소선)로만 나오고 개인 판매가로 따로 고지되지 않았다."
     },
     "price.tkt_morning": {
@@ -108,7 +178,11 @@
       "unit": "원",
       "scope": "조조 오전권 1인 (12시 이전 입장)",
       "status": "system_default",
-      "source": {"path": "01_봉플레이_운영시스템/assets/bongplay-id.js", "item": "PRODUCT_CATALOG tkt_morning.list_price", "revision": "3bada78"},
+      "source": {
+        "path": "01_봉플레이_운영시스템/assets/bongplay-id.js",
+        "item": "PRODUCT_CATALOG tkt_morning.list_price",
+        "revision": "3bada78"
+      },
       "note": "고객 고지에 없다."
     },
     "price.daycare_group_voucher": {
@@ -116,23 +190,35 @@
       "unit": "원",
       "scope": "어린이집·유치원 평일 지원 단체권 1인",
       "status": "unresolved",
-      "source": {"path": "01_봉플레이_운영시스템/pages/booking.html", "item": "이용 요금 — '어린이집·유치원 평일 지원 단체권'", "revision": "d7ac76c"},
-      "note": "고지 7,000원·'지자체 보조'·'바우처 전용' 표기. PRODUCT_CATALOG 에 없고(구 목록 PROD_GROUP_VOUCHER 에만 있음) 지자체 보조·바우처 가맹 근거가 확인되지 않았다."
+      "source": {
+        "path": "01_봉플레이_운영시스템/pages/booking.html",
+        "item": "이용 요금 — '어린이집·유치원 평일 지원 단체권'",
+        "revision": "d7ac76c"
+      },
+      "note": "대표 결정(2026-09-29): 폐지 — 고객 고지에서 삭제 예정. 삭제 후 이 항목도 계약에서 제거. 이전 기록: 고지 7,000원·'지자체 보조'·'바우처 전용' 표기. PRODUCT_CATALOG 에 없고(구 목록 PROD_GROUP_VOUCHER 에만 있음) 지자체 보조·바우처 가맹 근거가 확인되지 않았다."
     },
     "price.teen_adult_activity": {
       "value": null,
       "unit": "원",
       "scope": "청소년·성인 액티비티권 1인",
       "status": "unresolved",
-      "source": {"path": "01_봉플레이_운영시스템/pages/booking.html", "item": "이용 요금 — '청소년·성인 액티비티권'", "revision": "d7ac76c"},
-      "note": "고지 10,000원. PRODUCT_CATALOG 에 해당 권종이 없다."
+      "source": {
+        "path": "01_봉플레이_운영시스템/pages/booking.html",
+        "item": "이용 요금 — '청소년·성인 액티비티권'",
+        "revision": "d7ac76c"
+      },
+      "note": "대표 결정(2026-09-29): 폐지 — 고객 고지에서 삭제 예정. 삭제 후 이 항목도 계약에서 제거. 이전 기록: 고지 10,000원. PRODUCT_CATALOG 에 해당 권종이 없다."
     },
     "discount.merit_disability": {
       "value": null,
       "scope": "국가유공자·장애인 우대",
       "status": "unresolved",
-      "source": {"path": "01_봉플레이_운영시스템/pages/booking.html", "item": "이용 요금 — '국가유공자·장애인 우대'", "revision": "d7ac76c"},
-      "note": "고지에 할인율이 없고 DISCOUNT_RULES 에도 없다."
+      "source": {
+        "path": "01_봉플레이_운영시스템/pages/booking.html",
+        "item": "이용 요금 — '국가유공자·장애인 우대'",
+        "revision": "d7ac76c"
+      },
+      "note": "대표 결정(2026-09-29): 폐지 — 고객 고지에서 삭제 예정. 삭제 후 이 항목도 계약에서 제거. 이전 기록: 고지에 할인율이 없고 DISCOUNT_RULES 에도 없다."
     }
   }
 }

@@ -125,6 +125,32 @@ class Coverage(unittest.TestCase):
         self.assertTrue(failed(run_checks(load_profile(), JS, html)))
 
 
+class PendingNoticeFix(unittest.TestCase):
+    """대표 결정(기본권 15,000원)을 지금 confirmed 로 올리면 고지(14,000원)와 달라 실패해야 한다."""
+
+    def test_promoting_basic_now_fails(self):
+        def m(d):
+            f = d["fields"]["price.tkt_basic"]
+            f.update(status="confirmed", confirmed_by="대표", confirmed_at="2026-09-29",
+                     price_check={"catalog_id": "tkt_basic", "notice_title": "어린이 기본이용권 (2시간)",
+                                  "notice_field": "sale"})
+            f["source"]["revision"] = "test"
+        bad = [r for r in failed(run_checks(profile_with(m), JS, HTML)) if r.key == "price.tkt_basic"]
+        self.assertTrue(bad and "14000" in bad[0].message, bad)
+
+    def test_promotion_passes_once_notice_fixed(self):
+        def m(d):
+            f = d["fields"]["price.tkt_basic"]
+            f.update(status="confirmed", confirmed_by="대표", confirmed_at="2026-09-29",
+                     price_check={"catalog_id": "tkt_basic", "notice_title": "어린이 기본이용권 (2시간)",
+                                  "notice_field": "sale"})
+            f["source"]["revision"] = "test"
+        html = HTML.replace("14,000원</strong>", "15,000원</strong>", 1)
+        self.assertNotEqual(html, HTML)
+        ok = [r for r in run_checks(profile_with(m), JS, html) if r.key == "price.tkt_basic"]
+        self.assertTrue(ok and ok[0].ok, ok)
+
+
 class NoAutoPromotion(unittest.TestCase):
     def test_unresolved_items_are_not_checked_or_promoted(self):
         before = DEFAULT_PATH.read_bytes()
