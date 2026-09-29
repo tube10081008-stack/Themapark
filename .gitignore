@@ -30,3 +30,4 @@ __pycache__/
 Thumbs.db
 *.log
 tmp/
+push_to_github.bat
