@@ -267,7 +267,10 @@
   }
 
   /* ---------- 이벤트 버스 & 실시간 알림 ---------- */
-  var crossChannel = (typeof BroadcastChannel !== 'undefined') ? new BroadcastChannel('bongplay_system_bus') : null;
+  var crossChannel = (typeof window !== 'undefined' && typeof window.document !== 'undefined' && typeof BroadcastChannel !== 'undefined') ? new BroadcastChannel('bongplay_system_bus') : null;
+  if (crossChannel && typeof crossChannel.unref === 'function') {
+    try { crossChannel.unref(); } catch (e) {}
+  }
   var dataChangeListeners = [];
 
   function onDataChange(fn) {
@@ -371,6 +374,35 @@
       }
     } catch (e) {
       console.warn('updateLocalCache error:', e);
+    }
+  }
+
+  /* ---------- 캐시 조회 API (R2: 일일 마감 이력 및 오프라인 로컬 데이터 조회) ---------- */
+  function getCached(table) {
+    try {
+      var storage = (typeof window !== 'undefined' && window.localStorage) ? window.localStorage : ((typeof localStorage !== 'undefined') ? localStorage : null);
+      if (!storage) return null;
+      if (table === 'closing_records') {
+        var histRaw = storage.getItem('bongplay_closing_records_history');
+        var histList = histRaw ? JSON.parse(histRaw) : null;
+        if (Array.isArray(histList) && histList.length > 0) return histList;
+        var singleRaw = storage.getItem('bongplay_closing_board_data');
+        return singleRaw ? JSON.parse(singleRaw) : null;
+      }
+      var keyMap = {
+        safety_consents: 'bongplay_safety_consents',
+        ticket_ledger: 'bongplay_ticket_ledger',
+        safety_audits: 'bongplay_safety_audit_logs',
+        sales_records: 'bongtteurak_actual_records_v4'
+      };
+      var k = keyMap[table];
+      if (k) {
+        var r = storage.getItem(k);
+        return r ? JSON.parse(r) : null;
+      }
+      return null;
+    } catch (e) {
+      return null;
     }
   }
 
@@ -1170,12 +1202,12 @@
   }
 
   /* ---------- 라이프사이클 이벤트 & 백그라운드 동기화 ---------- */
-  if (typeof window !== 'undefined') {
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
     window.addEventListener('DOMContentLoaded', function () {
       openIndexedDb().then(function () {
         refreshPendingCount().then(function () {
           notifyStatus();
-          if (navigator.onLine) {
+          if (typeof navigator !== 'undefined' && navigator.onLine) {
             flushOutbox();
             if (!isGuestMode()) {
               pullAll();
@@ -1200,7 +1232,7 @@
     });
 
     window.addEventListener('focus', function () {
-      if (navigator.onLine && isConfigured()) {
+      if (typeof navigator !== 'undefined' && navigator.onLine && isConfigured()) {
         flushOutbox();
         if (!isGuestMode()) {
           pullAll();
@@ -1208,12 +1240,14 @@
       }
     });
 
-    // 10초마다 아웃박스 동기화 확인
-    setInterval(function () {
-      if (navigator.onLine && isConfigured() && !isFlushing) {
-        flushOutbox();
-      }
-    }, 10000);
+    // 10초마다 아웃박스 동기화 확인 (브라우저 DOM 환경)
+    if (typeof window.document !== 'undefined') {
+      setInterval(function () {
+        if (typeof navigator !== 'undefined' && navigator.onLine && isConfigured() && !isFlushing) {
+          flushOutbox();
+        }
+      }, 10000);
+    }
   }
 
   // 전역 API 노출
@@ -1231,6 +1265,7 @@
     remove: remove,
     delete: remove,
     pullAll: pullAll,
+    getCached: getCached,
     getQueue: getQueue,
     clearQueue: clearQueue,
     flushQueue: flushQueue,

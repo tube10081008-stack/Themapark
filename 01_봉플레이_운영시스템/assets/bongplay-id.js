@@ -285,13 +285,15 @@
       product_category: 'ticket_child',
       price: 14000,
       effective_from: '2026-01-01',
-      effective_to: '2026-12-31',
+      effective_to: '2026-09-29',
+      is_active: false,
+      deprecated: true,
       customer_type: 'child',
       season_type: 'regular',
       weekday_type: 'weekday',
       discount_rule_id: 'promo_open_1000',
       version: '2026.v1',
-      description: '평일 오픈 기념 1,000원 할인 프로모션가'
+      description: '평일 오픈 기념 1,000원 할인 프로모션가 (2026-09-29 대표 결정으로 폐지, 과거 정산 호환 보존)'
     },
     PROD_CHILD_ALL_STD: {
       product_id: 'PROD_CHILD_ALL_STD',
@@ -355,13 +357,15 @@
       product_category: 'ticket_group',
       price: 7000,
       effective_from: '2026-01-01',
-      effective_to: null,
+      effective_to: '2026-09-29',
+      is_active: false,
+      deprecated: true,
       customer_type: 'voucher',
       season_type: 'regular',
       weekday_type: 'weekday',
       discount_rule_id: 'bonghwa_voucher',
       version: '2026.v1',
-      description: '봉화군 및 인근 지자체 연계 보조금/바우처 지원 단체권'
+      description: '봉화군 및 인근 지자체 연계 보조금/바우처 지원 단체권 (2026-09-29 대표 결정으로 폐지, 과거 정산 호환 보존)'
     },
     PROD_ADDON_COASTER: {
       product_id: 'PROD_ADDON_COASTER',

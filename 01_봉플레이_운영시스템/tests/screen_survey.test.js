@@ -82,6 +82,13 @@ test('전수 화면 조사: 27개 HTML 파일 무결성 및 링크 점검', asyn
           // resolve relative to current file
           const scriptTarget = path.resolve(dirOfFile, src);
           if (!fs.existsSync(scriptTarget)) {
+            // 깨끗한 checkout 환경 지원: config.js가 gitignore되어 없을 때 공개 템플릿(config.template.js)이 존재하면 통과
+            if (path.basename(scriptTarget) === 'config.js') {
+              const templateTarget = path.join(path.dirname(scriptTarget), 'config.template.js');
+              if (fs.existsSync(templateTarget)) {
+                return; // 허용된 템플릿 대체 폴백
+              }
+            }
             missingScripts.push({ src, resolved: scriptTarget });
           }
         }

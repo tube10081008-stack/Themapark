@@ -41,7 +41,7 @@
     "cdnScripts": 3,
     "localStyles": 1,
     "cdnStyles": 0,
-    "bytes": 49806
+    "bytes": 48225
   },
   {
     "file": "pages/consent-desk.html",
@@ -63,7 +63,7 @@
     "cdnScripts": 4,
     "localStyles": 1,
     "cdnStyles": 3,
-    "bytes": 207971
+    "bytes": 210472
   },
   {
     "file": "pages/gate.html",
@@ -74,7 +74,7 @@
     "cdnScripts": 4,
     "localStyles": 0,
     "cdnStyles": 0,
-    "bytes": 47541
+    "bytes": 48312
   },
   {
     "file": "pages/safety-check.html",
@@ -96,7 +96,7 @@
     "cdnScripts": 3,
     "localStyles": 1,
     "cdnStyles": 0,
-    "bytes": 70714
+    "bytes": 75918
   },
   {
     "file": "pages/management.html",

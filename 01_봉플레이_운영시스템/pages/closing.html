@@ -948,6 +948,9 @@
         }
       } else {
         systemLedger = { linked: false, cash: 0, card: 0, voucher: 0, youth: 0, orderCount: 0, ticketRevenue: 0, fnbRevenue: 0 };
+        if (cashInput.readOnly) {
+          cashInput.value = 0;
+        }
         cashInput.readOnly = false;
         cashInput.title = '';
 
@@ -996,12 +999,29 @@
       const dateVal = document.getElementById('closingDate').value;
       const notesVal = document.getElementById('handoverNotes').value.trim();
 
-      // 이미 확정된 날짜는 다시 저장하지 않음 (DB 정책도 잠긴 행의 수정을 거부)
+      // 이미 확정된 날짜는 다시 저장하지 않음 (히스토리 및 단일 캐시 모두 검증, DB 정책도 거부)
       try {
-        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-        if (saved && saved.date === dateVal && saved.is_locked) {
+        let isAlreadyLocked = false;
+        let lockedTime = null;
+        const histRaw = localStorage.getItem('bongplay_closing_records_history');
+        if (histRaw) {
+          const hist = JSON.parse(histRaw);
+          const found = Array.isArray(hist) ? hist.find(r => r.date === dateVal || r.id === dateVal) : null;
+          if (found && found.is_locked) {
+            isAlreadyLocked = true;
+            lockedTime = found.locked_at;
+          }
+        }
+        if (!isAlreadyLocked) {
+          const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+          if (saved && saved.date === dateVal && saved.is_locked) {
+            isAlreadyLocked = true;
+            lockedTime = saved.locked_at;
+          }
+        }
+        if (isAlreadyLocked) {
           alert('🔒 이미 마감 확정된 날짜입니다. 확정 후에는 원장을 수정할 수 없습니다.\n정정이 필요하면 대표 권한으로 DB에서 처리하십시오.');
-          applyClosingLock(true, saved.locked_at);
+          applyClosingLock(true, lockedTime);
           return;
         }
       } catch (e) {}
@@ -1131,13 +1151,44 @@
       }
 
       showToast('🔒 금일 마감 원장이 확정(잠금) 및 저장되었습니다.');
+      delete closingDrafts[data.date];
+    }
+
+    let currentClosingDate = null;
+    const closingDrafts = {};
+
+    function captureCurrentFormState() {
+      return {
+        manager: document.getElementById('closingManager')?.value,
+        notes: document.getElementById('handoverNotes')?.value,
+        baseCash: document.getElementById('baseCash')?.value,
+        cashSales: document.getElementById('cashSales')?.value,
+        cashExpenses: document.getElementById('cashExpenses')?.value,
+        count50k: document.getElementById('count50k')?.value,
+        count10k: document.getElementById('count10k')?.value,
+        count5k: document.getElementById('count5k')?.value,
+        count1k: document.getElementById('count1k')?.value,
+        countCoin: document.getElementById('countCoin')?.value,
+        voucher10k: document.getElementById('voucher10k')?.value,
+        voucher5k: document.getElementById('voucher5k')?.value,
+        voucherEtc: document.getElementById('voucherEtc')?.value,
+        checks: Array.from(document.querySelectorAll('.closing-item')).map(cb => cb.checked)
+      };
     }
 
     function loadSavedData() {
       const selectedDate = document.getElementById('closingDate').value;
+      const isLockedCurrently = document.getElementById('btnSaveClosing')?.disabled;
+
+      // 이전 날짜가 미잠금 초안 상태였던 경우 초안 보관
+      if (currentClosingDate && currentClosingDate !== selectedDate && !isLockedCurrently) {
+        closingDrafts[currentClosingDate] = captureCurrentFormState();
+      }
+      currentClosingDate = selectedDate;
+
       let data = null;
 
-      // 1. BongplaySync 캐시 조회
+      // 1. BongplaySync 캐시(history 우선) 조회
       if (window.BongplaySync && typeof BongplaySync.getCached === 'function') {
         const cached = BongplaySync.getCached('closing_records');
         if (Array.isArray(cached)) {
@@ -1148,26 +1199,43 @@
         }
       }
 
-      // 2. localStorage 폴백 조회
+      // 2. localStorage history 조회
+      if (!data) {
+        try {
+          const histRaw = localStorage.getItem('bongplay_closing_records_history');
+          if (histRaw) {
+            const hist = JSON.parse(histRaw);
+            if (Array.isArray(hist)) {
+              data = hist.find(r => r.date === selectedDate || r.id === selectedDate);
+            }
+          }
+        } catch (e) {}
+      }
+
+      // 3. localStorage 단일 캐시 조회
       if (!data) {
         try {
           const raw = localStorage.getItem(STORAGE_KEY);
           if (raw) {
             const parsed = JSON.parse(raw);
-            if (parsed && parsed.date === selectedDate) data = parsed;
+            if (parsed && (parsed.date === selectedDate || parsed.id === selectedDate)) data = parsed;
           }
         } catch (e) {}
       }
 
       if (data && data.raw_payload) {
-        data = { ...data.raw_payload, ...data };
+        const rp = (typeof data.raw_payload === 'string') ? JSON.parse(data.raw_payload) : data.raw_payload;
+        data = { ...rp, ...data };
       }
 
       const defBase = (window.BongplaySite && typeof BongplaySite.defaultBaseCash === 'function')
         ? BongplaySite.defaultBaseCash()
         : 100000;
+      const defManager = (window.BongplaySite && typeof BongplaySite.defaultManager === 'function')
+        ? BongplaySite.defaultManager()
+        : '홍성현';
 
-      if (data && data.date === selectedDate) {
+      if (data && (data.date === selectedDate || data.id === selectedDate)) {
         if (data.manager) document.getElementById('closingManager').value = data.manager;
         if (data.notes !== undefined) document.getElementById('handoverNotes').value = data.notes;
         if (data.cash) {
@@ -1181,20 +1249,58 @@
           document.getElementById('count5k').value = data.cash.c5k || 0;
           document.getElementById('count1k').value = data.cash.c1k || 0;
           document.getElementById('countCoin').value = data.cash.cCoin || 0;
+        } else {
+          document.getElementById('baseCash').value = defBase;
+          document.getElementById('cashSales').value = data.actual_cash || data.cash_actual || 0;
+          document.getElementById('cashExpenses').value = data.cash_expenses || 0;
+          document.getElementById('count50k').value = 0;
+          document.getElementById('count10k').value = 0;
+          document.getElementById('count5k').value = 0;
+          document.getElementById('count1k').value = 0;
+          document.getElementById('countCoin').value = 0;
         }
         if (data.voucher) {
           document.getElementById('voucher10k').value = data.voucher.v10k || 0;
           document.getElementById('voucher5k').value = data.voucher.v5k || 0;
           document.getElementById('voucherEtc').value = data.voucher.etc || 0;
+        } else {
+          document.getElementById('voucher10k').value = 0;
+          document.getElementById('voucher5k').value = 0;
+          document.getElementById('voucherEtc').value = 0;
         }
         calculateCashBalance();
         calculateVoucherBalance();
         applyClosingLock(!!data.is_locked, data.locked_at);
         if (data.is_locked) return; // 확정된 날은 저장 당시 값을 그대로 보여줌
-      } else {
-        // 해당 날짜에 저장된 마감이 없는 경우 잠금 해제 및 상태 초기화
+      } else if (closingDrafts[selectedDate]) {
+        // 미저장 초안이 존재하는 경우 초안 복원
+        const d = closingDrafts[selectedDate];
         applyClosingLock(false);
+        document.getElementById('closingManager').value = d.manager || defManager;
+        document.getElementById('handoverNotes').value = d.notes || '';
+        document.getElementById('baseCash').value = d.baseCash || defBase;
+        document.getElementById('cashSales').value = d.cashSales || 0;
+        document.getElementById('cashExpenses').value = d.cashExpenses || 0;
+        document.getElementById('count50k').value = d.count50k || 0;
+        document.getElementById('count10k').value = d.count10k || 0;
+        document.getElementById('count5k').value = d.count5k || 0;
+        document.getElementById('count1k').value = d.count1k || 0;
+        document.getElementById('countCoin').value = d.countCoin || 0;
+        document.getElementById('voucher10k').value = d.voucher10k || 0;
+        document.getElementById('voucher5k').value = d.voucher5k || 0;
+        document.getElementById('voucherEtc').value = d.voucherEtc || 0;
+        if (Array.isArray(d.checks)) {
+          const items = document.querySelectorAll('.closing-item');
+          items.forEach((cb, idx) => { cb.checked = !!d.checks[idx]; });
+        }
+      } else {
+        // 해당 날짜에 저장된 마감이 없고 초안도 없는 경우: 잠금 해제 및 상태 완전 초기화
+        applyClosingLock(false);
+        document.getElementById('closingManager').value = defManager;
+        document.getElementById('handoverNotes').value = '';
         document.getElementById('baseCash').value = defBase;
+        document.getElementById('cashSales').value = 0;
+        document.getElementById('cashExpenses').value = 0;
         document.getElementById('count50k').value = 0;
         document.getElementById('count10k').value = 0;
         document.getElementById('count5k').value = 0;
@@ -1203,7 +1309,7 @@
         document.getElementById('voucher10k').value = 0;
         document.getElementById('voucher5k').value = 0;
         document.getElementById('voucherEtc').value = 0;
-        document.getElementById('handoverNotes').value = '';
+        document.querySelectorAll('.closing-item').forEach(cb => { cb.checked = false; });
       }
 
       syncSystemLedger();
