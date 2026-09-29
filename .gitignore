@@ -31,3 +31,4 @@ Thumbs.db
 *.log
 tmp/
 push_to_github.bat
+fugu/

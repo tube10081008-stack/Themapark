@@ -1,6 +1,0 @@
-snapshot.json
-sessions/*
-!sessions/.gitkeep
-*.secret
-*.key
-.env*
