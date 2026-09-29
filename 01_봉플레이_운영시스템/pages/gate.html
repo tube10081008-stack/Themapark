@@ -21,6 +21,8 @@
             brand: {
               50: '#f0fdf4',
               100: '#dcfce7',
+              300: '#86efac',
+              400: '#4ade80',
               500: '#22c55e',
               600: '#16a34a',
               700: '#15803d',
@@ -41,6 +43,10 @@
       box-sizing: border-box;
       -webkit-tap-highlight-color: transparent;
     }
+    body { word-break: keep-all; }
+    details > summary::-webkit-details-marker { display: none; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+    .animate-fadeIn { animation: fadeIn .25s ease-out; }
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: #0f172a; }
     ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
@@ -56,212 +62,144 @@
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased select-none">
 
   <!-- ================================================================= -->
-  <!-- TOP NAVIGATION BAR                                                -->
+  <!-- HEADER (고객 노출 화면 — 직원용 페이지 이동 버튼 없음)               -->
+  <!--   · 로고를 2초간 길게 누르면 직원용 메인 메뉴로 이동                 -->
   <!-- ================================================================= -->
-  <header class="bg-slate-900/90 border-b border-slate-800 sticky top-0 z-40 backdrop-blur-md px-4 py-2.5 flex items-center justify-between gap-3">
-    <div class="flex items-center gap-2.5">
-      <a href="../index.html" class="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-600 to-indigo-500 flex items-center justify-center text-white font-black text-xs shadow-md shadow-sky-600/30">
-        게이트
-      </a>
-      <div>
-        <h1 class="text-sm sm:text-base font-black tracking-tight text-white flex items-center gap-2">
-          <span>입퇴장 게이트 관제</span>
-          <span class="text-[10px] font-extrabold text-sky-400 bg-sky-950/80 px-2 py-0.5 rounded-full border border-sky-800/60">
-            실시간 스캐너
-          </span>
-        </h1>
-        <p class="text-[10px] text-slate-400">QR/바코드 1-클릭 입장·퇴장 & 원내 체류인원 관제 (BP-004)</p>
+  <header class="bg-slate-950/90 border-b border-slate-800/80 sticky top-0 z-40 backdrop-blur-md px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
+    <div class="flex items-center gap-3 min-w-0">
+      <div id="staffExitLogo" class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center shadow-md shadow-brand-600/30 shrink-0" title="">
+        <i data-lucide="trees" class="w-5 h-5 text-white"></i>
+      </div>
+      <div class="min-w-0">
+        <h1 class="text-base sm:text-lg font-black tracking-tight text-white truncate" data-site="facility.name">리틀포레스트 봉플레이</h1>
+        <p class="text-xs text-slate-400">입장 · 퇴장 게이트</p>
       </div>
     </div>
 
-    <!-- Quick Actions & Sync Badge -->
-    <div class="flex items-center gap-2">
-      <div id="syncStatusBadge"></div>
-
-      <div class="hidden md:flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold gap-1">
-        <a href="consent-desk.html" class="px-2.5 py-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition flex items-center gap-1">
-          <i data-lucide="ticket" class="w-3.5 h-3.5 text-brand-400"></i>
-          <span>매표데스크</span>
-        </a>
-        <a href="operations.html" class="px-2.5 py-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition flex items-center gap-1">
-          <i data-lucide="activity" class="w-3.5 h-3.5 text-purple-400"></i>
-          <span>운영현황</span>
-        </a>
-        <a href="closing.html" class="px-2.5 py-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition flex items-center gap-1">
-          <i data-lucide="wallet" class="w-3.5 h-3.5 text-amber-400"></i>
-          <span>마감정산</span>
-        </a>
+    <div class="flex items-center gap-3 shrink-0">
+      <div class="text-right hidden sm:block">
+        <div id="gateClock" class="text-xl font-black font-mono text-white leading-none">--:--</div>
+        <div id="gateDate" class="text-[11px] text-slate-500 mt-1">-</div>
       </div>
-
-      <button onclick="toggleFullScreen()" class="p-2 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded-xl border border-slate-700 transition" title="전체화면">
+      <div id="syncStatusBadge" class="scale-90 origin-right opacity-70"></div>
+      <button onclick="toggleFullScreen()" class="p-2 bg-slate-900 hover:bg-slate-800 text-slate-400 rounded-xl border border-slate-800 transition" title="전체화면">
         <i data-lucide="maximize" class="w-4 h-4"></i>
       </button>
     </div>
   </header>
 
   <!-- ================================================================= -->
-  <!-- MAIN GATE DASHBOARD                                               -->
+  <!-- MAIN                                                              -->
   <!-- ================================================================= -->
-  <main class="flex-1 p-3 sm:p-6 overflow-y-auto max-w-6xl mx-auto w-full space-y-4">
+  <main class="flex-1 p-3 sm:p-6 overflow-y-auto max-w-5xl mx-auto w-full space-y-4">
 
-    <!-- 1. Occupancy & Real-Time In-Park Meter -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
-      
-      <!-- Inside Visitors Gauge Card -->
-      <div class="md:col-span-2 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-lg relative overflow-hidden">
-        <div class="flex items-center justify-between pb-3 border-b border-slate-800/80">
-          <div class="flex items-center gap-2">
-            <div class="w-8 h-8 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center font-black">
-              <i data-lucide="users" class="w-4 h-4"></i>
-            </div>
-            <div>
-              <h2 class="text-xs sm:text-sm font-black text-white">실시간 원내 체류인원 관제</h2>
-              <p class="text-[10px] text-slate-400">입장 완료 후 현재 원내 시설을 이용 중인 총 고객 수</p>
-            </div>
-          </div>
-          <span id="capacityStatusPill" class="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-950 text-emerald-300 border border-emerald-800">
-            쾌적 (여유)
+    <!-- 1. 스캔 안내 (고객용 대기 화면) -->
+    <section class="rounded-3xl border border-brand-800/40 bg-gradient-to-br from-brand-950 via-slate-900 to-slate-900 p-5 sm:p-7">
+      <div class="flex flex-col md:flex-row md:items-center gap-5">
+        <div class="flex-1 space-y-3">
+          <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-brand-900/70 text-brand-300 text-xs font-bold">
+            <i data-lucide="scan-line" class="w-3.5 h-3.5"></i>
+            입장할 때 · 나갈 때 모두
           </span>
+          <h2 class="text-2xl sm:text-3xl font-black text-white leading-snug">
+            휴대폰의 <span class="text-brand-400">입장 QR</span>을<br>카메라에 비춰 주세요
+          </h2>
+          <p class="text-sm text-slate-300 leading-relaxed">
+            QR이 없으면 서약 번호(BP-로 시작)나 휴대폰 뒷번호 4자리를 입력하셔도 됩니다.
+          </p>
+
+          <form onsubmit="handleManualSearch(event)" class="flex gap-2 pt-1">
+            <input type="text" id="scannerInput" autocomplete="off" placeholder="서약 번호 또는 휴대폰 뒷번호"
+              class="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded-2xl px-4 py-3.5 text-base text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 font-mono tracking-wider">
+            <button type="submit" class="px-5 py-3.5 bg-brand-600 hover:bg-brand-500 active:scale-[0.98] text-white font-black text-sm rounded-2xl shadow transition shrink-0">
+              확인
+            </button>
+          </form>
         </div>
 
-        <div class="mt-4 flex flex-col sm:flex-row items-baseline sm:items-end justify-between gap-2">
-          <div class="flex items-baseline gap-2">
-            <span id="currentInsideCount" class="text-4xl sm:text-5xl font-black font-mono text-sky-400">0</span>
-            <span class="text-sm font-bold text-slate-400">명 이용 중</span>
-            <span class="text-xs font-mono text-slate-500">/ 정원 <span id="capMaxText">-</span>명</span>
-          </div>
-          <div class="text-[11px] text-slate-400 font-mono">
-            수용률: <span id="occupancyRateText" class="font-bold text-white">0%</span>
-          </div>
-        </div>
-
-        <!-- Visual Progress Bar -->
-        <div class="w-full bg-slate-950 h-3.5 rounded-full overflow-hidden border border-slate-800 mt-3 relative">
-          <div id="occupancyProgressBar" class="h-full bg-gradient-to-r from-emerald-500 via-sky-500 to-amber-500 transition-all duration-500 rounded-full" style="width: 0%;"></div>
-        </div>
-
-        <div class="mt-3 flex items-center justify-between text-[11px] text-slate-400">
-          <span>0명</span>
-          <span class="text-emerald-400">적정수용 (<span id="capComfortText">-</span>명 이하)</span>
-          <span class="text-amber-400">주의 (<span id="capCautionText">-</span>명)</span>
-          <span class="text-rose-400 font-bold">정원 초과 (<span id="capMaxText2">-</span>명)</span>
-        </div>
-      </div>
-
-      <!-- Today's Total Entrants & Exits Card -->
-      <div class="bg-slate-900/90 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-lg flex flex-col justify-between">
-        <div class="text-slate-400 text-xs font-bold flex items-center gap-1.5 pb-2 border-b border-slate-800">
-          <i data-lucide="activity" class="w-4 h-4 text-brand-400"></i>
-          <span>오늘 게이트 누적 집계</span>
-        </div>
-
-        <div class="grid grid-cols-2 gap-3 py-3">
-          <div class="bg-slate-950/80 p-3 rounded-2xl border border-slate-800/80">
-            <span class="text-[10px] text-slate-400 block">오늘 누적 입장</span>
-            <div class="flex items-baseline gap-1 mt-1">
-              <span id="cumEntryCount" class="text-2xl font-black font-mono text-emerald-400">0</span>
-              <span class="text-[10px] text-slate-500">명</span>
+        <!-- 카메라 미리보기 -->
+        <div class="md:w-80 shrink-0 space-y-2">
+          <div id="cameraPreviewContainer" class="hidden relative bg-black rounded-3xl overflow-hidden aspect-square border-2 border-brand-600/60">
+            <video id="cameraVideo" class="w-full h-full object-cover" autoplay playsinline muted></video>
+            <div class="absolute inset-0 pointer-events-none flex items-center justify-center">
+              <div class="w-3/5 aspect-square rounded-3xl border-4 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]"></div>
             </div>
+            <canvas id="scanCanvas" class="hidden"></canvas>
           </div>
-
-          <div class="bg-slate-950/80 p-3 rounded-2xl border border-slate-800/80">
-            <span class="text-[10px] text-slate-400 block">오늘 누적 퇴장</span>
-            <div class="flex items-baseline gap-1 mt-1">
-              <span id="cumExitCount" class="text-2xl font-black font-mono text-purple-400">0</span>
-              <span class="text-[10px] text-slate-500">명</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="text-[10px] text-slate-500 text-center">
-          실시간 체류 인원 = 누적 입장객 - 누적 퇴장객
-        </div>
-      </div>
-    </div>
-
-    <!-- 2. Scanner Gun & Manual Input Bar -->
-    <div class="bg-slate-900/90 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-lg space-y-3">
-      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        <div class="flex items-center gap-2">
-          <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-500 text-white flex items-center justify-center font-black">
-            <i data-lucide="scan" class="w-4 h-4"></i>
-          </div>
-          <div>
-            <h3 class="text-xs sm:text-sm font-black text-white">QR / 바코드 스캐너 입력</h3>
-            <p class="text-[11px] text-slate-400">USB 리더기 즉시 인식 지원 (화면 아무 곳이나 스캔하십시오)</p>
-          </div>
-        </div>
-
-        <!-- Scanner Controls -->
-        <div class="flex items-center gap-2 w-full sm:w-auto">
-          <button type="button" id="btnToggleCamera" onclick="toggleCameraScanner()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl flex items-center gap-1.5 transition">
-            <i data-lucide="camera" class="w-3.5 h-3.5"></i>
-            <span id="cameraBtnText">내장 카메라 스캔</span>
+          <button type="button" id="btnToggleCamera" onclick="toggleCameraScanner()"
+            class="w-full py-3 bg-slate-800/80 hover:bg-slate-700 text-slate-200 font-bold text-sm rounded-2xl flex items-center justify-center gap-2 transition">
+            <i data-lucide="camera" class="w-4 h-4"></i>
+            <span id="cameraBtnText">카메라 켜기</span>
           </button>
         </div>
       </div>
+    </section>
 
-      <!-- Live Input Form -->
-      <form onsubmit="handleManualSearch(event)" class="flex gap-2">
-        <div class="relative flex-1">
-          <i data-lucide="barcode" class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500"></i>
-          <input type="text" id="scannerInput" autofocus placeholder="바코드 스캐너 인식 또는 바우처 번호(BP-XXXXXX) 입력..."
-            class="w-full bg-slate-950 border border-slate-700 rounded-2xl pl-10 pr-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 font-mono tracking-wider">
-        </div>
-        <button type="submit" class="px-5 py-3 bg-brand-600 hover:bg-brand-500 text-white font-black text-xs sm:text-sm rounded-2xl shadow transition shrink-0">
-          스캔 확인
-        </button>
-      </form>
-
-      <!-- Optional Camera Video Preview Box -->
-      <div id="cameraPreviewContainer" class="hidden relative bg-black rounded-2xl overflow-hidden aspect-video max-w-sm mx-auto border border-slate-700">
-        <video id="cameraVideo" class="w-full h-full object-cover" autoplay playsinline></video>
-        <div class="absolute inset-0 border-2 border-dashed border-brand-400/60 pointer-events-none m-8 rounded-xl flex items-center justify-center">
-          <span class="text-[10px] bg-black/60 px-2 py-1 rounded text-white">고객 스마트폰의 서약 바우처 QR을 사각형 안에 맞추십시오</span>
-        </div>
-        <!-- jsQR 폴백 판독용 (화면에는 보이지 않음) -->
-        <canvas id="scanCanvas" class="hidden"></canvas>
-      </div>
-    </div>
-
-    <!-- 3. Current Scanned Result & 1-Click Action Panel -->
-    <div id="scanResultPanel" class="hidden bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-6 shadow-2xl space-y-4 animate-fadeIn">
+    <!-- 2. 스캔 결과 (다음 스캔 전까지 유지) -->
+    <div id="scanResultPanel" class="hidden bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 animate-fadeIn">
       <!-- Injected via renderScanResult() -->
     </div>
 
-    <!-- 4. Gate Activity Log (최근 20건) -->
-    <div class="bg-slate-900/90 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-lg space-y-3">
-      <div class="flex items-center justify-between pb-2 border-b border-slate-800">
-        <div class="flex items-center gap-2">
-          <i data-lucide="list" class="w-4 h-4 text-slate-400"></i>
-          <h3 class="text-xs sm:text-sm font-black text-white">최근 게이트 입·퇴장 처리 로그</h3>
+    <!-- 3. 지금 원내 현황 (고객에게도 유용한 혼잡도) -->
+    <section class="bg-slate-900/90 border border-slate-800 rounded-3xl p-4 sm:p-5">
+      <div class="flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2.5">
+          <div class="w-9 h-9 rounded-xl bg-sky-500/15 text-sky-400 flex items-center justify-center">
+            <i data-lucide="users" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <div class="text-sm font-black text-white">지금 원내</div>
+            <div class="text-xs text-slate-400">정원 <span id="capMaxText">-</span>명</div>
+          </div>
         </div>
-        <span class="text-[10px] text-slate-500">실시간 갱신</span>
+        <div class="flex items-center gap-3">
+          <div class="text-right">
+            <span id="currentInsideCount" class="text-3xl font-black font-mono text-sky-400">0</span>
+            <span class="text-sm font-bold text-slate-400">명</span>
+          </div>
+          <span id="capacityStatusPill" class="px-2.5 py-1 rounded-full text-xs font-extrabold bg-emerald-950 text-emerald-300 border border-emerald-800">쾌적</span>
+        </div>
       </div>
+      <div class="w-full bg-slate-950 h-2.5 rounded-full overflow-hidden border border-slate-800 mt-3">
+        <div id="occupancyProgressBar" class="h-full bg-gradient-to-r from-emerald-500 via-sky-500 to-amber-500 transition-all duration-500 rounded-full" style="width: 0%;"></div>
+      </div>
+      <div class="mt-2 flex items-center justify-between text-[11px] text-slate-500">
+        <span>수용률 <span id="occupancyRateText" class="font-bold text-slate-300">0%</span></span>
+        <span class="hidden sm:inline">쾌적 <span id="capComfortText">-</span>명 · 주의 <span id="capCautionText">-</span>명 · 정원 <span id="capMaxText2">-</span>명</span>
+      </div>
+    </section>
 
-      <div class="overflow-x-auto">
+    <!-- 4. 직원용: 오늘 집계 + 출입 로그 (기본 접힘, 이름·번호 가림) -->
+    <details class="bg-slate-900/60 border border-slate-800 rounded-3xl p-4 sm:p-5 group">
+      <summary class="cursor-pointer list-none flex items-center justify-between text-sm font-bold text-slate-400">
+        <span class="flex items-center gap-2"><i data-lucide="lock" class="w-4 h-4"></i> 직원용 · 오늘 출입 기록</span>
+        <span class="text-xs text-slate-500">입장 <b id="cumEntryCount" class="text-emerald-400 font-mono">0</b> · 퇴장 <b id="cumExitCount" class="text-purple-400 font-mono">0</b>명
+          <i data-lucide="chevron-down" class="w-4 h-4 inline group-open:rotate-180 transition"></i></span>
+      </summary>
+      <div class="overflow-x-auto mt-3">
         <table class="w-full text-left text-xs">
-          <thead class="text-slate-400 border-b border-slate-800/80 text-[11px]">
+          <thead class="text-slate-500 border-b border-slate-800/80 text-[11px]">
             <tr>
-              <th class="py-2 px-3">처리시각</th>
+              <th class="py-2 px-3">시각</th>
               <th class="py-2 px-3">구분</th>
-              <th class="py-2 px-3">바우처 번호</th>
+              <th class="py-2 px-3">서약 번호</th>
               <th class="py-2 px-3">보호자</th>
-              <th class="py-2 px-3">인원수</th>
-              <th class="py-2 px-3">상태 전이</th>
+              <th class="py-2 px-3">인원</th>
+              <th class="py-2 px-3">상태</th>
             </tr>
           </thead>
           <tbody id="activityLogBody" class="divide-y divide-slate-800/60 font-mono">
-            <tr>
-              <td colspan="6" class="py-8 text-center text-slate-500 font-sans">
-                스캔 대기 중입니다.
-              </td>
-            </tr>
+            <tr><td colspan="6" class="py-8 text-center text-slate-500 font-sans">스캔 대기 중입니다.</td></tr>
           </tbody>
         </table>
       </div>
-    </div>
+    </details>
   </main>
+
+  <!-- 태블릿 정성 설문 모달 -->
+  <div id="fullSurveyModal" class="hidden fixed inset-0 z-50 bg-slate-950 flex flex-col">
+    <iframe id="fullSurveyFrame" title="방문 후기 설문" class="flex-1 w-full border-0 bg-slate-950" src="about:blank"></iframe>
+  </div>
 
   <!-- ================================================================= -->
   <!-- AUDIO SYNTHESIZER & SCRIPT LOGIC                                  -->
@@ -321,6 +259,10 @@
 
       await loadData();
       setupScannerKeyboardListener();
+      startGateClock();
+      setupStaffExit();
+      // 직원이 한 번 켜 둔 카메라는 새로고침·재부팅 후에도 자동으로 다시 켠다 (고객 셀프 스캔용)
+      try { if (localStorage.getItem('bongplay_gate_camera_on') === '1') toggleCameraScanner(); } catch (e) {}
 
       // Check URL param ?pass=...
       try {
@@ -346,6 +288,7 @@
         console.warn('Failed to load data:', e);
       }
       recalcOccupancy();
+      renderActivityLog();
     }
 
     function recalcOccupancy() {
@@ -396,16 +339,16 @@
 
       const pill = document.getElementById('capacityStatusPill');
       if (rate >= 90) {
-        pill.textContent = '만원 (입장 조절)';
-        pill.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-950 text-rose-300 border border-rose-800 animate-pulse';
+        pill.textContent = '매우 붐빔';
+        pill.className = 'px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-rose-950 text-rose-300 border border-rose-800 animate-pulse';
         bar.className = 'h-full bg-rose-500 transition-all duration-500 rounded-full';
       } else if (rate >= 70) {
-        pill.textContent = '혼잡 (주의)';
-        pill.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-950 text-amber-300 border border-amber-800';
+        pill.textContent = '붐빔';
+        pill.className = 'px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-amber-950 text-amber-300 border border-amber-800';
         bar.className = 'h-full bg-amber-500 transition-all duration-500 rounded-full';
       } else {
-        pill.textContent = '쾌적 (여유)';
-        pill.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-950 text-emerald-300 border border-emerald-800';
+        pill.textContent = '쾌적';
+        pill.className = 'px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-emerald-950 text-emerald-300 border border-emerald-800';
         bar.className = 'h-full bg-gradient-to-r from-emerald-500 via-sky-500 to-indigo-500 transition-all duration-500 rounded-full';
       }
     }
@@ -479,6 +422,46 @@
     }
 
     // 고객이 직접 입력한 값(성명 등)을 직원 화면 innerHTML 에 넣기 전 반드시 이스케이프 (저장형 XSS 방지)
+    /* ---- 고객 노출 화면용 개인정보 가림 ---- */
+    // 홍길동 → 홍*동, 김철 → 김*, 남궁민수 → 남**수
+    function maskName(name) {
+      const s = String(name || '').trim();
+      if (!s || s === '-' || s === '미입력') return '방문객';
+      if (s.length === 1) return s;
+      if (s.length === 2) return s[0] + '*';
+      return s[0] + '*'.repeat(s.length - 2) + s[s.length - 1];
+    }
+    // BP-260921-ABCD → BP-··-··CD (직원용 로그에서도 번호 전체를 노출하지 않음)
+    function maskPass(pass) {
+      const s = String(pass || '');
+      return s.length > 4 ? 'BP-··' + s.slice(-2) : s;
+    }
+
+    function startGateClock() {
+      const days = ['일', '월', '화', '수', '목', '금', '토'];
+      const tick = () => {
+        const d = new Date();
+        const c = document.getElementById('gateClock');
+        const dt = document.getElementById('gateDate');
+        if (c) c.textContent = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        if (dt) dt.textContent = `${d.getMonth() + 1}월 ${d.getDate()}일 (${days[d.getDay()]})`;
+      };
+      tick();
+      setInterval(tick, 15000);
+    }
+
+    // 직원 출구: 로고를 2초간 길게 누르면 메인 메뉴로 (고객이 실수로 직원 화면에 들어가지 않도록)
+    function setupStaffExit() {
+      const logo = document.getElementById('staffExitLogo');
+      if (!logo) return;
+      let timer = null;
+      const start = () => { timer = setTimeout(() => { window.location.href = '../index.html'; }, 2000); };
+      const cancel = () => { clearTimeout(timer); timer = null; };
+      logo.addEventListener('pointerdown', start);
+      ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => logo.addEventListener(ev, cancel));
+      logo.addEventListener('contextmenu', e => e.preventDefault());
+    }
+
     function escapeHtml(str) {
       if (str === null || str === undefined) return '';
       return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -538,7 +521,7 @@
               const kids = (c.children || []).length;
               return `<button type="button" onclick="selectAmbiguousConsent('${escapeHtml(String(c.id).replace(/'/g, ''))}')"
                 class="w-full text-left px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-slate-200">
-                <span class="font-mono text-amber-300 font-bold">${escapeHtml(pass)}</span> · 보호자 ${escapeHtml(name)} · 아동 ${kids}명
+                <span class="font-mono text-amber-300 font-bold">${escapeHtml(maskPass(pass))}</span> · ${escapeHtml(maskName(name))} 님 · 아이 ${kids}명
               </button>`;
             }).join('')}
           </div>
@@ -551,7 +534,7 @@
     }
 
     // 5. Render Scan Result Card
-    function renderScanResult(rec) {
+    function renderScanResult(rec, justExited) {
       const panel = document.getElementById('scanResultPanel');
       panel.classList.remove('hidden');
 
@@ -571,121 +554,277 @@
 
       let actionHtml = '';
 
+      // 고객이 보는 화면: 연락처·거주지는 표시하지 않고 성함은 가운데를 가린다
+      const guardianMasked = maskName(guardian);
+      const kidsCount = children.length;
+
       if (stage === 1) {
         playChime('error');
         actionHtml = `
-          <div class="bg-rose-950/80 border border-rose-800 rounded-2xl p-4 space-y-3">
-            <div class="flex items-center gap-2 text-rose-300 font-black text-sm">
-              <i data-lucide="alert-triangle" class="w-5 h-5 text-rose-400"></i>
-              <span>[발권 미완료] 매표소에서 먼저 결제/발권이 필요합니다.</span>
-            </div>
-            <p class="text-xs text-rose-200">
-              이 손님은 서약서 접수만 완료된 상태입니다. 매표소(발권 데스크)로 안내해 주십시오.
-            </p>
-            <div class="pt-1">
-              <a href="consent-desk.html" class="inline-flex items-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl">
-                <span>매표 데스크에서 발권하기 ↗</span>
-              </a>
-            </div>
+          <div class="bg-rose-950/70 border border-rose-800 rounded-3xl p-5 text-center space-y-2">
+            <i data-lucide="ticket" class="w-10 h-10 text-rose-400 mx-auto"></i>
+            <div class="text-xl font-black text-white">매표소에서 발권을 먼저 받아 주세요</div>
+            <p class="text-sm text-rose-200">서약은 완료되었어요. 매표소에서 이용권을 받으신 뒤 다시 찍어 주세요.</p>
           </div>
         `;
       } else if (stage === 2) {
         playChime('entry');
         actionHtml = `
-          <div class="bg-emerald-950/80 border border-emerald-700 rounded-2xl p-4 space-y-3">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2 text-emerald-300 font-black text-sm">
-                <i data-lucide="check-circle" class="w-5 h-5 text-emerald-400"></i>
-                <span>[발권 완료] 입장 승인 대기</span>
-              </div>
-              <span class="text-xs font-mono text-emerald-400 font-bold">인원: ${totalPeople}명</span>
+          <div class="bg-emerald-950/70 border border-emerald-700 rounded-3xl p-5 space-y-4 text-center">
+            <div>
+              <div class="text-2xl font-black text-white">환영합니다! 🌿</div>
+              <p class="text-sm text-emerald-200 mt-1">아래 버튼을 누르면 입장이 완료돼요. 안전하게 즐겁게 놀아요!</p>
             </div>
-            <p class="text-xs text-emerald-200">
-              매표소 발권이 정상 확인되었습니다. 입장 처리 시 원내 체류인원이 <b>+${totalPeople}명</b> 증가합니다.
-            </p>
-            <button onclick="executeGateAction('${rec.id}', 'entry')" class="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.99] text-slate-950 font-black text-sm rounded-xl shadow-lg transition flex items-center justify-center gap-2">
-              <i data-lucide="log-in" class="w-5 h-5"></i>
-              <span>원내 입장 승인 (${totalPeople}명)</span>
+            <button onclick="executeGateAction('${rec.id}', 'entry')" class="w-full py-5 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.99] text-slate-950 font-black text-lg rounded-2xl shadow-lg transition flex items-center justify-center gap-2">
+              <i data-lucide="log-in" class="w-6 h-6"></i>
+              <span>입장하기 (${totalPeople}명)</span>
             </button>
           </div>
         `;
       } else if (stage === 3) {
         playChime('exit');
-        const surveyUrl = `${window.location.origin}${window.location.pathname.replace('gate.html', 'consent.html')}?survey=${encodeURIComponent(passCode)}`;
         actionHtml = `
-          <div class="bg-amber-950/80 border border-amber-700 rounded-2xl p-4 space-y-3">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2 text-amber-300 font-black text-sm">
-                <i data-lucide="activity" class="w-5 h-5 text-amber-400"></i>
-                <span>[원내 이용 중] 퇴장 처리 대기</span>
-              </div>
-              <span class="text-xs font-mono text-amber-400 font-bold">입장시각: ${BongplaySync.toLocalTimeStr(rec.entry_at)}</span>
+          <div class="bg-amber-950/60 border border-amber-700 rounded-3xl p-5 space-y-4 text-center">
+            <div>
+              <div class="text-2xl font-black text-white">벌써 가시나요?</div>
+              <p class="text-sm text-amber-200 mt-1">${BongplaySync.toLocalTimeStr(rec.entry_at)}에 입장하셨어요. 아래 버튼을 누르면 퇴장이 완료돼요.</p>
             </div>
-            <p class="text-xs text-amber-200">
-              퇴장 승인 시 원내 체류인원이 <b>-${totalPeople}명</b> 감소하며, 손님 안내용 만족도 설문 QR이 즉시 표시됩니다.
-            </p>
-            <button onclick="executeGateAction('${rec.id}', 'exit')" class="w-full py-3.5 bg-amber-500 hover:bg-amber-400 active:scale-[0.99] text-slate-950 font-black text-sm rounded-xl shadow-lg transition flex items-center justify-center gap-2">
-              <i data-lucide="log-out" class="w-5 h-5"></i>
-              <span>퇴장 승인 처리 (-${totalPeople}명)</span>
+            <button onclick="executeGateAction('${rec.id}', 'exit')" class="w-full py-5 bg-amber-500 hover:bg-amber-400 active:scale-[0.99] text-slate-950 font-black text-lg rounded-2xl shadow-lg transition flex items-center justify-center gap-2">
+              <i data-lucide="log-out" class="w-6 h-6"></i>
+              <span>퇴장하기 (${totalPeople}명)</span>
             </button>
-            <div class="pt-2 border-t border-amber-800/80 flex items-center justify-between">
-              <span class="text-[11px] text-amber-300">손님 스마트폰 10초 설문 링크:</span>
-              <a href="${surveyUrl}" target="_blank" class="text-[11px] text-white underline font-mono">설문 바로가기 ↗</a>
-            </div>
           </div>
         `;
       } else if (stage === 4) {
-        playChime('exit');
+        if (!justExited) playChime('exit');
+        const stay = rec.stay_duration_minutes;
+        const stayText = (stay != null && stay >= 0) ? ` · ${Math.floor(stay / 60) ? Math.floor(stay / 60) + '시간 ' : ''}${stay % 60}분 머무셨어요` : '';
         actionHtml = `
-          <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-2 text-slate-400">
-            <div class="flex items-center gap-2 font-bold text-slate-300">
+          <div class="bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 flex items-center justify-between gap-2 text-slate-400">
+            <div class="flex items-center gap-2 font-bold text-slate-200 text-sm">
               <i data-lucide="check-check" class="w-5 h-5 text-purple-400"></i>
-              <span>이미 퇴장 완료된 바우처입니다.</span>
+              <span>${justExited ? '퇴장이 완료되었어요' : '이미 퇴장하신 이용권이에요'}${escapeHtml(stayText)}</span>
             </div>
-            <p class="text-xs">퇴장 처리 시각: <span class="font-mono text-white">${BongplaySync.toLocalDatetimeLocalStr(rec.exit_at)}</span></p>
+            <span class="text-xs font-mono text-slate-400">${BongplaySync.toLocalTimeStr(rec.exit_at)}</span>
           </div>
+          ${renderExitSurveyBlock(rec)}
         `;
       }
 
+      const stageLabel = ['', '발권 전', '입장 전', '이용 중', '퇴장 완료'][stage];
       panel.innerHTML = `
-        <div class="flex items-start justify-between pb-3 border-b border-slate-800">
-          <div>
-            <div class="flex items-center gap-2">
-              <span class="text-xs font-extrabold px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
-                ${stage === 1 ? '1단계: 서약접수' : stage === 2 ? '2단계: 발권완료' : stage === 3 ? '3단계: 이용중' : '4단계: 퇴장완료'}
-              </span>
-              <span class="text-lg font-black font-mono text-brand-400">${escapeHtml(passCode)}</span>
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-xs font-extrabold px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">${stageLabel}</span>
+              <span class="text-sm font-black font-mono text-brand-400">${escapeHtml(passCode)}</span>
             </div>
-            <h4 class="text-base font-black text-white mt-1">${escapeHtml(guardian)} 님 가족 (${totalPeople}명)</h4>
+            <h4 class="text-xl sm:text-2xl font-black text-white mt-1.5">${escapeHtml(guardianMasked)} 님 가족</h4>
+            <p class="text-sm text-slate-400 mt-0.5">보호자 1명 · 아이 ${kidsCount}명</p>
           </div>
-          <button onclick="document.getElementById('scanResultPanel').classList.add('hidden')" class="p-1 text-slate-400 hover:text-white rounded-lg">
+          <button onclick="document.getElementById('scanResultPanel').classList.add('hidden')" class="p-2 text-slate-500 hover:text-white rounded-xl" aria-label="닫기">
             <i data-lucide="x" class="w-5 h-5"></i>
           </button>
-        </div>
-
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs bg-slate-950 p-3 rounded-2xl border border-slate-800">
-          <div>
-            <span class="text-slate-500 text-[10px] block">보호자 연락처</span>
-            <span class="font-mono text-slate-300">${escapeHtml(phone)}</span>
-          </div>
-          <div>
-            <span class="text-slate-500 text-[10px] block">거주지</span>
-            <span class="text-emerald-400 font-bold">${escapeHtml(rec.residence || '일반')}</span>
-          </div>
-          <div>
-            <span class="text-slate-500 text-[10px] block">동반 아동</span>
-            <span class="text-white font-bold">${escapeHtml(children.map(c => (typeof c === 'string' ? c : c.name)).join(', ')) || '없음'}</span>
-          </div>
-          <div>
-            <span class="text-slate-500 text-[10px] block">티켓 발권시각</span>
-            <span class="font-mono text-slate-300">${BongplaySync.toLocalTimeStr(rec.ticket_issued_at) || '-'}</span>
-          </div>
         </div>
 
         ${actionHtml}
       `;
 
+      drawExitSurveyQr(passCode);
       lucide.createIcons();
+    }
+
+    /* ---- 퇴장 만족도 설문 (태블릿 즉석 응답 + 휴대폰 QR) ----
+       퇴장 처리 후에도 다음 스캔 전까지 화면에 남아 있으므로, 손님이 태블릿을 한 번 누르거나
+       휴대폰으로 QR 을 찍어 의견을 남길 수 있다. 이미 퇴장한 바우처를 다시 찍어도 표시된다. */
+    const EXIT_SURVEY_FACES = [
+      { score: 1, emoji: '😞', label: '별로예요' },
+      { score: 2, emoji: '😕', label: '아쉬워요' },
+      { score: 3, emoji: '🙂', label: '보통이에요' },
+      { score: 4, emoji: '😀', label: '좋았어요' },
+      { score: 5, emoji: '🤩', label: '최고예요' }
+    ];
+    // 3점 이하일 때만 묻는 "아쉬운 이유" — 코드값은 survey.html 의 improve 문항과 동일하게 맞춤
+    const EXIT_SURVEY_REASONS = [
+      { v: 'wait', emoji: '⏱', label: '대기 시간' },
+      { v: 'facility', emoji: '🎢', label: '시설·놀이기구' },
+      { v: 'toilet', emoji: '🚻', label: '청결·화장실' },
+      { v: 'staff', emoji: '🙋', label: '직원 응대' },
+      { v: 'price', emoji: '💰', label: '가격·매점' }
+    ];
+
+    function surveyedKey() {
+      return 'bongplay_gate_surveyed_' + BongplaySync.toLocalDateStr(new Date());
+    }
+    function getSurveyedMap() {
+      try { return JSON.parse(localStorage.getItem(surveyedKey()) || '{}'); } catch (e) { return {}; }
+    }
+    function getSurveyed(recId) {
+      const v = getSurveyedMap()[recId];
+      if (v == null) return null;
+      return typeof v === 'object' ? v : { score: v, reason: 'skip' };   // 예전 형식(점수만) 호환
+    }
+    function markSurveyed(recId, info) {
+      const map = getSurveyedMap();
+      map[recId] = info;
+      try { localStorage.setItem(surveyedKey(), JSON.stringify(map)); } catch (e) {}
+    }
+
+    // 휴대폰 설문 주소: 현재 주소에서 파일명을 글자 치환하지 않고 같은 폴더 기준으로 계산
+    // (예전: pathname.replace('gate.html', …) → '.html' 없는 주소로 열리면 QR 이 게이트 자신을 가리켜 관리자 암호 창이 떴음)
+    function buildSurveyUrl(passCode) {
+      const u = new URL('survey.html', window.location.href);
+      if (passCode) u.searchParams.set('pass', passCode);
+      u.searchParams.set('ch', 'gate');
+      return u.href;
+    }
+
+    function renderExitSurveyBlock(rec) {
+      const done = getSurveyed(rec.id);
+      const safeId = escapeHtml(String(rec.id).replace(/'/g, ''));
+      // 태블릿에서 바로 정성 설문(선물 연계)을 여는 버튼 — 직원이 태블릿을 손님 쪽으로 돌려 진행
+      const passForSurvey = escapeHtml(String(rec.passCode || rec.pass_code || '').replace(/'/g, ''));
+      const fullDone = !!getFullSurveyDone(rec);
+      const qrBox = fullDone
+        ? `<div class="rounded-2xl bg-slate-900 border border-slate-700 p-3 text-sm text-slate-300">🎁 후기 설문 완료 · 선물 교환 번호 <b class="font-mono text-white">${escapeHtml(getFullSurveyDone(rec).gift || '-')}</b></div>`
+        : `<button type="button" onclick="openFullSurvey('${passForSurvey}', '${safeId}')"
+             class="w-full py-4 rounded-2xl bg-white text-slate-900 font-black text-base active:scale-[0.99] transition flex items-center justify-center gap-2 shadow">
+             🎁 1분 후기 남기고 선물 받기
+           </button>`;
+
+      // 3점 이하를 누른 직후: 이유 한 번 더 (누르거나 건너뛰기)
+      if (done && done.reason === null) {
+        return `
+          <div class="bg-purple-950/50 border border-purple-700/60 rounded-2xl p-5 space-y-4 text-center">
+            <div>
+              <div class="text-xl font-black text-white">무엇이 가장 아쉬우셨나요?</div>
+              <div class="text-sm text-purple-200 mt-1">하나만 눌러 주시면 바로 개선할게요</div>
+            </div>
+            <div class="grid grid-cols-5 gap-2">
+              ${EXIT_SURVEY_REASONS.map(r => `
+                <button type="button" onclick="submitGateReason('${safeId}', '${r.v}')"
+                  class="flex flex-col items-center gap-1 py-3 rounded-2xl bg-slate-900 border border-slate-700 hover:border-purple-400 active:scale-95 transition">
+                  <span class="text-2xl sm:text-3xl leading-none">${r.emoji}</span>
+                  <span class="text-[11px] font-bold text-slate-300 leading-tight">${r.label}</span>
+                </button>`).join('')}
+            </div>
+            <button type="button" onclick="submitGateReason('${safeId}', 'skip')" class="text-sm text-slate-400 underline underline-offset-4">건너뛰기</button>
+          </div>`;
+      }
+
+      if (done) {
+        const face = EXIT_SURVEY_FACES.find(f => f.score === done.score) || EXIT_SURVEY_FACES[4];
+        return `
+          <div class="bg-purple-950/50 border border-purple-700/60 rounded-2xl p-5 space-y-4 text-center">
+            <div class="text-5xl">${face.emoji}</div>
+            <div>
+              <div class="text-lg font-black text-white">소중한 의견 감사합니다!</div>
+              <div class="text-sm text-purple-200 mt-1">안전한 귀갓길 되세요. 또 놀러 오세요 🌿</div>
+            </div>
+            ${qrBox}
+          </div>`;
+      }
+
+      return `
+        <div class="bg-purple-950/50 border border-purple-700/60 rounded-2xl p-5 space-y-4 text-center">
+          <div>
+            <div class="text-xl font-black text-white">오늘 즐거우셨나요?</div>
+            <div class="text-sm text-purple-200 mt-1">얼굴을 한 번 눌러 주세요 · 10초면 끝나요</div>
+          </div>
+          <div class="grid grid-cols-5 gap-2">
+            ${EXIT_SURVEY_FACES.map(f => `
+              <button type="button" onclick="submitGateSurvey('${safeId}', ${f.score})"
+                class="flex flex-col items-center gap-1 py-3 rounded-2xl bg-slate-900 border border-slate-700 hover:border-purple-400 active:scale-95 transition">
+                <span class="text-3xl sm:text-4xl leading-none">${f.emoji}</span>
+                <span class="text-[11px] font-bold text-slate-300">${f.label}</span>
+              </button>`).join('')}
+          </div>
+          ${qrBox}
+        </div>`;
+    }
+
+    // (휴대폰 QR 방식은 폐지 — 태블릿에서 바로 설문. 호출부 호환용으로 남겨 둠)
+    function drawExitSurveyQr() {}
+
+    /* ---- 태블릿 정성 설문 모달 (survey.html 을 창 안에 띄움) ---- */
+    function fullSurveyDoneKey(pass) { return 'bongplay_survey_v2_done_' + pass; }
+    function getFullSurveyDone(rec) {
+      const pass = rec && (rec.passCode || rec.pass_code);
+      if (!pass) return null;
+      try { return JSON.parse(localStorage.getItem(fullSurveyDoneKey(pass)) || 'null'); } catch (e) { return null; }
+    }
+
+    let fullSurveyRecId = null;
+    function openFullSurvey(passCode, recId) {
+      fullSurveyRecId = recId;
+      const modal = document.getElementById('fullSurveyModal');
+      const frame = document.getElementById('fullSurveyFrame');
+      // 방문 ID·서약 ID 를 함께 넘겨 체류시간·지출 데이터와 결합 분석이 가능하게 함 (개인정보 아님)
+      const rec = consents.find(c => String(c.id).replace(/'/g, '') === recId);
+      const u = new URL(buildSurveyUrl(passCode));
+      if (rec && rec.visit_id) u.searchParams.set('visit', rec.visit_id);
+      if (rec && rec.id) u.searchParams.set('cid', rec.id);
+      u.searchParams.set('embed', '1');
+      u.searchParams.set('t', String(Date.now()));   // 매번 새로 열어 이전 손님 응답이 남지 않게
+      frame.src = u.href;
+      modal.classList.remove('hidden');
+    }
+
+    function closeFullSurvey() {
+      const modal = document.getElementById('fullSurveyModal');
+      const frame = document.getElementById('fullSurveyFrame');
+      modal.classList.add('hidden');
+      frame.src = 'about:blank';
+      const rec = consents.find(c => String(c.id).replace(/'/g, '') === fullSurveyRecId);
+      if (rec) renderScanResult(rec, true);
+      fullSurveyRecId = null;
+      const input = document.getElementById('scannerInput');
+      if (input) input.blur();
+    }
+
+    // 설문 창에서 보내는 신호 (완료 후 "처음 화면으로" / 닫기)
+    window.addEventListener('message', (ev) => {
+      if (ev.origin !== window.location.origin) return;
+      if (ev.data && ev.data.type === 'bongplay-survey-close') closeFullSurvey();
+    });
+
+    function submitGateSurvey(recId, score) {
+      const rec = consents.find(c => String(c.id).replace(/'/g, '') === recId);
+      if (!rec || getSurveyed(rec.id)) return;
+      let surveyId = null;
+      // 점수는 누르는 즉시 저장 (이유를 안 누르고 가도 점수는 남도록)
+      if (window.BongplayID && BongplayID.recordCustomerSurvey) {
+        const s = BongplayID.recordCustomerSurvey({
+          satisfaction_score: score,
+          consent_id: rec.id,
+          pass_code: rec.passCode || rec.pass_code || null,
+          visit_id: rec.visit_id || null,
+          household_id: rec.household_id || null,
+          survey_channel: 'exit_tablet'
+        });
+        surveyId = s && s.id;
+      }
+      markSurveyed(rec.id, { score, survey_id: surveyId, reason: score <= 3 ? null : 'n/a' });
+      playChime('entry');
+      renderScanResult(rec, true);
+    }
+
+    function submitGateReason(recId, reason) {
+      const rec = consents.find(c => String(c.id).replace(/'/g, '') === recId);
+      const done = rec && getSurveyed(rec.id);
+      if (!done || done.reason !== null) return;
+      if (reason !== 'skip' && done.survey_id) {
+        // 같은 설문 행에 이유만 덧붙임 (서버는 id 기준 병합)
+        BongplaySync.upsert('customer_experience_surveys', { id: done.survey_id, improvement_reason: reason });
+        try {
+          const key = 'bongplay_customer_experience_surveys';
+          const list = JSON.parse(localStorage.getItem(key) || '[]');
+          const i = list.findIndex(s => s.id === done.survey_id);
+          if (i >= 0) { list[i].improvement_reason = reason; localStorage.setItem(key, JSON.stringify(list)); }
+        } catch (e) {}
+      }
+      markSurveyed(rec.id, Object.assign({}, done, { reason }));
+      renderScanResult(rec, true);
     }
 
     function renderNotFound(code) {
@@ -723,6 +862,11 @@
         });
       } else if (actionType === 'exit') {
         rec.exit_at = now;
+        // 체류 시간(분): 객단가·매점 소비 분석의 핵심 설명 변수 (예전엔 계산되지 않아 항상 비어 있었음)
+        if (rec.entry_at) {
+          const mins = Math.round((new Date(now) - new Date(rec.entry_at)) / 60000);
+          if (mins >= 0 && mins < 24 * 60) rec.stay_duration_minutes = mins;
+        }
         playChime('exit');
         addActivityLog({
           time: BongplaySync.toLocalTimeStr(now),
@@ -737,24 +881,48 @@
       // Save via BongplaySync
       await BongplaySync.upsert('safety_consents', rec);
       recalcOccupancy();
-      renderScanResult(rec);
+      renderScanResult(rec, actionType === 'exit');
     }
 
-    function addActivityLog(item) {
-      recentLogs.unshift(item);
-      if (recentLogs.length > 20) recentLogs.pop();
+    // 출입 로그는 메모리에만 쌓지 않고, 저장된 서약서의 입장·퇴장 시각(entry_at / exit_at)에서
+    // 매번 다시 만든다. → 새로고침해도 유지되고, 여러 태블릿이 같은 로그를 본다.
+    function addActivityLog() {
+      renderActivityLog();
+    }
 
+    function renderActivityLog() {
       const tbody = document.getElementById('activityLogBody');
+      if (!tbody) return;
+      const todayYmd = BongplaySync.toLocalDateStr(new Date());
+      const events = [];
+      consents.forEach(c => {
+        const people = ((c.children && c.children.length) || 0) + 1;
+        const base = { pass: c.passCode || c.pass_code || '-', guardian: c.guardianName || c.guardian_name || '-' };
+        if (c.entry_at && BongplaySync.toLocalDateStr(new Date(c.entry_at)) === todayYmd) {
+          events.push({ ...base, at: c.entry_at, type: '입장 승인', count: `+${people}명`, status: '원내 입장' });
+        }
+        if (c.exit_at && BongplaySync.toLocalDateStr(new Date(c.exit_at)) === todayYmd) {
+          events.push({ ...base, at: c.exit_at, type: '퇴장 승인', count: `-${people}명`, status: '퇴장 완료' });
+        }
+      });
+      events.sort((a, b) => new Date(b.at) - new Date(a.at));
+      recentLogs = events.slice(0, 50);
+
+      if (!recentLogs.length) {
+        tbody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-slate-500 font-sans">오늘 출입 기록이 없습니다. 스캔 대기 중입니다.</td></tr>`;
+        return;
+      }
+
       tbody.innerHTML = recentLogs.map(log => `
         <tr class="hover:bg-slate-800/40">
-          <td class="py-2 px-3 text-slate-400">${log.time}</td>
+          <td class="py-2 px-3 text-slate-400">${BongplaySync.toLocalTimeStr(log.at)}</td>
           <td class="py-2 px-3">
             <span class="px-2 py-0.5 rounded text-[10px] font-bold ${log.type === '입장 승인' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-amber-950 text-amber-300 border border-amber-800'}">
               ${log.type}
             </span>
           </td>
-          <td class="py-2 px-3 text-brand-400 font-bold">${log.pass}</td>
-          <td class="py-2 px-3 text-white font-sans">${log.guardian}</td>
+          <td class="py-2 px-3 text-brand-400 font-bold">${escapeHtml(maskPass(log.pass))}</td>
+          <td class="py-2 px-3 text-white font-sans">${escapeHtml(maskName(log.guardian))}</td>
           <td class="py-2 px-3 font-bold ${log.count.startsWith('+') ? 'text-emerald-400' : 'text-purple-400'}">${log.count}</td>
           <td class="py-2 px-3 text-slate-300 font-sans">${log.status}</td>
         </tr>
@@ -828,7 +996,8 @@
         cameraStream.getTracks().forEach(t => t.stop());
         cameraStream = null;
         container.classList.add('hidden');
-        btnText.textContent = '내장 카메라 스캔';
+        btnText.textContent = '카메라 켜기';
+        try { localStorage.setItem('bongplay_gate_camera_on', '0'); } catch (e) {}
         return;
       }
 
@@ -839,6 +1008,7 @@
         video.srcObject = cameraStream;
         container.classList.remove('hidden');
         btnText.textContent = '카메라 끄기';
+        try { localStorage.setItem('bongplay_gate_camera_on', '1'); } catch (e) {}
 
         // 판독기 준비
         barcodeDetector = null;

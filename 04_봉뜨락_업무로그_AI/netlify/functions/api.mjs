@@ -530,6 +530,389 @@ async function diagnostics(env) {
   };
 }
 
+/**
+ * 스프레드시트에 고품질 프리미엄 서식 (틀 고정, 헤더 스타일, 열 너비, 줄무늬 행, 우선순위·상태 조건부 서식) 적용
+ */
+async function formatWorklogSheet(env, sheetName) {
+  const meta = await sheetsRequest(
+    env,
+    '?fields=sheets(properties(sheetId,title),bandedRanges(bandedRangeId),conditionalFormats)'
+  );
+  const sheetObj = (meta.sheets ?? []).find((s) => s.properties?.title === sheetName);
+  if (!sheetObj) {
+    throw new UserError(`"${sheetName}" 탭을 찾을 수 없습니다.`, 404);
+  }
+  const sheetId = sheetObj.properties.sheetId;
+
+  // 1. 기존 조건부 서식 및 밴딩 정리 (중복 생성 방지)
+  const cleanupRequests = [];
+  if (Array.isArray(sheetObj.conditionalFormats)) {
+    for (let i = sheetObj.conditionalFormats.length - 1; i >= 0; i--) {
+      cleanupRequests.push({ deleteConditionalFormatRule: { sheetId, index: i } });
+    }
+  }
+  if (Array.isArray(sheetObj.bandedRanges)) {
+    for (const b of sheetObj.bandedRanges) {
+      if (b.bandedRangeId !== undefined) {
+        cleanupRequests.push({ deleteBanding: { bandedRangeId: b.bandedRangeId } });
+      }
+    }
+  }
+  if (cleanupRequests.length) {
+    try {
+      await sheetsRequest(env, ':batchUpdate', {
+        method: 'POST',
+        body: JSON.stringify({ requests: cleanupRequests }),
+      });
+    } catch (e) {
+      console.warn('기존 서식 정리 중 일부 건너뜀:', e);
+    }
+  }
+
+  // 2. 신규 서식 적용
+  const colWidths = [140, 85, 360, 75, 105, 85, 75, 450];
+  const requests = [
+    // 2-1. 1행 틀 고정 (스크롤 시에도 헤더 항상 상단 고정)
+    {
+      updateSheetProperties: {
+        properties: {
+          sheetId,
+          gridProperties: { frozenRowCount: 1 },
+        },
+        fields: 'gridProperties.frozenRowCount',
+      },
+    },
+    // 2-2. 1행 헤더 행 높이 42px
+    {
+      updateDimensionProperties: {
+        range: { sheetId, dimension: 'ROWS', startIndex: 0, endIndex: 1 },
+        properties: { pixelSize: 42 },
+        fields: 'pixelSize',
+      },
+    },
+    // 2-3. 열 너비 최적화 (요약과 맥락을 넓게, 코드는 콤팩트하게)
+    ...colWidths.map((w, idx) => ({
+      updateDimensionProperties: {
+        range: { sheetId, dimension: 'COLUMNS', startIndex: idx, endIndex: idx + 1 },
+        properties: { pixelSize: w },
+        fields: 'pixelSize',
+      },
+    })),
+    // 2-4. 1행 헤더 스타일 (짙은 슬레이트 네이비 배경, 볼드 화이트 텍스트, 중앙 정렬)
+    {
+      repeatCell: {
+        range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 8 },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: { red: 0.118, green: 0.161, blue: 0.231 }, // #1E293B
+            textFormat: {
+              foregroundColor: { red: 1, green: 1, blue: 1 },
+              bold: true,
+              fontSize: 11,
+            },
+            horizontalAlignment: 'CENTER',
+            verticalAlignment: 'MIDDLE',
+            wrapStrategy: 'CLIP',
+          },
+        },
+        fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment,wrapStrategy)',
+      },
+    },
+    // 2-5. 데이터 행 기본 정렬 & 줄바꿈 (세로 중앙 정렬)
+    {
+      repeatCell: {
+        range: { sheetId, startRowIndex: 1, endRowIndex: 2000, startColumnIndex: 0, endColumnIndex: 8 },
+        cell: {
+          userEnteredFormat: {
+            verticalAlignment: 'MIDDLE',
+            textFormat: { fontSize: 10 },
+          },
+        },
+        fields: 'userEnteredFormat(verticalAlignment,textFormat.fontSize)',
+      },
+    },
+    // 타임스탬프 (Col 0: 가운데 정렬, 차분한 회색)
+    {
+      repeatCell: {
+        range: { sheetId, startRowIndex: 1, endRowIndex: 2000, startColumnIndex: 0, endColumnIndex: 1 },
+        cell: {
+          userEnteredFormat: {
+            horizontalAlignment: 'CENTER',
+            textFormat: { foregroundColor: { red: 0.392, green: 0.455, blue: 0.545 }, fontSize: 9.5 },
+          },
+        },
+        fields: 'userEnteredFormat(horizontalAlignment,textFormat)',
+      },
+    },
+    // 분류 (Col 1: 가운데 정렬)
+    {
+      repeatCell: {
+        range: { sheetId, startRowIndex: 1, endRowIndex: 2000, startColumnIndex: 1, endColumnIndex: 2 },
+        cell: { userEnteredFormat: { horizontalAlignment: 'CENTER' } },
+        fields: 'userEnteredFormat.horizontalAlignment',
+      },
+    },
+    // 핵심 요약 (Col 2: 왼쪽 정렬, 줄바꿈 활성화)
+    {
+      repeatCell: {
+        range: { sheetId, startRowIndex: 1, endRowIndex: 2000, startColumnIndex: 2, endColumnIndex: 3 },
+        cell: {
+          userEnteredFormat: {
+            horizontalAlignment: 'LEFT',
+            wrapStrategy: 'WRAP',
+            textFormat: { bold: true, foregroundColor: { red: 0.09, green: 0.12, blue: 0.16 } },
+          },
+        },
+        fields: 'userEnteredFormat(horizontalAlignment,wrapStrategy,textFormat)',
+      },
+    },
+    // 담당자 (Col 3: 가운데 정렬)
+    {
+      repeatCell: {
+        range: { sheetId, startRowIndex: 1, endRowIndex: 2000, startColumnIndex: 3, endColumnIndex: 4 },
+        cell: { userEnteredFormat: { horizontalAlignment: 'CENTER' } },
+        fields: 'userEnteredFormat.horizontalAlignment',
+      },
+    },
+    // 마감일 (Col 4: 가운데 정렬)
+    {
+      repeatCell: {
+        range: { sheetId, startRowIndex: 1, endRowIndex: 2000, startColumnIndex: 4, endColumnIndex: 5 },
+        cell: { userEnteredFormat: { horizontalAlignment: 'CENTER' } },
+        fields: 'userEnteredFormat.horizontalAlignment',
+      },
+    },
+    // 우선순위 (Col 5: 가운데 정렬, 볼드)
+    {
+      repeatCell: {
+        range: { sheetId, startRowIndex: 1, endRowIndex: 2000, startColumnIndex: 5, endColumnIndex: 6 },
+        cell: { userEnteredFormat: { horizontalAlignment: 'CENTER', textFormat: { bold: true } } },
+        fields: 'userEnteredFormat(horizontalAlignment,textFormat.bold)',
+      },
+    },
+    // 상태 (Col 6: 가운데 정렬, 볼드)
+    {
+      repeatCell: {
+        range: { sheetId, startRowIndex: 1, endRowIndex: 2000, startColumnIndex: 6, endColumnIndex: 7 },
+        cell: { userEnteredFormat: { horizontalAlignment: 'CENTER', textFormat: { bold: true } } },
+        fields: 'userEnteredFormat(horizontalAlignment,textFormat.bold)',
+      },
+    },
+    // 원문 맥락 (Col 7: 왼쪽 정렬, 줄바꿈 활성화)
+    {
+      repeatCell: {
+        range: { sheetId, startRowIndex: 1, endRowIndex: 2000, startColumnIndex: 7, endColumnIndex: 8 },
+        cell: {
+          userEnteredFormat: {
+            horizontalAlignment: 'LEFT',
+            wrapStrategy: 'WRAP',
+            textFormat: { foregroundColor: { red: 0.35, green: 0.40, blue: 0.48 } },
+          },
+        },
+        fields: 'userEnteredFormat(horizontalAlignment,wrapStrategy,textFormat)',
+      },
+    },
+    // 2-6. 줄무늬 행 (Banding - 화이트 & 슬레이트 교차)
+    {
+      addBanding: {
+        bandedRange: {
+          range: { sheetId, startRowIndex: 0, endRowIndex: 2000, startColumnIndex: 0, endColumnIndex: 8 },
+          rowProperties: {
+            headerColor: { red: 0.118, green: 0.161, blue: 0.231 },
+            firstBandColor: { red: 1, green: 1, blue: 1 },
+            secondBandColor: { red: 0.973, green: 0.980, blue: 0.988 }, // #F8FAFC
+          },
+        },
+      },
+    },
+    // 2-7. 데이터 필터 버튼 장착 (우선순위/담당자/상태별 즉시 필터)
+    {
+      setBasicFilter: {
+        filter: {
+          range: { sheetId, startRowIndex: 0, endRowIndex: 2000, startColumnIndex: 0, endColumnIndex: 8 },
+        },
+      },
+    },
+    // 2-8. 조건부 서식: 우선순위 HIGH (연붉은 배경 + 진붉은색 볼드)
+    {
+      addConditionalFormatRule: {
+        rule: {
+          ranges: [{ sheetId, startRowIndex: 1, endRowIndex: 2000, startColumnIndex: 5, endColumnIndex: 6 }],
+          booleanRule: {
+            condition: { type: 'TEXT_EQ', values: [{ userEnteredValue: 'HIGH' }] },
+            format: {
+              backgroundColor: { red: 0.996, green: 0.886, blue: 0.886 }, // #FEE2E2
+              textFormat: { foregroundColor: { red: 0.600, green: 0.106, blue: 0.106 }, bold: true },
+            },
+          },
+        },
+        index: 0,
+      },
+    },
+    // 2-9. 조건부 서식: 우선순위 MEDIUM (호박색 배경 + 진갈색 볼드)
+    {
+      addConditionalFormatRule: {
+        rule: {
+          ranges: [{ sheetId, startRowIndex: 1, endRowIndex: 2000, startColumnIndex: 5, endColumnIndex: 6 }],
+          booleanRule: {
+            condition: { type: 'TEXT_EQ', values: [{ userEnteredValue: 'MEDIUM' }] },
+            format: {
+              backgroundColor: { red: 0.996, green: 0.953, blue: 0.780 }, // #FEF3C7
+              textFormat: { foregroundColor: { red: 0.573, green: 0.251, blue: 0.055 }, bold: true },
+            },
+          },
+        },
+        index: 1,
+      },
+    },
+    // 2-10. 조건부 서식: 우선순위 LOW (연회색 배경 + 차분한 텍스트)
+    {
+      addConditionalFormatRule: {
+        rule: {
+          ranges: [{ sheetId, startRowIndex: 1, endRowIndex: 2000, startColumnIndex: 5, endColumnIndex: 6 }],
+          booleanRule: {
+            condition: { type: 'TEXT_EQ', values: [{ userEnteredValue: 'LOW' }] },
+            format: {
+              backgroundColor: { red: 0.945, green: 0.961, blue: 0.976 }, // #F1F5F9
+              textFormat: { foregroundColor: { red: 0.400, green: 0.450, blue: 0.520 } },
+            },
+          },
+        },
+        index: 2,
+      },
+    },
+    // 2-11. 조건부 서식: 상태 (대기 / 진행 / 검토 / 완료)
+    {
+      addConditionalFormatRule: {
+        rule: {
+          ranges: [{ sheetId, startRowIndex: 1, endRowIndex: 2000, startColumnIndex: 6, endColumnIndex: 7 }],
+          booleanRule: {
+            condition: { type: 'TEXT_EQ', values: [{ userEnteredValue: '대기' }] },
+            format: {
+              backgroundColor: { red: 0.996, green: 0.976, blue: 0.765 }, // #FEF9C3
+              textFormat: { foregroundColor: { red: 0.522, green: 0.302, blue: 0.055 }, bold: true },
+            },
+          },
+        },
+        index: 3,
+      },
+    },
+    {
+      addConditionalFormatRule: {
+        rule: {
+          ranges: [{ sheetId, startRowIndex: 1, endRowIndex: 2000, startColumnIndex: 6, endColumnIndex: 7 }],
+          booleanRule: {
+            condition: { type: 'TEXT_EQ', values: [{ userEnteredValue: '진행' }] },
+            format: {
+              backgroundColor: { red: 0.859, green: 0.918, blue: 0.996 }, // #DBEAFE
+              textFormat: { foregroundColor: { red: 0.118, green: 0.251, blue: 0.686 }, bold: true },
+            },
+          },
+        },
+        index: 4,
+      },
+    },
+    {
+      addConditionalFormatRule: {
+        rule: {
+          ranges: [{ sheetId, startRowIndex: 1, endRowIndex: 2000, startColumnIndex: 6, endColumnIndex: 7 }],
+          booleanRule: {
+            condition: { type: 'TEXT_EQ', values: [{ userEnteredValue: '검토' }] },
+            format: {
+              backgroundColor: { red: 0.953, green: 0.910, blue: 1.0 }, // #F3E8FF
+              textFormat: { foregroundColor: { red: 0.420, green: 0.129, blue: 0.659 }, bold: true },
+            },
+          },
+        },
+        index: 5,
+      },
+    },
+    {
+      addConditionalFormatRule: {
+        rule: {
+          ranges: [{ sheetId, startRowIndex: 1, endRowIndex: 2000, startColumnIndex: 6, endColumnIndex: 7 }],
+          booleanRule: {
+            condition: { type: 'TEXT_EQ', values: [{ userEnteredValue: '완료' }] },
+            format: {
+              backgroundColor: { red: 0.863, green: 0.988, blue: 0.906 }, // #DCFCE7
+              textFormat: { foregroundColor: { red: 0.086, green: 0.396, blue: 0.204 }, bold: true },
+            },
+          },
+        },
+        index: 6,
+      },
+    },
+    // 2-12. 조건부 서식: 분류 태그 ([결정], [할일], [공유], [아이디어])
+    {
+      addConditionalFormatRule: {
+        rule: {
+          ranges: [{ sheetId, startRowIndex: 1, endRowIndex: 2000, startColumnIndex: 1, endColumnIndex: 2 }],
+          booleanRule: {
+            condition: { type: 'TEXT_CONTAINS', values: [{ userEnteredValue: '결정' }] },
+            format: {
+              backgroundColor: { red: 0.960, green: 0.930, blue: 1.0 },
+              textFormat: { foregroundColor: { red: 0.420, green: 0.129, blue: 0.659 }, bold: true },
+            },
+          },
+        },
+        index: 7,
+      },
+    },
+    {
+      addConditionalFormatRule: {
+        rule: {
+          ranges: [{ sheetId, startRowIndex: 1, endRowIndex: 2000, startColumnIndex: 1, endColumnIndex: 2 }],
+          booleanRule: {
+            condition: { type: 'TEXT_CONTAINS', values: [{ userEnteredValue: '할일' }] },
+            format: {
+              backgroundColor: { red: 1.0, green: 0.945, blue: 0.949 },
+              textFormat: { foregroundColor: { red: 0.624, green: 0.071, blue: 0.224 }, bold: true },
+            },
+          },
+        },
+        index: 8,
+      },
+    },
+    {
+      addConditionalFormatRule: {
+        rule: {
+          ranges: [{ sheetId, startRowIndex: 1, endRowIndex: 2000, startColumnIndex: 1, endColumnIndex: 2 }],
+          booleanRule: {
+            condition: { type: 'TEXT_CONTAINS', values: [{ userEnteredValue: '공유' }] },
+            format: {
+              backgroundColor: { red: 0.925, green: 0.992, blue: 0.961 },
+              textFormat: { foregroundColor: { red: 0.024, green: 0.373, blue: 0.275 }, bold: true },
+            },
+          },
+        },
+        index: 9,
+      },
+    },
+    {
+      addConditionalFormatRule: {
+        rule: {
+          ranges: [{ sheetId, startRowIndex: 1, endRowIndex: 2000, startColumnIndex: 1, endColumnIndex: 2 }],
+          booleanRule: {
+            condition: { type: 'TEXT_CONTAINS', values: [{ userEnteredValue: '아이디어' }] },
+            format: {
+              backgroundColor: { red: 0.941, green: 0.976, blue: 1.0 },
+              textFormat: { foregroundColor: { red: 0.012, green: 0.412, blue: 0.631 }, bold: true },
+            },
+          },
+        },
+        index: 10,
+      },
+    },
+  ];
+
+  await sheetsRequest(env, ':batchUpdate', {
+    method: 'POST',
+    body: JSON.stringify({ requests }),
+  });
+
+  return { ok: true, sheetId, title: sheetName };
+}
+
 const looksLikeHeader = (row) => Boolean(row && String(row[0] ?? '').includes('타임스탬프'));
 
 // ── 요청 처리 ───────────────────────────────────────────────────────
@@ -606,6 +989,17 @@ export default async function handler(request) {
 
     if (action === 'rows') {
       return json({ rows: await readRows(env), sheetUrl: sheetUrl(env) });
+    }
+
+    if (action === 'format') {
+      const configuredTab = env.SHEET_NAME || '업무로그';
+      const result = await formatWorklogSheet(env, configuredTab);
+      return json({
+        ok: true,
+        message: `"${configuredTab}" 시트에 1행 틀 고정, 우선순위·상태 조건부 서식, 열 너비 최적화, 줄무늬 행이 성공적으로 적용되었습니다.`,
+        sheetUrl: sheetUrl(env),
+        result,
+      });
     }
 
     return json({ error: '알 수 없는 요청입니다.' }, 404);

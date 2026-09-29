@@ -879,6 +879,30 @@
       };
       // 같은 품목이 로컬·서버 양쪽에서 들어와도 한 번만 집계 (id 기준 중복 제거)
       // 발권취소된 건(status='cancelled')은 실적·마감 집계에서 제외
+      // 서약서(safety_consents)가 존재하는 경우 현재 발권완료(is_issued: true) 상태인 건만 유효 주문으로 인정
+      const consentMap = {};
+      try {
+        const cRaw = localStorage.getItem(STORAGE_KEYS.CONSENTS) || localStorage.getItem('bongtteurak_consents_v1');
+        if (cRaw) {
+          const cList = JSON.parse(cRaw);
+          if (Array.isArray(cList)) {
+            cList.forEach(c => { if (c && c.id) consentMap[c.id] = c; });
+          }
+        }
+      } catch (e) {}
+
+      // consent_id 별 최신 order_id 추적 (재발권 등으로 중복 주문이 생긴 경우 최신 주문만 유지)
+      const consentLatestOrder = {};
+      items.forEach(it => {
+        if (it.consent_id && it.status !== 'cancelled') {
+          const prev = consentLatestOrder[it.consent_id];
+          const curTime = new Date(it.purchased_at || it.created_at || 0).getTime();
+          if (!prev || curTime >= prev.time) {
+            consentLatestOrder[it.consent_id] = { order_id: it.order_id, time: curTime };
+          }
+        }
+      });
+
       const seen = {};
       const filtered = items.filter(it => {
         const key = it.id || it.item_id;
@@ -887,6 +911,17 @@
           seen[key] = true;
         }
         if (it.status === 'cancelled') return false;
+
+        // 서약서 연계 주문인 경우: 서약서가 발권완료 상태여야 하고, 최신 order_id에 속해야 함
+        if (it.consent_id) {
+          const c = consentMap[it.consent_id];
+          if (c && !(c.isIssued || c.is_issued)) return false; // 미발권/발권취소 서약서 주문 제외
+          const latest = consentLatestOrder[it.consent_id];
+          if (latest && latest.order_id && it.order_id && it.order_id !== latest.order_id) {
+            return false; // 구버전 중복 주문 제외
+          }
+        }
+
         return localYmd(it.purchased_at || it.created_at) === dateStr;
       });
 
@@ -1809,20 +1844,38 @@
   }
 
   /* ---------- 4-7. P1-4: 10초 퇴장 설문 원장 (Customer Experience Surveys & NPS) ---------- */
+  // 손님 폰(consent.html)·퇴장 태블릿(gate.html)·데모 시드가 모두 이 함수로 기록한다.
+  // 응답하지 않은 항목은 null 로 둔다 (예전엔 추천 9점·대기 4점 등을 임의로 채워 NPS 가 부풀려졌음).
   function recordCustomerSurvey(params) {
+    const toScore = (v) => {
+      const n = parseInt(v, 10);
+      return Number.isFinite(n) ? n : null;
+    };
+    const nowIso = new Date().toISOString();
+    const satisfaction = toScore(params.satisfaction_score != null ? params.satisfaction_score : params.satisfaction_rating);
+    const recommendation = toScore(params.recommendation_score != null ? params.recommendation_score : params.nps_score);
+    const notes = params.notes || params.comment || '';
     const survey = {
       id: 'SRV_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+      site_id: 'bongplay_bonghwa',
       visit_id: params.visit_id || null,
       household_id: params.household_id || null,
-      submitted_at: new Date().toISOString(),
-      satisfaction_score: parseInt(params.satisfaction_score, 10) || 5,
-      recommendation_score: parseInt(params.recommendation_score, 10) || 9,
-      wait_satisfaction: parseInt(params.wait_satisfaction, 10) || 4,
-      favorite_facility: params.favorite_facility || 'outdoor_coaster',
-      improvement_reason: params.improvement_reason || '특이사항 없음',
-      revisit_intent: params.revisit_intent || 'yes',
-      staff_friendly_score: parseInt(params.staff_friendly_score, 10) || 5,
-      notes: params.notes || ''
+      consent_id: params.consent_id || null,
+      pass_code: params.pass_code || null,
+      survey_channel: params.survey_channel || params.channel || null,   // exit_tablet / mobile
+      submitted_at: nowIso,
+      created_at: nowIso,
+      satisfaction_score: satisfaction,
+      recommendation_score: recommendation,
+      wait_satisfaction: toScore(params.wait_satisfaction),
+      favorite_facility: params.favorite_facility || params.preferred_facility || null,
+      improvement_reason: params.improvement_reason || null,
+      revisit_intent: params.revisit_intent || null,
+      staff_friendly_score: toScore(params.staff_friendly_score),
+      notes: notes,
+      // 기본 스키마 컬럼(score/comment)에도 같은 값을 남겨 SQL 조회를 단순하게 한다
+      score: satisfaction,
+      comment: notes
     };
 
     let list = [];
@@ -1865,31 +1918,40 @@
     let promoters = 0;
     let passives = 0;
     let detractors = 0;
-    let sumSat = 0;
-    let sumWait = 0;
+    let sumSat = 0, cntSat = 0;
+    let sumWait = 0, cntWait = 0;
 
     surveys.forEach(s => {
-      const score = s.recommendation_score != null ? s.recommendation_score : 9;
-      if (score >= 9) promoters++;
-      else if (score >= 7) passives++;
-      else detractors++;
-
-      sumSat += (s.satisfaction_score || 5);
-      sumWait += (s.wait_satisfaction || 4);
+      const sat = s.satisfaction_score != null ? s.satisfaction_score : s.score;
+      // 추천 점수(0~10)가 없으면 5점 만족도로 환산: 5점=추천, 4점=중립, 3점 이하=비추천
+      if (s.recommendation_score != null) {
+        if (s.recommendation_score >= 9) promoters++;
+        else if (s.recommendation_score >= 7) passives++;
+        else detractors++;
+      } else if (sat != null) {
+        if (sat >= 5) promoters++;
+        else if (sat === 4) passives++;
+        else detractors++;
+      }
+      if (sat != null) { sumSat += sat; cntSat++; }
+      if (s.wait_satisfaction != null) { sumWait += s.wait_satisfaction; cntWait++; }
     });
 
     const total = surveys.length;
-    const pPct = (promoters / total) * 100;
-    const dPct = (detractors / total) * 100;
+    const rated = promoters + passives + detractors;
+    const pPct = rated ? (promoters / rated) * 100 : 0;
+    const dPct = rated ? (detractors / rated) * 100 : 0;
     const nps = Math.round(pPct - dPct);
+    const avgWait = cntWait ? Number((sumWait / cntWait).toFixed(1)) : 0;
 
     return {
       total: total,
       nps: nps,
       promoters_pct: Number(pPct.toFixed(1)),
       detractors_pct: Number(dPct.toFixed(1)),
-      avg_satisfaction: Number((sumSat / total).toFixed(1)),
-      avg_wait: Number((sumWait / total).toFixed(1))
+      avg_satisfaction: cntSat ? Number((sumSat / cntSat).toFixed(1)) : 0,
+      avg_wait: avgWait,
+      avg_wait_satisfaction: avgWait
     };
   }
 
@@ -2329,10 +2391,17 @@
       rule = candidates.sort(function (a, b) { return b.rate - a.rate; })[0] || null;
     }
 
+    // 매점 방문고객 할인: 방문 가족을 연동(ctx.memberLinked)한 경우 식음료·굿즈 품목에만 적용.
+    // 입장권 할인(군민·단체)과는 적용 품목이 달라 한 품목에 두 할인이 겹치지 않는다.
+    const store = getStoreMemberDiscount();
+    const storeActive = !!ctx.memberLinked && store.rate > 0;
+
     const items = lines.map(function (l) {
       const listTotal = l.prod.list_price * l.quantity;
       const applies = !!rule && l.prod.discountable === true && listTotal > 0;
-      const discount = applies ? Math.round(listTotal * rule.rate) : 0;
+      const storeApplies = !applies && storeActive && listTotal > 0 && store.categories.indexOf(l.prod.category) !== -1;
+      const discount = applies ? Math.round(listTotal * rule.rate)
+        : storeApplies ? Math.round(listTotal * store.rate) : 0;
       return {
         product_id: l.prod.id,
         product_name: l.prod.name,
@@ -2341,12 +2410,16 @@
         list_price: l.prod.list_price,
         discount_amount: discount,
         paid_amount: listTotal - discount,
-        discount_rule: applies ? rule.id : null
+        discount_rule: applies ? rule.id : (storeApplies ? store.id : null)
       };
     });
 
     const subtotal = items.reduce(function (s, i) { return s + i.list_price * i.quantity; }, 0);
     const discountTotal = items.reduce(function (s, i) { return s + i.discount_amount; }, 0);
+    const storeDiscount = items.reduce(function (s, i) { return s + (i.discount_rule === store.id ? i.discount_amount : 0); }, 0);
+    const labels = [];
+    if (rule && items.some(function (i) { return i.discount_rule === rule.id; })) labels.push(rule.label);
+    if (storeDiscount > 0) labels.push(store.label + ' ' + Math.round(store.rate * 100) + '%');
 
     return {
       items: items,
@@ -2356,9 +2429,23 @@
         discount: discountTotal,
         total: subtotal - discountTotal,
         rule_id: rule ? rule.id : null,
-        rule_label: rule ? rule.label : '할인 없음',
+        rule_label: labels.length ? labels.join(' + ') : '할인 없음',
+        store_discount: storeDiscount,
         available_rules: candidates.filter(Boolean).map(function (r) { return r.id; })
       }
+    };
+  }
+
+  // 매점 방문고객 할인 설정 (기준정보 bongplay-site.js 의 store 항목)
+  function getStoreMemberDiscount() {
+    const site = global.BongplaySite;
+    const rate = Number(site && site.get('store.member_discount_rate'));
+    const cats = site && site.get('store.member_discount_categories');
+    return {
+      id: 'store_member',
+      rate: Number.isFinite(rate) && rate > 0 && rate < 1 ? rate : 0,
+      label: (site && site.get('store.member_discount_label')) || '방문고객 매점 할인',
+      categories: Array.isArray(cats) && cats.length ? cats : ['fnb', 'merchandise']
     };
   }
 
@@ -2712,597 +2799,243 @@
     }
   }
 
-  /* 최우선순위: 방문객 1회 전주기 여정 (Visit 360° Timeline) 복원 */
-  function getVisitFullJourney(query) {
-    const allConsents = getStoredConsents();
-    let consent = null;
+  /* 방문객 1회 전주기 여정 (Visit 360°) — 실제 기록만으로 복원
+     ------------------------------------------------------------
+     원천: 서약서(도착·발권·입장·퇴장·체류) · 주문 원장(구매) · 설문 · 시설 이용 · 사고/민원
+     (예전 구현은 기록이 없으면 체류 150분·도착 10:00·NPS 9점 등을 임의로 채워 넣었고,
+      "1회 여정 시뮬레이션 생성" 버튼이 가짜 서약·주문·설문을 실제 DB 에 올렸다 → 전면 제거) */
+  function readLocalList(key) {
+    try { return JSON.parse(localStorage.getItem(key) || '[]') || []; } catch (e) { return []; }
+  }
 
+  function isSimulatedVisit(id) {
+    return /^vst_sim_/.test(String(id || ''));
+  }
+
+  function localHm(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+
+  function consentVisitId(c) {
+    return c.visit_id || c.id || ('vst_legacy_' + (c.passCode || c.pass_code || ''));
+  }
+
+  function stayInfo(c) {
+    if (c.stay_duration_minutes != null && c.stay_duration_minutes >= 0) {
+      return { minutes: Number(c.stay_duration_minutes), label: c.stay_duration_minutes + '분', live: false };
+    }
+    if (c.entry_at && c.exit_at) {
+      const m = Math.round((new Date(c.exit_at) - new Date(c.entry_at)) / 60000);
+      if (m >= 0) return { minutes: m, label: m + '분', live: false };
+    }
+    if (c.entry_at && !c.exit_at) {
+      const m = Math.max(0, Math.round((Date.now() - new Date(c.entry_at)) / 60000));
+      return { minutes: m, label: '이용 중 ' + m + '분', live: true };
+    }
+    return { minutes: null, label: '-', live: false };
+  }
+
+  function getVisitFullJourney(query) {
+    const allConsents = getStoredConsents()
+      .filter(c => !isSimulatedVisit(c.visit_id) && !isSimulatedVisit(c.id))
+      .sort((a, b) => new Date(b.arrival_at || b.created_at || 0) - new Date(a.arrival_at || a.created_at || 0));
+
+    let consent = null;
     if (query) {
       const q = String(query).trim().toLowerCase();
       const qNum = q.replace(/[^0-9]/g, '');
       consent = allConsents.find(c => {
         const vId = String(c.visit_id || '').toLowerCase();
         const id = String(c.id || '').toLowerCase();
-        const code = String(c.passCode || '').toLowerCase();
+        const code = String(c.passCode || c.pass_code || '').toLowerCase();
         const gName = String(c.guardianName || c.guardian_name || '').toLowerCase();
-        const phone = String(c.guardianPhone || c.phone || '').replace(/[^0-9]/g, '');
-        return vId === q || id === q || code === q || (phone && phone === qNum) || (q.length >= 2 && gName.includes(q));
+        const phone = String(c.guardianPhone || c.guardian_phone || c.phone || '').replace(/[^0-9]/g, '');
+        return vId === q || id === q || code === q
+          || (qNum.length >= 4 && phone && phone.endsWith(qNum))
+          || (q.length >= 2 && gName.includes(q));
       });
-    }
-
-    if (!consent && allConsents.length > 0) {
+      if (!consent) return { success: false, reason: 'not_found' };
+    } else {
       consent = allConsents[0];
+      if (!consent) return { success: false, reason: 'empty' };
     }
 
-    const vId = consent ? (consent.visit_id || consent.id || ('vst_legacy_' + consent.passCode)) : (query || 'vst_unknown');
-    const hhId = consent ? (consent.household_id || generateHouseholdId(consent.guardianPhone || consent.phone)) : generateHouseholdId('010-0000-0000');
+    const c = consent;
+    const vId = consentVisitId(c);
+    const pass = c.passCode || c.pass_code || '';
+    const hhId = c.household_id || generateHouseholdId(c.guardianPhone || c.guardian_phone || c.phone);
+    const linked = (row) => row && (row.visit_id === vId || (row.consent_id && row.consent_id === c.id));
 
-    // 하위 7대 엔티티 로드
-    const orderItems = (function() {
-      try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.ORDER_ITEMS) || '[]'); } catch(e) { return []; }
-    })().filter(o => o.visit_id === vId);
+    const orders = readLocalList(STORAGE_KEYS.ORDER_ITEMS)
+      .filter(o => linked(o) && (o.status || 'paid') !== 'cancelled');
+    const facilityEvents = readLocalList(STORAGE_KEYS.FACILITY_EVENTS).filter(linked);
+    const queueSnapshots = readLocalList(STORAGE_KEYS.QUEUE_SNAPSHOTS).filter(linked);
+    const surveys = readLocalList(STORAGE_KEYS.SURVEYS)
+      .filter(s => linked(s) || (pass && s.pass_code === pass));
+    const incidents = readLocalList(STORAGE_KEYS.INCIDENTS).filter(linked);
+    const complaints = readLocalList(STORAGE_KEYS.COMPLAINTS).filter(linked);
+    const booking = readLocalList(STORAGE_KEYS.GROUP_BOOKINGS)
+      .find(b => (c.booking_id && b.booking_id === c.booking_id) || b.visit_id === vId) || null;
 
-    const facilityEvents = (function() {
-      try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.FACILITY_EVENTS) || '[]'); } catch(e) { return []; }
-    })().filter(e => e.visit_id === vId);
+    const paidOf = (o) => Number(o.paid_amount != null ? o.paid_amount : (o.total_price || 0)) || 0;
+    const catOf = (o) => o.product_category || o.category || '';
+    const ticketSpend = orders.filter(o => catOf(o) === 'ticket').reduce((s, o) => s + paidOf(o), 0);
+    const extraSpend = orders.filter(o => catOf(o) !== 'ticket').reduce((s, o) => s + paidOf(o), 0);
+    const childCount = Array.isArray(c.children) ? c.children.length : 0;
+    const adultCount = Number(c.adult_count) || 1;
+    const stay = stayInfo(c);
+    const survey = surveys[0] || null;
+    const waitMinutes = queueSnapshots.reduce((s, q) => s + (Number(q.wait_minutes || q.estimated_wait_minutes) || 0), 0);
 
-    const queueSnapshots = (function() {
-      try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.QUEUE_SNAPSHOTS) || '[]'); } catch(e) { return []; }
-    })().filter(q => q.visit_id === vId);
-
-    const surveys = (function() {
-      try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.SURVEYS) || '[]'); } catch(e) { return []; }
-    })().filter(s => s.visit_id === vId);
-
-    const incidents = (function() {
-      try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.INCIDENTS) || '[]'); } catch(e) { return []; }
-    })().filter(i => i.visit_id === vId);
-
-    const complaints = (function() {
-      try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.COMPLAINTS) || '[]'); } catch(e) { return []; }
-    })().filter(c => c.visit_id === vId);
-
-    const booking = (function() {
-      try {
-        const list = JSON.parse(localStorage.getItem(STORAGE_KEYS.GROUP_BOOKINGS) || '[]');
-        return list.find(b => (consent && consent.booking_id && b.booking_id === consent.booking_id) || (b.visit_id === vId));
-      } catch(e) { return null; }
-    })();
-
-    const weatherLogs = (function() {
-      try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.WEATHER_TELEMETRY) || '[]'); } catch(e) { return []; }
-    })();
-
-    // 타임라인 합성
-    const timeline = [];
-    const baseDate = consent ? (consent.createdDate || (consent.created_at ? consent.created_at.slice(0, 10) : '2026-09-15')) : '2026-09-15';
-
-    // 1. 도착
-    const arrivalTime = (consent && consent.arrival_at) || (consent && consent.created_at) || `${baseDate}T10:00:00.000Z`;
-    timeline.push({
-      timestamp: arrivalTime,
-      stage: 'arrival',
-      stage_label: '1. 현장 도착',
-      title: '방문객 현장 도착 (Arrival)',
-      description: `${consent ? (consent.guardianName || consent.guardian_name || '방문객') : '이용객'} 일행 도착 (거주지: ${consent ? (consent.residence_region || consent.residence || '관외') : '미확인'})`,
-      icon: 'map-pin',
-      badge: '도착확인',
-      badge_color: 'cyan',
-      details: {
-        guardian: consent ? (consent.guardianName || consent.guardian_name) : '익명',
-        phone: consent ? (consent.guardianPhone || consent.phone) : '-',
-        party_size: consent ? ((consent.children ? consent.children.length : 0) + (consent.adult_count || 1)) : 1
-      }
+    // 타임라인: 실제 시각이 있는 사건만
+    const nodes = [];
+    const add = (ts, stage, title, desc, badge, color, icon) => {
+      if (!ts) return;
+      nodes.push({ timestamp: ts, time_label: localHm(ts), stage_label: stage, title, description: desc || '', badge, badge_color: color, icon });
+    };
+    if (booking) add(booking.created_at || booking.booking_date, '예약', '사전 단체예약', booking.group_name || booking.org_name || '', '예약', 'blue', 'calendar-check');
+    add(c.arrival_at || c.created_at, '서약', '모바일 안전서약 접수', `보호자 1명 · 아이 ${childCount}명 · ${c.residence || '거주지 미입력'}`, pass || '서약', 'cyan', 'file-signature');
+    add(c.ticket_issued_at, '발권', '매표소 발권', ticketSpend ? `입장권 ${ticketSpend.toLocaleString()}원` : '', '발권', 'emerald', 'ticket');
+    add(c.entry_at, '입장', '게이트 입장', '', '입장', 'emerald', 'log-in');
+    orders.filter(o => catOf(o) !== 'ticket').forEach(o => {
+      add(o.purchased_at || o.created_at, '구매', o.product_name || '매점 구매',
+        `${(o.quantity || 1)}개 · ${paidOf(o).toLocaleString()}원${o.discount_rule === 'store_member' ? ' (방문고객 할인)' : ''}`, '구매', 'amber', 'shopping-bag');
     });
-
-    // 1-1. 기상 환경 연동 (Weather Telemetry)
-    const matchedWeather = weatherLogs.length > 0
-      ? (weatherLogs.find(w => (w.observed_at || '').slice(0, 13) === arrivalTime.slice(0, 13)) || weatherLogs[0])
-      : null;
-    if (matchedWeather) {
-      const wTime = matchedWeather.observed_at ? matchedWeather.observed_at.slice(11, 16) : arrivalTime.slice(11, 16);
-      timeline.push({
-        timestamp: matchedWeather.observed_at || arrivalTime,
-        stage: 'weather',
-        stage_label: '기상·환경',
-        title: `기상 환경 연동 (${matchedWeather.weather_condition || (matchedWeather.temperature >= 25 ? '맑음' : '구름조금')})`,
-        description: `${wTime} 기준 기온 ${matchedWeather.temperature || 28}℃, 습도 ${matchedWeather.humidity || 65}%, 풍속 ${matchedWeather.wind_speed || 1.8}m/s (특보: ${matchedWeather.weather_warning || 'none'})`,
-        icon: 'cloud-sun',
-        badge: `${matchedWeather.temperature || 28}℃ ${matchedWeather.weather_condition || '맑음'}`,
-        badge_color: 'sky',
-        details: matchedWeather
-      });
+    facilityEvents.forEach(e => add(e.started_at || e.entered_at, '이용', e.facility_name || e.facility_id || '시설 이용', e.result || '', '이용', 'purple', 'activity'));
+    incidents.forEach(i => add(i.created_at || i.incident_at || i.reported_at, '사고', i.title || i.incident_type || '사고 보고', i.description || '', '사고', 'rose', 'alert-triangle'));
+    complaints.forEach(m => add(m.created_at || m.datetime, '민원', m.title || m.category || '민원 접수', m.content || m.description || '', '민원', 'rose', 'message-square-warning'));
+    add(c.exit_at, '퇴장', '게이트 퇴장', stay.minutes != null && !stay.live ? `체류 ${stay.label}` : '', '퇴장', 'purple', 'log-out');
+    if (survey) {
+      const sat = survey.satisfaction_score != null ? survey.satisfaction_score : survey.score;
+      add(survey.submitted_at || survey.created_at, '설문', `만족도 ${sat != null ? sat + '/5' : '-'}`, survey.notes || survey.comment || '', survey.survey_channel === 'exit_tablet' ? '태블릿' : '모바일', 'blue', 'star');
     }
+    nodes.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
-    // 2. 발권 (티켓 주문)
-    const ticketOrders = orderItems.filter(o => o.product_category === 'ticket' || (o.product_id && o.product_id.startsWith('tkt_')) || (o.product_id && o.product_id.startsWith('PROD_CHILD')) || (o.product_id && o.product_id.startsWith('PROD_ADULT')));
-    if (ticketOrders.length > 0) {
-      const ticketTotal = ticketOrders.reduce((sum, o) => sum + (o.paid_amount || 0), 0);
-      const ticketTime = (consent && consent.ticket_issued_at) || ticketOrders[0].purchased_at || `${baseDate}T10:05:00.000Z`;
-      timeline.push({
-        timestamp: ticketTime,
-        stage: 'order_ticket',
-        stage_label: '2. 매표 및 발권',
-        title: `POS 발권 완료 (${ticketOrders.length}종 품목)`,
-        description: ticketOrders.map(t => `${t.product_name} x${t.quantity} (${(t.paid_amount || 0).toLocaleString()}원)`).join(' / '),
-        icon: 'ticket',
-        badge: `${ticketTotal.toLocaleString()}원`,
-        badge_color: 'amber',
-        details: { items: ticketOrders, total: ticketTotal }
-      });
-    }
-
-    // 3. 안전서약서 작성
-    if (consent) {
-      const consentTime = consent.created_at || `${baseDate}T10:08:00.000Z`;
-      const childNames = (consent.children || []).map(ch => `${ch.name}(${ch.age}세)`).join(', ');
-      timeline.push({
-        timestamp: consentTime,
-        stage: 'consent',
-        stage_label: '3. 모바일 안전서약',
-        title: '전자 안전이용서약서 서명 완료',
-        description: `보호자: ${consent.guardianName || consent.guardian_name} | 동반아동: ${childNames || '없음'} | 마케팅동의: ${consent.consent_marketing ? '동의' : '미동의'}`,
-        icon: 'file-check',
-        badge: '서약완료',
-        badge_color: 'emerald',
-        details: { passCode: consent.passCode, children: consent.children }
-      });
-    }
-
-    // 4. 게이트 입장
-    const entryTime = (consent && consent.entry_at) || `${baseDate}T10:12:00.000Z`;
-    timeline.push({
-      timestamp: entryTime,
-      stage: 'entry',
-      stage_label: '4. 메인 게이트 통과',
-      title: '놀이터 메인 게이트 QR 체크인',
-      description: '어린이 및 보호자 밴드/QR 스캔 후 안전입장 완료',
-      icon: 'door-open',
-      badge: '입장확인',
-      badge_color: 'emerald',
-      details: { entry_at: entryTime }
-    });
-
-    // 5. 대기 스냅샷 (Queue Snapshots)
-    queueSnapshots.forEach(qs => {
-      timeline.push({
-        timestamp: qs.measured_at || `${baseDate}T10:20:00.000Z`,
-        stage: 'queue',
-        stage_label: '5. 시설 대기',
-        title: `시설 대기열 진입 (${qs.facility_id})`,
-        description: `대기시간 실측: 약 ${qs.wait_minutes}분 (대기인원 ${qs.queue_count}명)`,
-        icon: 'clock',
-        badge: `${qs.wait_minutes}분 대기`,
-        badge_color: qs.wait_minutes > 15 ? 'rose' : 'purple',
-        details: qs
-      });
-    });
-
-    // 6. 시설 이용 이벤트 (Facility Usages)
-    facilityEvents.forEach(fe => {
-      timeline.push({
-        timestamp: fe.entered_at || fe.started_at || `${baseDate}T10:25:00.000Z`,
-        stage: 'facility_usage',
-        stage_label: '6. 시설 이용',
-        title: `시설 탑승/이용 (${fe.facility_id})`,
-        description: `탑승결과: ${fe.result || '정상완료'}${fe.operator_staff_id ? ` (담당: ${fe.operator_staff_id})` : ''}`,
-        icon: 'activity',
-        badge: fe.result === 'completed' ? '정상탑승' : fe.result,
-        badge_color: fe.result === 'completed' ? 'emerald' : 'rose',
-        details: fe
-      });
-    });
-
-    // 7. 부가 F&B / 체험 주문
-    const fnbOrders = orderItems.filter(o => o.product_category === 'fnb' || o.product_category === 'addon_attraction' || (o.product_id && o.product_id.startsWith('fnb_')) || (o.product_id && o.product_id.startsWith('PROD_FNB')));
-    if (fnbOrders.length > 0) {
-      const fnbTotal = fnbOrders.reduce((sum, o) => sum + (o.paid_amount || 0), 0);
-      const fnbTime = fnbOrders[0].purchased_at || `${baseDate}T11:15:00.000Z`;
-      timeline.push({
-        timestamp: fnbTime,
-        stage: 'order_fnb',
-        stage_label: '7. F&B 및 부가상품 구매',
-        title: `사무동 카페테리아 F&B 주문 (${fnbOrders.length}종)`,
-        description: fnbOrders.map(f => `${f.product_name} x${f.quantity} (${(f.paid_amount || 0).toLocaleString()}원)`).join(' / '),
-        icon: 'coffee',
-        badge: `${fnbTotal.toLocaleString()}원`,
-        badge_color: 'amber',
-        details: { items: fnbOrders, total: fnbTotal }
-      });
-    }
-
-    // 8. 사고 및 민원
-    incidents.forEach(inc => {
-      timeline.push({
-        timestamp: inc.occurred_at || inc.datetime || `${baseDate}T11:30:00.000Z`,
-        stage: 'incident',
-        stage_label: '🚨 안전사고 발생',
-        title: `사고 발생 (${inc.facility_id || inc.location})`,
-        description: `등급: ${inc.severity} | 내용: ${inc.description || inc.cause} | 조치: ${inc.action_taken}`,
-        icon: 'alert-triangle',
-        badge: '사고연동',
-        badge_color: 'rose',
-        details: inc
-      });
-    });
-
-    complaints.forEach(cp => {
-      timeline.push({
-        timestamp: cp.received_at || cp.datetime || `${baseDate}T11:35:00.000Z`,
-        stage: 'complaint',
-        stage_label: '⚠️ 민원 접수',
-        title: `고객 민원 접수 (${cp.complaint_type || '현장불만'})`,
-        description: `내용: ${cp.content || cp.description}`,
-        icon: 'message-square-warning',
-        badge: '민원연동',
-        badge_color: 'amber',
-        details: cp
-      });
-    });
-
-    // 9. 만족도 설문 (Feedback)
-    surveys.forEach(srv => {
-      timeline.push({
-        timestamp: srv.created_at || `${baseDate}T12:35:00.000Z`,
-        stage: 'survey',
-        stage_label: '8. 10초 퇴장 설문 (NPS)',
-        title: `고객 경험 만족도 평가 (NPS ${srv.nps_score}점)`,
-        description: `전반 만족도: ${srv.satisfaction_rating || 5}/5점 | 대기 만족도: ${srv.wait_satisfaction || 4}/5점 ${srv.comment ? ` | 의견: "${srv.comment}"` : ''}`,
-        icon: 'star',
-        badge: `NPS ${srv.nps_score}점`,
-        badge_color: srv.nps_score >= 9 ? 'emerald' : (srv.nps_score >= 7 ? 'amber' : 'rose'),
-        details: srv
-      });
-    });
-
-    // 10. 퇴장
-    const exitTime = (consent && consent.exit_at) || `${baseDate}T12:45:00.000Z`;
-    timeline.push({
-      timestamp: exitTime,
-      stage: 'exit',
-      stage_label: '9. 출구 퇴장',
-      title: '출구 게이트 퇴장 완료',
-      description: `총 체류시간: ${consent && consent.stay_duration_minutes ? consent.stay_duration_minutes : 150}분 | 여정 완료`,
-      icon: 'log-out',
-      badge: '퇴장완료',
-      badge_color: 'blue',
-      details: { exit_at: exitTime }
-    });
-
-    // 시간순 정렬
-    timeline.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-
-    // 집계 메트릭 계산
-    const totalSpend = orderItems.reduce((sum, o) => sum + (o.paid_amount || 0), 0);
-    const ticketSpend = ticketOrders.reduce((sum, o) => sum + (o.paid_amount || 0), 0);
-    const fnbSpend = fnbOrders.reduce((sum, o) => sum + (o.paid_amount || 0), 0);
-    const stayMinutes = consent && consent.stay_duration_minutes ? consent.stay_duration_minutes : 150;
-    const totalWait = queueSnapshots.reduce((sum, q) => sum + (q.wait_minutes || 0), 0);
-
+    const satisfaction = survey ? (survey.satisfaction_score != null ? survey.satisfaction_score : (survey.score != null ? survey.score : null)) : null;
     const summary = {
       visit_id: vId,
+      consent_id: c.id,
+      pass_code: pass,
       household_id: hhId,
-      guardian_name: consent ? (consent.guardianName || consent.guardian_name || '익명') : '이용객',
-      guardian_phone: consent ? (consent.guardianPhone || consent.phone || '-') : '-',
-      residence: consent ? (consent.residence_region || consent.residence || '관외') : '관외',
-      party_size: consent ? ((consent.children ? consent.children.length : 0) + (consent.adult_count || 1)) : 1,
-      child_count: consent && consent.children ? consent.children.length : 0,
-      adult_count: consent && consent.adult_count ? consent.adult_count : 1,
-      date: baseDate,
-      arrival_at: arrivalTime,
-      exit_at: exitTime,
-      stay_duration_minutes: stayMinutes,
-      total_spend: totalSpend,
+      guardian_name: c.guardianName || c.guardian_name || '익명',
+      residence: c.residence || c.residence_region || '-',
+      party_size: childCount + adultCount,
+      child_count: childCount,
+      adult_count: adultCount,
+      date: c.created_date || c.createdDate || (c.arrival_at || '').slice(0, 10),
+      arrival_at: c.arrival_at || c.created_at || null,
+      entry_at: c.entry_at || null,
+      exit_at: c.exit_at || null,
+      arrival_time: localHm(c.arrival_at || c.created_at),
+      exit_time: localHm(c.exit_at),
+      stay_duration_minutes: stay.minutes,
+      stay_label: stay.label,
+      total_spend: ticketSpend + extraSpend,
       ticket_spend: ticketSpend,
-      fnb_spend: fnbSpend,
-      total_rides: facilityEvents.filter(e => e.result === 'completed').length,
-      total_wait_minutes: totalWait,
-      nps_score: surveys.length > 0 ? surveys[0].nps_score : null,
+      fnb_spend: extraSpend,
+      order_count: orders.length,
+      total_rides: facilityEvents.length,
+      total_wait_minutes: waitMinutes,
+      satisfaction_score: satisfaction,
+      nps_score: survey && survey.recommendation_score != null ? survey.recommendation_score : null,
       had_incident: incidents.length > 0,
       had_complaint: complaints.length > 0,
-      weather: matchedWeather ? {
-        observed_at: matchedWeather.observed_at,
-        condition: matchedWeather.weather_condition || '맑음',
-        temperature: matchedWeather.temperature || 28,
-        humidity: matchedWeather.humidity || 65,
-        wind_speed: matchedWeather.wind_speed || 1.8,
-        wind_gust: matchedWeather.wind_gust || 2.5
-      } : null,
+      status: c.exit_at ? '퇴장 완료' : (c.entry_at ? '이용 중' : ((c.isIssued || c.is_issued) ? '발권 완료' : '서약만 완료')),
       pillar_linkage: {
-        household: true,
-        visit: true,
-        booking: Boolean(booking),
-        order: orderItems.length > 0,
-        order_items_count: orderItems.length,
+        booking: !!booking,
+        order: orders.length > 0,
+        order_items_count: orders.length,
         facility_usage: facilityEvents.length > 0,
         facility_events_count: facilityEvents.length,
         queue_snapshot: queueSnapshots.length > 0,
-        weather: Boolean(matchedWeather),
-        feedback: surveys.length > 0,
-        incident: incidents.length > 0
+        feedback: !!survey
       }
     };
 
+    // AI 학습용 에피소드 (State → Action → Outcome) — 실제 값만
     const episode = {
-      meta: { site_id: SITE_ID, visit_id: vId, household_id: hhId, date: baseDate },
-      state: {
-        residence: summary.residence,
-        party_size: summary.party_size,
-        child_count: summary.child_count,
-        arrival_at: arrivalTime,
-        weather: summary.weather
-      },
-      action: {
-        orders: orderItems.map(o => ({ product: o.product_name, category: o.product_category, amount: o.paid_amount })),
-        facility_rides: facilityEvents.map(e => ({ facility: e.facility_id, result: e.result })),
-        waited_minutes: totalWait
-      },
-      outcome: {
-        stay_duration_minutes: stayMinutes,
-        total_spend: totalSpend,
-        nps_score: summary.nps_score,
-        had_incident: summary.had_incident,
-        had_complaint: summary.had_complaint
-      }
+      visit_id: vId,
+      date: summary.date,
+      state: { residence: summary.residence, party_size: summary.party_size, child_count: childCount, arrival_time: summary.arrival_time, booking: !!booking },
+      actions: orders.map(o => ({ at: localHm(o.purchased_at || o.created_at), product: o.product_id, category: catOf(o), paid: paidOf(o), discount_rule: o.discount_rule || null })),
+      outcome: { stay_minutes: stay.live ? null : stay.minutes, total_spend: summary.total_spend, extra_spend: extraSpend, satisfaction: satisfaction, incident: summary.had_incident }
     };
 
-    return {
-      success: true,
-      visit_id: vId,
-      summary: summary,
-      timeline: timeline,
-      episode: episode,
-      raw: {
-        consent: consent,
-        booking: booking,
-        order_items: orderItems,
-        facility_events: facilityEvents,
-        queue_snapshots: queueSnapshots,
-        surveys: surveys,
-        incidents: incidents,
-        complaints: complaints
-      }
-    };
+    return { success: true, summary, timeline: nodes, episode };
   }
 
-  /* 전체 방문 세션 요약 목록 조회 */
+  /* 전체 방문 세션 요약 목록 (실제 기록만, 최근 도착순) */
   function getAllVisitsSummary(limit) {
     const lim = limit || 50;
-    const consents = getStoredConsents();
-    const orders = (function() {
-      try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.ORDER_ITEMS) || '[]'); } catch(e) { return []; }
-    })();
-    const events = (function() {
-      try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.FACILITY_EVENTS) || '[]'); } catch(e) { return []; }
-    })();
-    const surveys = (function() {
-      try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.SURVEYS) || '[]'); } catch(e) { return []; }
-    })();
-    const incs = (function() {
-      try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.INCIDENTS) || '[]'); } catch(e) { return []; }
-    })();
+    const orders = readLocalList(STORAGE_KEYS.ORDER_ITEMS).filter(o => (o.status || 'paid') !== 'cancelled');
+    const surveys = readLocalList(STORAGE_KEYS.SURVEYS);
+    const incs = readLocalList(STORAGE_KEYS.INCIDENTS);
 
-    return consents.slice(0, lim).map(c => {
-      const vId = c.visit_id || c.id || ('vst_legacy_' + c.passCode);
-      const vOrders = orders.filter(o => o.visit_id === vId);
-      const vEvents = events.filter(e => e.visit_id === vId);
-      const vSurveys = surveys.filter(s => s.visit_id === vId);
-      const hasInc = incs.some(i => i.visit_id === vId);
-      const totalSpend = vOrders.reduce((sum, o) => sum + (o.paid_amount || 0), 0);
-      const partySize = (c.children ? c.children.length : 0) + (c.adult_count || 1);
-
-      return {
-        visit_id: vId,
-        household_id: c.household_id || generateHouseholdId(c.guardianPhone || c.phone),
-        guardian_name: c.guardianName || c.guardian_name || '익명',
-        phone_masked: (c.guardianPhone || c.phone || '').replace(/(\d{3})\d{4}(\d{4})/, '$1-****-$2'),
-        residence: c.residence_region || c.residence || '관외',
-        party_size: partySize,
-        date: c.createdDate || (c.created_at ? c.created_at.slice(0, 10) : '2026-09-15'),
-        arrival_time: (c.arrival_at || c.created_at || '').slice(11, 16) || '10:00',
-        exit_time: (c.exit_at || '').slice(11, 16) || (c.arrival_at ? '12:30' : '-'),
-        stay_minutes: c.stay_duration_minutes || 150,
-        total_spend: totalSpend,
-        rides_count: vEvents.length,
-        nps_score: vSurveys.length > 0 ? vSurveys[0].nps_score : null,
-        had_incident: hasInc,
-        status: c.exit_at ? '퇴장 완료' : (c.entry_at ? '체류 중' : '발권 완료')
-      };
-    });
+    return getStoredConsents()
+      .filter(c => !isSimulatedVisit(c.visit_id) && !isSimulatedVisit(c.id))
+      .sort((a, b) => new Date(b.arrival_at || b.created_at || 0) - new Date(a.arrival_at || a.created_at || 0))
+      .slice(0, lim)
+      .map(c => {
+        const vId = consentVisitId(c);
+        const pass = c.passCode || c.pass_code || '';
+        const linked = (row) => row.visit_id === vId || (row.consent_id && row.consent_id === c.id);
+        const vOrders = orders.filter(linked);
+        const vSurvey = surveys.find(s => linked(s) || (pass && s.pass_code === pass));
+        const stay = stayInfo(c);
+        return {
+          visit_id: vId,
+          consent_id: c.id,
+          pass_code: pass,
+          household_id: c.household_id || generateHouseholdId(c.guardianPhone || c.guardian_phone || c.phone),
+          guardian_name: c.guardianName || c.guardian_name || '익명',
+          phone_masked: String(c.guardianPhone || c.guardian_phone || '').replace(/(\d{3})-?\d{3,4}-?(\d{4})/, '$1-****-$2'),
+          residence: c.residence || c.residence_region || '-',
+          party_size: (Array.isArray(c.children) ? c.children.length : 0) + (Number(c.adult_count) || 1),
+          date: c.created_date || c.createdDate || (c.arrival_at || '').slice(0, 10),
+          arrival_time: localHm(c.arrival_at || c.created_at) || '-',
+          exit_time: localHm(c.exit_at) || '-',
+          stay_minutes: stay.minutes,
+          stay_label: stay.label,
+          total_spend: vOrders.reduce((s, o) => s + (Number(o.paid_amount != null ? o.paid_amount : o.total_price) || 0), 0),
+          rides_count: 0,
+          satisfaction_score: vSurvey ? (vSurvey.satisfaction_score != null ? vSurvey.satisfaction_score : vSurvey.score) : null,
+          nps_score: vSurvey && vSurvey.recommendation_score != null ? vSurvey.recommendation_score : null,
+          had_incident: incs.some(i => linked(i)),
+          status: c.exit_at ? '퇴장 완료' : (c.entry_at ? '이용 중' : ((c.isIssued || c.is_issued) ? '발권 완료' : '서약만 완료'))
+        };
+      });
   }
 
-  /* 표준 1회 전주기 여정 시뮬레이션 데이터 원클릭 생성 */
-  function createSimulatedFullJourney(customProps) {
-    const props = customProps || {};
-    const today = new Date().toISOString().slice(0, 10);
-    const vId = props.visit_id || ('vst_sim_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 5));
-    const phone = props.phone || '010-9876-5432';
-    const hhId = props.household_id || generateHouseholdId(phone);
-    const gName = props.guardian_name || '김태양';
-
-    // 1. 안전서약 (Consent)
-    const consent = {
-      id: vId,
-      visit_id: vId,
-      household_id: hhId,
-      passCode: 'BP' + Math.floor(1000 + Math.random() * 9000),
-      guardianName: gName,
-      guardian_name: gName,
-      guardianPhone: phone,
-      phone: phone,
-      residence: '경북 영주시 가흥동',
-      residence_region: '영주',
-      visit_type: 'walkin',
-      first_or_repeat: 'repeat',
-      children: [
-        { name: '김민준', age: 7, gender: '남' },
-        { name: '김서연', age: 5, gender: '여' }
-      ],
-      adult_count: 1,
-      party_size: 3,
-      arrival_at: `${today}T10:15:00.000Z`,
-      ticket_issued_at: `${today}T10:18:00.000Z`,
-      entry_at: `${today}T10:22:00.000Z`,
-      exit_at: `${today}T12:45:00.000Z`,
-      stay_duration_minutes: 150,
-      consent_marketing: true,
-      created_at: `${today}T10:20:00.000Z`,
-      createdDate: today
-    };
-
-    try {
-      const consents = getStoredConsents();
-      consents.unshift(consent);
-      localStorage.setItem(STORAGE_KEYS.CONSENTS, JSON.stringify(consents));
-      if (global.BongplaySync && typeof global.BongplaySync.upsert === 'function') {
-        global.BongplaySync.upsert('safety_consents', consent);
-      }
-    } catch(e) {}
-
-    // 2. 발권 품목 주문 (Order 1: 매표소)
-    const ordId1 = 'ORD-' + today.replace(/-/g, '') + '-' + Math.floor(1000 + Math.random() * 9000);
-    const item1 = {
-      id: ordId1 + '_1',
-      order_id: ordId1,
-      site_id: SITE_ID,
-      visit_id: vId,
-      purchased_at: `${today}T10:18:00.000Z`,
-      sales_channel: 'pos_counter',
-      product_id: 'PROD_CHILD_ALL_STD',
-      product_name: '종합이용권 (짚코스터 포함)',
-      product_category: 'ticket',
-      quantity: 2,
-      list_price: 21000,
-      discount_amount: 0,
-      paid_amount: 42000,
-      payment_method: 'card',
-      staff_id: (global.BongplaySite ? BongplaySite.defaultManager().id : 'staff_etc'),
-      created_at: `${today}T10:18:00.000Z`
-    };
-    const item2 = {
-      id: ordId1 + '_2',
-      order_id: ordId1,
-      site_id: SITE_ID,
-      visit_id: vId,
-      purchased_at: `${today}T10:18:00.000Z`,
-      sales_channel: 'pos_counter',
-      product_id: 'PROD_ADULT_CARE',
-      product_name: '보호자 입장권 (음료 미포함)',
-      product_category: 'ticket',
-      quantity: 1,
-      list_price: 5000,
-      discount_amount: 0,
-      paid_amount: 5000,
-      payment_method: 'card',
-      staff_id: (global.BongplaySite ? BongplaySite.defaultManager().id : 'staff_etc'),
-      created_at: `${today}T10:18:00.000Z`
-    };
-
-    // 3. F&B 주문 (Order 2: 카페)
-    const ordId2 = 'ORD-' + today.replace(/-/g, '') + '-' + Math.floor(1000 + Math.random() * 9000);
-    const item3 = {
-      id: ordId2 + '_1',
-      order_id: ordId2,
-      site_id: SITE_ID,
-      visit_id: vId,
-      purchased_at: `${today}T11:15:00.000Z`,
-      sales_channel: 'kiosk',
-      product_id: 'PROD_FNB_JUICE',
-      product_name: '봉화 사과 착즙 주스',
-      product_category: 'fnb',
-      quantity: 2,
-      list_price: 4000,
-      discount_amount: 0,
-      paid_amount: 8000,
-      payment_method: 'local_currency',
-      staff_id: '김지현',
-      created_at: `${today}T11:15:00.000Z`
-    };
-    const item4 = {
-      id: ordId2 + '_2',
-      order_id: ordId2,
-      site_id: SITE_ID,
-      visit_id: vId,
-      purchased_at: `${today}T11:15:00.000Z`,
-      sales_channel: 'kiosk',
-      product_id: 'PROD_FNB_SNACK',
-      product_name: '유기농 수제 쿠키팩',
-      product_category: 'fnb',
-      quantity: 1,
-      list_price: 4000,
-      discount_amount: 0,
-      paid_amount: 4000,
-      payment_method: 'local_currency',
-      staff_id: '김지현',
-      created_at: `${today}T11:15:00.000Z`
-    };
-
-    try {
-      const orderItems = JSON.parse(localStorage.getItem(STORAGE_KEYS.ORDER_ITEMS) || '[]');
-      orderItems.unshift(item1, item2, item3, item4);
-      localStorage.setItem(STORAGE_KEYS.ORDER_ITEMS, JSON.stringify(orderItems));
-      if (global.BongplaySync && typeof global.BongplaySync.upsert === 'function') {
-        global.BongplaySync.upsert('order_items', item1);
-        global.BongplaySync.upsert('order_items', item2);
-        global.BongplaySync.upsert('order_items', item3);
-        global.BongplaySync.upsert('order_items', item4);
-      }
-    } catch(e) {}
-
-    // 4. 대기 스냅샷 (Queue Snapshots)
-    recordQueueSnapshot({
-      visit_id: vId,
-      facility_id: 'outdoor_net',
-      wait_minutes: 5,
-      queue_count: 6,
-      measured_at: `${today}T10:28:00.000Z`
-    });
-    recordQueueSnapshot({
-      visit_id: vId,
-      facility_id: 'outdoor_coaster',
-      wait_minutes: 12,
-      queue_count: 14,
-      measured_at: `${today}T11:35:00.000Z`
-    });
-
-    // 5. 시설 이용 이벤트 (Facility Usages)
-    recordFacilityEvent({
-      visit_id: vId,
-      facility_id: 'outdoor_net',
-      ticket_id: item1.id,
-      entered_at: `${today}T10:33:00.000Z`,
-      started_at: `${today}T10:35:00.000Z`,
-      completed_at: `${today}T11:03:00.000Z`,
-      result: 'completed',
-      operator_staff_id: (global.BongplaySite ? BongplaySite.defaultInspector().id : 'staff_etc')
-    });
-    recordFacilityEvent({
-      visit_id: vId,
-      facility_id: 'outdoor_coaster',
-      ticket_id: item1.id,
-      entered_at: `${today}T11:47:00.000Z`,
-      started_at: `${today}T11:50:00.000Z`,
-      completed_at: `${today}T11:58:00.000Z`,
-      result: 'completed',
-      operator_staff_id: (global.BongplaySite ? BongplaySite.defaultInspector().id : 'staff_etc')
-    });
-
-    // 6. 퇴장 10초 설문 (Survey)
-    recordCustomerSurvey({
-      visit_id: vId,
-      household_id: hhId,
-      nps_score: 9,
-      satisfaction_rating: 5,
-      wait_satisfaction: 4,
-      revisit_intent: 'yes',
-      preferred_facility: 'outdoor_coaster',
-      comment: '짚코스터가 너무 스릴 넘치고 네트놀이터도 아이들이 안전하게 뛰어놀아 만족스러웠습니다. 가을에 꼭 다시 오겠습니다!',
-      survey_channel: 'exit_tablet',
-      created_at: `${today}T12:40:00.000Z`
-    });
-
-    return vId;
+  /* 여정 시뮬레이션 생성 기능은 폐지 (가짜 서약·주문·설문이 실제 DB 에 쌓였음).
+     기존 화면 코드가 호출해도 아무것도 만들지 않는다. */
+  function createSimulatedFullJourney() {
+    console.warn('createSimulatedFullJourney: 폐지된 기능입니다 (실데이터 오염 방지).');
+    return null;
   }
+
+  // 이 기기에 남아 있는 예전 시뮬레이션 기록(vst_sim_*)을 1회 정리
+  (function purgeSimulatedJourneysOnce() {
+    try {
+      if (typeof localStorage === 'undefined' || localStorage.getItem('bongplay_sim_purged_v1') === '1') return;
+      [STORAGE_KEYS.CONSENTS, STORAGE_KEYS.ORDER_ITEMS, STORAGE_KEYS.FACILITY_EVENTS, STORAGE_KEYS.SURVEYS, STORAGE_KEYS.QUEUE_SNAPSHOTS].forEach(key => {
+        const list = readLocalList(key);
+        const kept = list.filter(r => !(r && (isSimulatedVisit(r.visit_id) || isSimulatedVisit(r.id))));
+        if (kept.length !== list.length) localStorage.setItem(key, JSON.stringify(kept));
+      });
+      // 서버 저장에 실패해 미전송 목록(outbox)에 남은 시뮬레이션 건도 재전송하지 않도록 제거
+      const OUTBOX_KEY = 'bongplay_outbox_queue_v2';
+      const outbox = readLocalList(OUTBOX_KEY);
+      const keptOut = outbox.filter(o => {
+        const p = (o && o.payload) || {};
+        return !(isSimulatedVisit(p.visit_id) || isSimulatedVisit(p.id) || isSimulatedVisit(o && o.id));
+      });
+      if (keptOut.length !== outbox.length) localStorage.setItem(OUTBOX_KEY, JSON.stringify(keptOut));
+      localStorage.setItem('bongplay_sim_purged_v1', '1');
+    } catch (e) {}
+  })();
 
   /* ---------- 5. AI 인과 학습 통합 데이터셋 (Full Causal Graph JSON) ---------- */
   function exportAiCausalDataset() {

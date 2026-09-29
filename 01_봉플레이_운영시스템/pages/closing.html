@@ -199,7 +199,7 @@
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3 mb-5 text-xs">
               <div class="bg-slate-900 p-3 rounded-2xl border border-slate-800">
                 <span class="text-slate-400 block text-[11px]">기초 준비금 (시재)</span>
-                <input type="number" id="baseCash" value="0" placeholder="0" step="10000" oninput="calculateCashBalance()" class="w-full bg-transparent text-white font-mono font-bold text-sm outline-none mt-0.5">
+                <input type="number" id="baseCash" value="100000" placeholder="100000" step="10000" oninput="calculateCashBalance()" class="w-full bg-transparent text-white font-mono font-bold text-sm outline-none mt-0.5">
                 <span class="text-[10px] text-slate-500">개장 전 거스름돈</span>
               </div>
               <div class="bg-slate-900 p-3 rounded-2xl border border-slate-800">
@@ -685,6 +685,7 @@
     document.addEventListener('DOMContentLoaded', () => {
       lucide.createIcons();
       initDate();
+      initBaseCash();
       renderClosingManagerOptions();
       renderStaffTable();
       calculateCashBalance();
@@ -716,6 +717,17 @@
       document.getElementById('closingDate').value = `${yyyy}-${mm}-${dd}`;
     }
 
+    function initBaseCash() {
+      const baseEl = document.getElementById('baseCash');
+      if (baseEl) {
+        const def = (window.BongplaySite && typeof BongplaySite.defaultBaseCash === 'function')
+          ? BongplaySite.defaultBaseCash()
+          : 100000;
+        baseEl.value = def;
+        baseEl.placeholder = def;
+      }
+    }
+
     function renderStaffTable() {
       const tbody = document.getElementById('staffTableBody');
       tbody.innerHTML = '';
@@ -738,12 +750,11 @@
             </select>
           </td>
           <td class="py-2.5">
-            <select onchange="updateStaff(${idx}, 'status', this.value)" class="bg-slate-900 font-bold rounded px-2 py-0.5 border border-slate-800 outline-none ${s.status === '근무완료' ? 'text-emerald-400' : 'text-slate-300'}">
-              <option ${s.status === '출근완료' ? 'selected' : ''}>출근완료</option>
+            <select onchange="updateStaff(${idx}, 'status', this.value)" class="bg-slate-900 font-bold rounded px-2 py-0.5 border border-slate-800 outline-none ${s.status === '퇴근' ? 'text-emerald-400' : (s.status === '휴무/결근' ? 'text-rose-400' : 'text-slate-300')}">
               <option ${s.status === '근무중' ? 'selected' : ''}>근무중</option>
-              <option ${s.status === '근무완료' ? 'selected' : ''}>근무완료</option>
-              <option ${s.status === '퇴근완료' ? 'selected' : ''}>퇴근완료</option>
-              <option ${s.status === '결근/휴무' ? 'selected' : ''}>결근/휴무</option>
+              <option ${s.status === '퇴근' ? 'selected' : ''}>퇴근</option>
+              <option ${s.status === '휴무/결근' ? 'selected' : ''}>휴무/결근</option>
+              <option ${s.status === '지각/조퇴' ? 'selected' : ''}>지각/조퇴</option>
             </select>
           </td>
           <td class="py-2.5 text-center">
@@ -1141,7 +1152,12 @@
           if (data.manager) document.getElementById('closingManager').value = data.manager;
           if (data.notes) document.getElementById('handoverNotes').value = data.notes;
           if (data.cash) {
-            document.getElementById('baseCash').value = data.cash.base || 200000;
+            const defBase = (window.BongplaySite && typeof BongplaySite.defaultBaseCash === 'function')
+              ? BongplaySite.defaultBaseCash()
+              : 100000;
+            document.getElementById('baseCash').value = (data.cash.base !== undefined && data.cash.base !== null && data.cash.base !== '')
+              ? data.cash.base
+              : defBase;
             document.getElementById('cashSales').value = data.cash.sales || 0;
             document.getElementById('cashExpenses').value = data.cash.exp || 0;
             document.getElementById('count50k').value = data.cash.c50k || 0;

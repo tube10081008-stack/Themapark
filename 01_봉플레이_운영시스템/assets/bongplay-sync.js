@@ -889,7 +889,14 @@
       }
 
       // 2. safety_consents
-      var rConsents = await select('safety_consents', '?select=*&order=updated_at.desc&limit=200');
+      // anon 직접 SELECT 는 RLS 로 "당일" 건만 보이므로, 운영자 인증 RPC(최근 3일)를 우선 사용한다.
+      var rConsents = null;
+      var staffCode = (window.BongplayAuth && BongplayAuth.getAccessCode) ? BongplayAuth.getAccessCode() : null;
+      if (staffCode) {
+        var rpcConsents = await rpc('get_today_consents_secure', { p_access_code: staffCode });
+        if (rpcConsents.ok && Array.isArray(rpcConsents.data)) rConsents = rpcConsents;
+      }
+      if (!rConsents) rConsents = await select('safety_consents', '?select=*&order=updated_at.desc&limit=200');
       if (rConsents.ok && Array.isArray(rConsents.data)) {
         var cloudConsents = rConsents.data.map(function (row) {
           return {
@@ -920,6 +927,18 @@
             pii_masked_at: row.pii_masked_at || null
           };
         });
+        // 서버 응답에 없는 로컬 기록(어제 이전 접수분, 미전송분)을 덮어써 지우지 않도록 병합한다.
+        // 기기에 남기는 개인정보는 요일 탭 조회 범위인 최근 7일로 제한한다.
+        try {
+          var cloudIds = {};
+          cloudConsents.forEach(function (c) { cloudIds[c.id] = true; });
+          var keepFrom = toLocalDateStr(new Date(Date.now() - 7 * 86400000));
+          var localConsents = JSON.parse(localStorage.getItem('bongplay_safety_consents') || '[]');
+          localConsents.forEach(function (c) {
+            var d = c.created_date || c.createdDate || (c.arrival_at || '').slice(0, 10);
+            if (c && c.id && !cloudIds[c.id] && d && d >= keepFrom) cloudConsents.push(c);
+          });
+        } catch (mergeErr) {}
         cloudConsents.sort(function (a, b) {
           return new Date(b.arrival_at || b.created_date || 0) - new Date(a.arrival_at || a.created_date || 0);
         });
@@ -972,6 +991,24 @@
         mergedPays.sort(function (a, b) { return new Date(b.paid_at || 0) - new Date(a.paid_at || 0); });
         localStorage.setItem('bongplay_order_payments', JSON.stringify(mergedPays));
         results.order_payments = rPays.data.length;
+      }
+
+      // 3-3. customer_experience_surveys (퇴장 설문 — 손님 폰·퇴장 태블릿에서 올라온 응답, 최근 30일)
+      if (!isGuestMode()) {
+        var srvSince = toLocalDateStr(new Date(Date.now() - 30 * 86400000));
+        var rSrv = await select('customer_experience_surveys', '?select=*&submitted_at=gte.' + srvSince + 'T00:00:00&order=submitted_at.desc&limit=1000');
+        if (rSrv.ok && Array.isArray(rSrv.data)) {
+          var srvById = {};
+          rSrv.data.forEach(function (row) { if (row.id) srvById[row.id] = row; });
+          try {
+            var localSrv = JSON.parse(localStorage.getItem('bongplay_customer_experience_surveys') || '[]');
+            localSrv.forEach(function (row) { if (row && row.id && !srvById[row.id]) srvById[row.id] = row; });
+          } catch (e) {}
+          var mergedSrv = Object.keys(srvById).map(function (k) { return srvById[k]; });
+          mergedSrv.sort(function (a, b) { return new Date(b.submitted_at || b.created_at || 0) - new Date(a.submitted_at || a.created_at || 0); });
+          localStorage.setItem('bongplay_customer_experience_surveys', JSON.stringify(mergedSrv.slice(0, 1000)));
+          results.customer_experience_surveys = rSrv.data.length;
+        }
       }
 
       // 4. sales_records

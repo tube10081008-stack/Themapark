@@ -294,6 +294,30 @@ create table if not exists public.customer_experience_surveys (
   created_at      timestamptz default now(),
   updated_at      timestamptz default now()
 );
+-- 퇴장 설문: 손님 폰(consent.html ?survey=)·퇴장 태블릿(gate.html) 공통 기록 필드
+alter table public.customer_experience_surveys add column if not exists household_id         text;
+alter table public.customer_experience_surveys add column if not exists consent_id           text;
+alter table public.customer_experience_surveys add column if not exists pass_code            text;
+alter table public.customer_experience_surveys add column if not exists survey_channel       text;   -- exit_tablet / mobile
+alter table public.customer_experience_surveys add column if not exists submitted_at         timestamptz default now();
+alter table public.customer_experience_surveys add column if not exists satisfaction_score   int;    -- 1~5
+alter table public.customer_experience_surveys add column if not exists recommendation_score int;    -- 0~10 (NPS)
+alter table public.customer_experience_surveys add column if not exists wait_satisfaction    int;
+alter table public.customer_experience_surveys add column if not exists favorite_facility    text;
+alter table public.customer_experience_surveys add column if not exists improvement_reason   text;
+alter table public.customer_experience_surveys add column if not exists revisit_intent       text;
+alter table public.customer_experience_surveys add column if not exists staff_friendly_score int;
+alter table public.customer_experience_surveys add column if not exists notes                text;
+create index if not exists idx_ces_submitted on public.customer_experience_surveys (submitted_at desc);
+-- 방문 후기 설문 v2 (survey.html — 정성 설문 · 선물 연계)
+alter table public.customer_experience_surveys add column if not exists price_perception text;
+alter table public.customer_experience_surveys add column if not exists visit_source     text;
+alter table public.customer_experience_surveys add column if not exists child_age_groups text;
+alter table public.customer_experience_surveys add column if not exists wish_list        text;
+alter table public.customer_experience_surveys add column if not exists gift_code        text;
+alter table public.customer_experience_surveys add column if not exists gift_given_at    timestamptz;
+alter table public.customer_experience_surveys add column if not exists answers          jsonb;
+create index if not exists idx_ces_channel on public.customer_experience_surveys (survey_channel);
 
 create table if not exists public.staff_shifts (
   id              text primary key,
@@ -525,7 +549,7 @@ declare
   t text;
 begin
   foreach t in array array['sales_records', 'safety_consents', 'safety_audits',
-                           'closing_records', 'ticket_ledger', 'order_items'] loop
+                           'closing_records', 'ticket_ledger', 'order_items', 'order_payments'] loop
     if not exists (
       select 1 from pg_publication_tables
       where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
@@ -597,17 +621,18 @@ create policy "consents_insert_policy" on public.safety_consents
   with check (true);
 
 -- (2) 현장 당일 발권/입퇴장 업데이트만 허용 (과거 이력 변조 원천 차단)
---     created_date가 당일인 레코드만 상태 업데이트 가능
+--     created_date가 당일(KST)인 레코드만 상태 업데이트 가능
+--     ※ current_date 는 서버 UTC 기준이라 KST 00~09시에 "어제"로 판정되므로 KST 로 고정
 create policy "consents_update_policy" on public.safety_consents
   for update to anon
-  using (created_date = current_date)
-  with check (created_date = current_date);
+  using (created_date = (now() at time zone 'Asia/Seoul')::date)
+  with check (created_date = (now() at time zone 'Asia/Seoul')::date);
 
 -- (3) 일반 anon 직접 SELECT는 당일 접수 건으로만 한정
 --     외부 해커가 URL/anon 키로 수개월~수년 치 고객 연락처를 전량 덤프하는 행위 차단
 create policy "consents_select_restricted" on public.safety_consents
   for select to anon
-  using (created_date = current_date);
+  using (created_date = (now() at time zone 'Asia/Seoul')::date);
 
 -- ※ DELETE 정책: 등록하지 않음 (anon DELETE 원천 불가)
 
@@ -695,7 +720,8 @@ as $$
   select private.verify_access_code(p_access_code);
 $$;
 
--- (3) 매표소 서약서 조회 (당일 포함 최근 3일) — 암호 불일치 시 빈 결과
+-- (3) 매표소 서약서 조회 (당일 포함 최근 7일, KST) — 암호 불일치 시 빈 결과
+--     매표 데스크 "요일별 서약 접수 현황" 탭이 한 주(7일)를 조회하므로 범위를 맞춘다.
 create or replace function public.get_today_consents_secure(p_access_code text)
 returns setof public.safety_consents
 language plpgsql
@@ -709,8 +735,43 @@ begin
 
   return query
   select * from public.safety_consents
-  where created_date >= current_date - interval '2 days'
+  where created_date >= (now() at time zone 'Asia/Seoul')::date - 6
   order by arrival_at desc nulls last;
+end;
+$$;
+
+-- (3-B) 재방문 고객 QR 발급 편의 도우미: 전화번호 완전 일치 시 최근 자녀 정보 안전 반환
+create or replace function public.lookup_family_children(p_phone text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_phone text;
+  v_rec record;
+begin
+  v_phone := regexp_replace(coalesce(p_phone, ''), '[^0-9]', '', 'g');
+  if length(v_phone) < 10 then
+    return null;
+  end if;
+
+  select guardian_name, residence, children
+    into v_rec
+    from public.safety_consents
+   where regexp_replace(guardian_phone, '[^0-9]', '', 'g') = v_phone
+   order by arrival_at desc
+   limit 1;
+
+  if not found then
+    return null;
+  end if;
+
+  return jsonb_build_object(
+    'guardianName', v_rec.guardian_name,
+    'residence', v_rec.residence,
+    'children', v_rec.children
+  );
 end;
 $$;
 

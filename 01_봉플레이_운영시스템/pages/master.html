@@ -52,6 +52,7 @@
   <script src="../assets/bongplay-site.js"></script>
   <script src="../assets/config.js"></script>
   <script src="../assets/bongplay-sync.js"></script>
+  <script src="../assets/bongplay-id.js"></script>
   <link rel="stylesheet" href="../assets/print.css">
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col selection:bg-emerald-500 selection:text-slate-950 w-full max-w-full overflow-x-hidden">
@@ -403,13 +404,14 @@
               </div>
               <div class="bg-slate-900 border border-slate-800 rounded-2xl rounded-tl-none p-3.5 text-slate-200 space-y-2 max-w-[90%]">
                 <p class="font-bold text-white">
-                  안녕하세요, 홍성현 대표님! 봉플레이 에이전틱 AI 오퍼레이터입니다. 🚀
+                  안녕하세요, 대표님. 봉플레이 운영 AI입니다.
                 </p>
                 <p class="text-slate-300">
-                  저는 Google 공식 최신 최고 성능 모델인 <b>Gemini 3.8 Flash (2026.09 신규 출시)</b> 및 <b>Gemini 3.5 ~ 3.8 상위 라인업</b>을 기반으로 봉플레이의 <b>확정 요금제(자유이용권 2.2만 원)</b>, <b>월 BEP 1,980만 원(일 66만 원)</b>, <b>봉화군청 문화관광과(조은정 주무관) 협력 채널</b>, <b>22개 법정 안전점검 기준</b>을 실시간 연동 분석합니다.
+                  질문하실 때마다 <b>서버에서 오늘 기록을 새로 조회</b>해 답합니다. 서약·발권·입퇴장, 결제 원장, 안전점검, 기상, 설문, 단체예약, 최근 14일 마감 실적을 봅니다.
+                  데이터에 없는 내용은 추측하지 않고 "확인되지 않음"으로 답합니다.
                 </p>
                 <p class="text-slate-400 text-[11px]">
-                  상단의 원터치 버튼을 누르시거나, 아래 입력창에 현장 상황, 군청 공문서 작성, 단체 예약 시뮬레이션 등을 자유롭게 지시해 주세요!
+                  예: "오늘 입장 몇 팀이야?", "이번 주 객단가 추세 어때?", "군청 보고용 주간 실적 공문 초안 써줘"
                 </p>
               </div>
             </div>
@@ -810,50 +812,161 @@
       ? `${S.county.name} ${S.county.contact || ''} (${S.county.phone || ''})`.trim()
       : '관할 군청';
 
-    const BONGPLAY_SYSTEM_CONTEXT = `
-당신은 대한민국 ${S.address}에 위치한 실내외 어린이 어드벤처 테마파크 [${S.name}]의 총괄 AI 오퍼레이터이자 최고경영자(CEO) ${ceoLabel}의 전문 전략 코파일럿입니다.
+    /* ===== AI 에이전트 컨텍스트 =====
+       예전 구현: 고정 설명문만 보내 실제 운영 데이터를 전혀 보지 못했음 (요금도 옛 값 · 대화 기억 없음)
+       → 질문할 때마다 ① 서버에서 최신 기록을 받아 ② 오늘 실적을 집계해 ③ AI 에 함께 보낸다.
+       개인정보(성명·연락처·서명)는 외부 AI 로 보내지 않고 집계 수치만 전달한다. */
+    function buildStaticContext() {
+      const ID = window.BongplayID || {};
+      const T = (ID.MASTER_TARGETS && ID.MASTER_TARGETS.annual_bep) || {};
+      const catalog = (ID.PRODUCT_CATALOG || []).map(p => `  • ${p.name}: ${Number(p.list_price).toLocaleString()}원`).join('\n');
+      const rules = (ID.DISCOUNT_RULES || []).map(r => `  • ${r.label}`).join('\n');
+      const storeRate = SITE ? Number(SITE.get('store.member_discount_rate')) || 0 : 0;
+      const hours = SITE ? `${SITE.get('hours.open')}~${SITE.get('hours.close')}` : '';
+      return `당신은 [${S.name}] (${S.address})의 운영 AI 오퍼레이터이며 ${ceoLabel}님을 보좌합니다.
 
-[사업장 프로필 및 핵심 조직]
-- 사업장명: ${S.name}
-- 소재지: ${S.address}
-- 총괄 대표: ${S.ceo ? S.ceo.name : ''}${S.ceo && S.ceo.phone ? ` (${S.ceo.phone})` : ''}
-- 핵심 관리자:
+[절대 규칙]
+1. 운영 현황 질문에는 반드시 아래 [실시간 운영 데이터]의 수치만 근거로 답한다.
+2. 데이터에 없는 사실(날씨 원인, 예약 취소, 직원 보고 내용, 온라인 노출 문제 등)을 원인으로 단정하거나 지어내지 않는다.
+   가능성을 말할 때는 "데이터로 확인되지 않음"이라고 밝히고, 확인 방법을 제시한다.
+3. 수치를 인용할 때는 어느 항목에서 왔는지 밝힌다 (예: "오늘 서약 기록 기준 5팀 17명").
+4. 데이터가 비어 있거나 동기화가 늦으면 먼저 그 사실을 알린다.
+5. 답은 짧고 핵심부터. 표·목록은 필요할 때만. 불필요한 인사말·자기소개·모델명 언급 금지.
+6. 군청 공문서 요청 시에는 한국 행정 공문서 양식을 따른다.
+
+[사업장 기준정보]
+- 운영시간: ${hours}
+- 요금표:
+${catalog}
+- 할인(중복 불가, 입장권에만):
+${rules}
+- 매점 방문고객 할인: ${storeRate > 0 ? Math.round(storeRate * 100) + '% (POS 에서 방문 가족 연동 시 식음료·굿즈)' : '없음'}
+- 손익분기: 연 고정비 ${Number(T.fixed_cost || 0).toLocaleString()}원, 연 BEP ${Number(T.target_visitors || 0).toLocaleString()}명, 목표 객단가 ${Number(T.blended_price || 0).toLocaleString()}원 (보호자 포함 1인당), 1인 변동비 ${Number(T.variable_cost_per_person || 0).toLocaleString()}원
+- 핵심 인력:
 ${staffLines}
-- 관할 군청 주무관: ${countyLine}
-- 지정 응급의료기관: 봉화해성병원 응급실 (차량 5분), 안동병원 권역외상센터 054-840-0114
-  • ※ 병원 응급실 직통번호는 개장 전 실측 확인 필요 (현재 미검증)
-- 영업배상책임보험: 가입 예정 (보험사·증권번호 확정 후 반영 필요)
-- 확정 요금제:
-  • 기본 이용권 (실내+네트, 2시간): 어린이 15,000원 / 보호자 5,000원(음료 포함)
-  • 종합이용권 (기본+짚코스터 1회): 어린이 21,000원 / 보호자 5,000원
-  • 짚코스터 단독 회당: 7,000원 (종합권 고객 추가 탑승 5,000원)
-  • 오전권 (~12시, 종합 기준): 어린이 18,000원
-  • 동절기 실내전용 (11~3월): 어린이 12,000원 / 보호자 5,000원(커피 포함)
-  • 단체 20인 이상(종합 기준): 16,800원, 인솔자 무료
-  • 봉화군민 20% 감면
-- 손익분기점 (BEP): 연간 고정비 228,900,000원 기준 연 19,606명 (혼합객단가 12,036원, 1인당 변동비 361원, 공헌이익 11,675원)
-  • 계절별 필요 일평균: 성수기(7~8월) 141명 / 준성수기 65명 / 동절기(11~3월) 35명
-  • ※ 위 수치는 세전 기준. 세후(부가세·4대보험·소득세 반영) 기준은 약 21,800명
-- 핵심 관리자 급여 및 성과연동 보상 4층 체계:
-  • 1층 기본급 (확정 고정): 연 2,800만 원 (월 2,333,000원), 연차와 무관하게 동일 지급
-  • 2층 장기 3종 마일스톤 성과보너스 (최대 2,500만 원):
-    - 연간 유료 방문객 2.1만 명 최초 달성: +500만 원
-    - 누적 흑자전환 달성 (2년차 이후): +1,000만 원
-    - 3년 연속 중대사고 0건 달성: +1,000만 원
-  • 3층 방문객 KPI 달성률 연동 성과 보너스 (3단계 체계):
-    - 달성률 90% 미만: 0원 (지급 기준 미달)
-    - [1단계] 목표 90% 달성 시: +150만 원
-    - [2단계] 목표 100% 달성 시: +300만 원 (기준 목표 달성)
-    - [3단계] 목표 120% 초과 달성 시: +500만 원 (최대 인센티브)
-  • 4층 영업이익 공유제 (PS, Profit Sharing): 영업이익 발생 시 연차별 5%~15% 차등 배분 (1~2년차 5%, 3~4년차 10%, 5년차 15%)
-  • 비재무적 복리후생: 봉화 관내 이주 주거비 지원, 유원시설 안전관리자 자격 취득 지원, 안전 운행중단권 명문화
+- 관할 군청: ${countyLine}`;
+    }
 
-[답변 스타일]
-- ${ceoLabel}님을 정중하고 든든하게 보좌하는 전문 오퍼레이터 어조.
-- 군청 공문서 작성 시에는 정통 한국 행정 공문서 표준 양식과 격식을 완벽하게 준수.
-- 수치와 근거를 명확하게 제시하며, 현장 실무자(${S.staff.filter(s => !S.ceo || s.id !== S.ceo.id).map(s => s.name).join(', ')})의 직무와 유기적으로 연계하여 실천 가능한 솔루션을 제안.
-- 목업 허위 수치는 절대 보고하지 않으며, 실제 입력된 실적을 바탕으로 투명하고 정밀하게 브리핑.
-`;
+    function readLS(key) {
+      try { return JSON.parse(localStorage.getItem(key) || '[]') || []; } catch (e) { return []; }
+    }
+
+    async function collectLiveSnapshot() {
+      const syncNote = [];
+      if (window.BongplaySync && BongplaySync.getStatus().configured && navigator.onLine && BongplaySync.pullAll) {
+        try { await BongplaySync.pullAll(); syncNote.push('서버 최신본 조회 완료'); }
+        catch (e) { syncNote.push('서버 조회 실패 — 이 기기 저장본 사용'); }
+      } else {
+        syncNote.push('서버 미연결 — 이 기기 저장본 사용');
+      }
+
+      const now = new Date();
+      const today = BongplaySync.toLocalDateStr(now);
+      const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+      const hm = (iso) => { if (!iso) return ''; const d = new Date(iso); return isNaN(d) ? '' : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+      const localDate = (iso) => iso ? BongplaySync.toLocalDateStr(new Date(iso)) : '';
+
+      // 1) 서약·발권·출입
+      const consents = readLS('bongplay_safety_consents').filter(c => !/^vst_sim_/.test(String(c.visit_id || c.id || '')));
+      const todayC = consents.filter(c => (c.created_date || c.createdDate || localDate(c.arrival_at)) === today);
+      const ppl = (c) => (Array.isArray(c.children) ? c.children.length : 0) + 1;
+      const sumP = (arr) => arr.reduce((s, c) => s + ppl(c), 0);
+      const issued = todayC.filter(c => c.isIssued || c.is_issued);
+      const entered = todayC.filter(c => c.entry_at);
+      const exited = todayC.filter(c => c.exit_at);
+      const inside = entered.filter(c => !c.exit_at);
+      const residents = todayC.filter(c => /군민|관내/.test(c.residence || ''));
+      const byHour = {};
+      todayC.forEach(c => { const h = hm(c.arrival_at).slice(0, 2); if (h) byHour[h] = (byHour[h] || 0) + 1; });
+      const stays = exited.map(c => c.stay_duration_minutes).filter(v => v != null && v >= 0);
+
+      // 2) 매출 (결제 원장, 취소 제외)
+      const orders = readLS('bongplay_order_items').filter(o => (o.status || 'paid') !== 'cancelled' && localDate(o.purchased_at || o.created_at) === today);
+      const paid = (o) => Number(o.paid_amount != null ? o.paid_amount : o.total_price) || 0;
+      const cat = (o) => o.product_category || o.category || '';
+      const ticketRev = orders.filter(o => cat(o) === 'ticket').reduce((s, o) => s + paid(o), 0);
+      const extraRev = orders.filter(o => cat(o) !== 'ticket').reduce((s, o) => s + paid(o), 0);
+      const headcount = orders.filter(o => cat(o) === 'ticket').reduce((s, o) => s + (Number(o.quantity) || 1), 0);
+      const discount = orders.reduce((s, o) => s + (Number(o.discount_amount) || 0), 0);
+      const prodMap = {};
+      orders.forEach(o => { const k = o.product_name || o.product_id; prodMap[k] = prodMap[k] || { qty: 0, rev: 0 }; prodMap[k].qty += Number(o.quantity) || 1; prodMap[k].rev += paid(o); });
+      const topProducts = Object.entries(prodMap).sort((a, b) => b[1].rev - a[1].rev).slice(0, 6);
+      const pays = readLS('bongplay_order_payments').filter(p => (p.status || 'paid') !== 'cancelled' && localDate(p.paid_at) === today);
+      const payMap = {};
+      pays.forEach(p => { payMap[p.method] = (payMap[p.method] || 0) + (Number(p.amount) || 0); });
+
+      // 3) 최근 마감 실적 (마감대장)
+      const records = readLS('bongtteurak_actual_records_v4').slice().sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(-14);
+
+      // 4) 안전점검·기상·설문·예약·사고
+      const audits = readLS('bongplay_safety_audit_logs').filter(a => (a.audit_date || String(a.date || '').slice(0, 10)) === today);
+      const audit = audits[0] || null;
+      let weatherLine = '기상 데이터 없음';
+      try {
+        const lock = window.BongplayID && BongplayID.getCoasterWeatherLock ? BongplayID.getCoasterWeatherLock() : null;
+        if (lock && lock.weather) {
+          const w = lock.weather;
+          weatherLine = `기온 ${w.temperature ?? w.temp_c ?? '-'}℃, 풍속 ${w.wind_speed ?? '-'}m/s, 돌풍 ${w.wind_gust ?? w.wind_gusts_10m ?? '-'}m/s · 짚코스터 ${lock.locked ? '운행 중단 (' + lock.reason + ')' : '운행 가능'}`;
+        } else if (lock) {
+          weatherLine = `짚코스터 ${lock.locked ? '운행 중단 (' + lock.reason + ')' : '운행 가능'}`;
+        }
+      } catch (e) {}
+      const surveys = readLS('bongplay_customer_experience_surveys').filter(s => localDate(s.submitted_at || s.created_at) === today);
+      const sats = surveys.map(s => s.satisfaction_score ?? s.score).filter(v => v != null);
+      const comments = surveys.map(s => s.notes || s.comment).filter(Boolean).slice(0, 3);
+      const bookings = readLS('bongtteurak_group_bookings_v1').filter(b => !/취소|cancel/i.test(String(b.status || b.funnel_stage || '')));
+      const bDate = (b) => String(b.visit_date || b.booking_date || b.date || '').slice(0, 10);
+      const in7 = BongplaySync.toLocalDateStr(new Date(now.getTime() + 7 * 86400000));
+      const upcoming = bookings.filter(b => bDate(b) >= today && bDate(b) <= in7).sort((a, b) => bDate(a).localeCompare(bDate(b)));
+      const incidents = readLS('bongplay_incident_logs').filter(i => localDate(i.created_at || i.incident_at || i.reported_at) === today || i.incident_date === today);
+      const complaints = readLS('bongplay_complaint_logs').filter(m => localDate(m.created_at || m.datetime) === today);
+      const outbox = readLS('bongplay_outbox_queue_v2').length;
+
+      const L = [];
+      L.push(`[실시간 운영 데이터] 기준: ${today} (${dayNames[now.getDay()]}) ${hm(now.toISOString())} · ${syncNote.join(', ')}${outbox ? ` · 미전송 ${outbox}건` : ''}`);
+      L.push('');
+      L.push('■ 오늘 방문 (서약 기록)');
+      L.push(`- 서약 접수 ${todayC.length}팀 ${sumP(todayC)}명 (군민 ${residents.length}팀 · 외지 ${todayC.length - residents.length}팀)`);
+      L.push(`- 발권 ${issued.length}팀 ${sumP(issued)}명 · 입장 ${entered.length}팀 ${sumP(entered)}명 · 퇴장 ${exited.length}팀 · 현재 원내 ${sumP(inside)}명`);
+      L.push(`- 서약만 하고 미발권 ${todayC.length - issued.length}팀`);
+      if (Object.keys(byHour).length) L.push(`- 시간대별 도착(팀): ${Object.keys(byHour).sort().map(h => `${h}시 ${byHour[h]}`).join(', ')}`);
+      if (todayC.length) L.push(`- 첫 도착 ${hm(todayC.map(c => c.arrival_at).filter(Boolean).sort()[0])} · 마지막 도착 ${hm(todayC.map(c => c.arrival_at).filter(Boolean).sort().slice(-1)[0])}`);
+      if (stays.length) L.push(`- 평균 체류 ${Math.round(stays.reduce((s, v) => s + v, 0) / stays.length)}분 (퇴장 측정 ${stays.length}팀)`);
+      L.push('');
+      L.push('■ 오늘 매출 (결제 원장, 취소 제외)');
+      L.push(`- 총 ${(ticketRev + extraRev).toLocaleString()}원 = 입장 ${ticketRev.toLocaleString()} + 부가 ${extraRev.toLocaleString()} · 할인 ${discount.toLocaleString()}원`);
+      L.push(`- 입장권 수량(방문객) ${headcount}명 · 오늘 객단가 ${headcount ? Math.round((ticketRev + extraRev) / headcount).toLocaleString() + '원' : '-'}`);
+      if (topProducts.length) L.push(`- 품목: ${topProducts.map(([k, v]) => `${k} ${v.qty}개/${v.rev.toLocaleString()}원`).join(', ')}`);
+      if (Object.keys(payMap).length) L.push(`- 결제수단: ${Object.entries(payMap).map(([k, v]) => `${k} ${v.toLocaleString()}원`).join(', ')}`);
+      L.push('');
+      L.push('■ 최근 마감 실적 (마감대장, 최근 14일)');
+      if (records.length) {
+        records.forEach(r => {
+          const v = Number(r.totalVisitors) || 0;
+          L.push(`- ${r.date}: 매출 ${Number(r.totalRevenue || 0).toLocaleString()}원 (입장 ${Number(r.ticketRevenue || 0).toLocaleString()} / 부가 ${Number(r.extraRevenue || 0).toLocaleString()}) · ${v}명 · 객단가 ${v ? Math.round(r.totalRevenue / v).toLocaleString() : '-'}원`);
+        });
+      } else {
+        L.push('- 마감 기록 없음');
+      }
+      L.push('');
+      L.push('■ 안전·기상');
+      L.push(`- 오늘 안전점검: ${audit ? `${audit.decision === 'pass' ? '적합(PASS)' : '부적합/보류(' + (audit.decision || '-') + ')'} · ${hm(audit.audit_at || audit.date) || ''} · 점검자 ${audit.inspector || '-'}` : '미실시'}`);
+      L.push(`- ${weatherLine}`);
+      L.push(`- 오늘 사고 ${incidents.length}건 · 민원 ${complaints.length}건`);
+      L.push('');
+      L.push('■ 고객 반응');
+      L.push(`- 오늘 설문 ${surveys.length}건${sats.length ? ` · 평균 만족도 ${(sats.reduce((s, v) => s + v, 0) / sats.length).toFixed(1)}/5` : ''}`);
+      comments.forEach(c => L.push(`  · "${String(c).slice(0, 80)}"`));
+      L.push('');
+      L.push('■ 단체 예약 (오늘~7일)');
+      if (upcoming.length) upcoming.slice(0, 8).forEach(b => L.push(`- ${bDate(b)} ${b.group_name || b.org_name || b.organization || '단체'} ${b.headcount || b.total_count || b.expected_count || '-'}명 · ${b.status || b.funnel_stage || ''}`));
+      else L.push('- 등록된 예약 없음');
+
+      return L.join('\n');
+    }
+
+    // 대화 기록 (최근 10턴만 유지 — 이전 질문 맥락을 이어가도록)
+    const chatHistory = [];
 
     document.addEventListener('DOMContentLoaded', async () => {
       lucide.createIcons();
@@ -1064,6 +1177,14 @@ ${staffLines}
             todayVis = Number(d.todayVisitors) || 0;
           }
           monthRev = Number(d.monthRevenue) || 0;
+        }
+      } catch (e) {}
+
+      // 실시간 결제 원장(order_items) 매출 연동: 실적 저장 전이라도 결제된 실시간 매출 즉시 반영
+      try {
+        if (todayRev === 0 && window.BongplayID && typeof BongplayID.getOrdersByDate === 'function') {
+          const liveOrders = BongplayID.getOrdersByDate(todayStr) || [];
+          todayRev = liveOrders.reduce((sum, ord) => sum + Number(ord.final_amount || 0), 0);
         }
       } catch (e) {}
 
@@ -1383,29 +1504,26 @@ ${staffLines}
       const loadingId = appendLoadingMessage();
 
       if (!apiKey) {
-        // Smart Local Simulation Mode (dynamic, zero fake mockups)
-        setTimeout(() => {
-          removeLoadingMessage(loadingId);
-          const simulatedResponse = generateSimulatedAgentResponse(text);
-          appendMessage('bot', simulatedResponse);
-        }, 700);
+        // API 키가 없으면 지어낸 답 대신 실시간 집계 데이터를 그대로 보여준다
+        const snapshot = await collectLiveSnapshot();
+        removeLoadingMessage(loadingId);
+        appendMessage('bot', `⚠️ Gemini API 키가 없어 AI 분석 없이 실시간 운영 데이터만 보여드립니다.\n(우측 상단 설정에서 키를 등록하면 이 데이터를 근거로 답변합니다.)\n\n${snapshot}`);
         return;
       }
 
-      // Real Gemini API Call
+      // Real Gemini API Call — 질문마다 실시간 운영 데이터를 새로 모아 함께 전달
       try {
+        const snapshot = await collectLiveSnapshot();
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+        const userTurn = `${snapshot}\n\n[대표님 질문]\n${text}`;
         const requestBody = {
+          systemInstruction: { parts: [{ text: buildStaticContext() }] },
           contents: [
-            {
-              role: 'user',
-              parts: [
-                { text: `${BONGPLAY_SYSTEM_CONTEXT}\n\n[대표님 지시사항]:\n${text}` }
-              ]
-            }
+            ...chatHistory,
+            { role: 'user', parts: [{ text: userTurn }] }
           ],
           generationConfig: {
-            temperature: 0.7,
+            temperature: 0.3,
             maxOutputTokens: 2048,
           }
         };
@@ -1422,8 +1540,12 @@ ${staffLines}
         }
 
         const data = await response.json();
-        const botReply = data.candidates?.[0]?.content?.parts?.[0]?.text || '응답을 생성하지 못했습니다.';
-        
+        const botReply = data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '응답을 생성하지 못했습니다.';
+
+        // 대화 기억: 과거 턴에는 질문 원문만 남겨(데이터 스냅샷은 매번 새로 보냄) 토큰을 아낀다
+        chatHistory.push({ role: 'user', parts: [{ text }] }, { role: 'model', parts: [{ text: botReply }] });
+        while (chatHistory.length > 20) chatHistory.shift();
+
         removeLoadingMessage(loadingId);
         appendMessage('bot', botReply);
 

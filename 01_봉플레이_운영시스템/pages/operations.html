@@ -83,9 +83,7 @@
     }
   </style>
 
-  <script src="../assets/config.js"></script>
-  <script src="../assets/bongplay-sync.js"></script>
-  <script src="../assets/bongplay-id.js"></script>
+  <!-- config / sync / id 는 상단에서 이미 로드됨 (중복 로드 시 동기화·실시간 구독·기상 폴링이 두 번 돌았음) -->
   <script src="../assets/bongplay-wakelock.js"></script>
   <link rel="stylesheet" href="../assets/print.css">
 </head>
@@ -423,17 +421,20 @@
         <div class="flex items-center justify-between pb-2.5 border-b border-slate-800 flex-none">
           <div class="flex items-center gap-2">
             <i data-lucide="trending-up" class="w-4 h-4 text-emerald-400"></i>
-            <h2 class="text-xs sm:text-sm font-extrabold text-white">매출 실적 및 BEP 진척도 추이</h2>
-            <span class="text-[11px] text-slate-500 font-medium hidden sm:inline">(부가매출 발생 시 조기 BEP 달성)</span>
+            <h2 class="text-xs sm:text-sm font-extrabold text-white whitespace-nowrap">실적 · BEP 추이</h2>
+            <span class="text-[11px] text-slate-500 font-medium hidden xl:inline">(객단가 상승 시 조기 BEP 달성)</span>
           </div>
 
           <!-- Metric Toggle -->
           <div class="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800/80">
-            <button id="btnChartRev" class="touch-btn px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-600 text-white shadow">
-              매출액 추이
+            <button id="btnChartRev" class="touch-btn px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-600 text-white shadow whitespace-nowrap">
+              매출
             </button>
-            <button id="btnChartVis" class="touch-btn px-2.5 py-1 text-xs font-bold rounded-lg text-slate-400 hover:text-white">
-              방문객수 추이
+            <button id="btnChartVis" class="touch-btn px-2.5 py-1 text-xs font-bold rounded-lg text-slate-400 hover:text-white whitespace-nowrap">
+              방문객
+            </button>
+            <button id="btnChartArpu" class="touch-btn px-2.5 py-1 text-xs font-bold rounded-lg text-slate-400 hover:text-white whitespace-nowrap">
+              객단가
             </button>
           </div>
         </div>
@@ -468,9 +469,10 @@
             <div class="text-[10px] text-slate-400 font-bold">주말 목표 매출</div>
             <div class="text-xs sm:text-sm font-extrabold font-mono text-emerald-400 mt-0.5">일 178만 원 (148명)</div>
           </div>
-          <div class="bg-slate-950/50 rounded-xl p-2 border border-slate-800/60">
-            <div class="text-[10px] text-slate-400 font-bold">부가매출 레버리지</div>
-            <div class="text-xs sm:text-sm font-extrabold font-mono text-amber-400 mt-0.5">객단가 상승 → 조기 BEP</div>
+          <div id="arpuTargetCard" class="bg-slate-950/50 rounded-xl p-2 border border-slate-800/60 cursor-pointer" title="눌러서 객단가 추이 보기">
+            <div class="text-[10px] text-slate-400 font-bold">최근 7일 객단가 <span id="arpuTargetLabel" class="text-slate-500">/ 목표 -</span></div>
+            <div id="arpuTargetValue" class="text-xs sm:text-sm font-extrabold font-mono text-amber-400 mt-0.5">실적 대기</div>
+            <div id="arpuBepHint" class="text-[10px] text-slate-500 font-mono mt-0.5"></div>
           </div>
           <div class="bg-slate-950/50 rounded-xl p-2 border border-slate-800/60">
             <div class="text-[10px] text-slate-400 font-bold">연간 BEP 매출 분기점</div>
@@ -882,8 +884,11 @@
       <div class="pt-3 pb-2 space-y-2.5 flex-none">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           <div>
-            <label class="text-[11px] font-bold text-slate-400 block mb-1">방문 세션 연동 (선택)</label>
-            <select id="posVisitSelect" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs font-mono text-emerald-400 outline-none">
+            <label class="text-[11px] font-bold text-slate-400 block mb-1">방문 가족 연동 <span id="posMemberHint" class="text-emerald-400"></span></label>
+            <input type="text" id="posVisitSearch" oninput="populatePosVisits(this.value)" autocomplete="off"
+              placeholder="이름 · 전화 뒷4자리 · 서약번호 검색"
+              class="w-full mb-1.5 bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-xs text-white outline-none focus:border-emerald-500">
+            <select id="posVisitSelect" onchange="updatePosSummary()" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs font-mono text-emerald-400 outline-none">
               <option value="">- 워크인 / 일반 현장 결제 -</option>
             </select>
           </div>
@@ -1548,11 +1553,11 @@
           <strong id="opJSpend" class="text-amber-400 font-mono text-sm">-</strong>
         </div>
         <div>
-          <span class="text-[10px] text-slate-500 block font-bold">시설 탑승</span>
+          <span class="text-[10px] text-slate-500 block font-bold">부가 결제</span>
           <strong id="opJRides" class="text-emerald-400 font-mono text-sm">-</strong>
         </div>
         <div>
-          <span class="text-[10px] text-slate-500 block font-bold">만족도 (NPS)</span>
+          <span class="text-[10px] text-slate-500 block font-bold">만족도</span>
           <strong id="opJNps" class="text-cyan-400 font-mono text-sm">-</strong>
         </div>
       </div>
@@ -1563,9 +1568,7 @@
       </div>
 
       <div class="pt-2 flex justify-between items-center text-xs">
-        <button type="button" onclick="createOpSimulatedJourney()" class="px-3 py-1.5 rounded-xl bg-indigo-950/60 hover:bg-indigo-900/80 border border-indigo-500/40 text-indigo-300 font-bold flex items-center gap-1.5">
-          <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> 1회 여정 시뮬레이션 생성
-        </button>
+        <span id="opJourneySyncNote" class="text-[11px] text-slate-500">실제 서약·결제·출입·설문 기록 기준</span>
         <button type="button" onclick="closeOpJourneyModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold rounded-xl text-xs transition">
           닫기
         </button>
@@ -1808,8 +1811,13 @@
       const dailyTargetRev = todayRecord ? todayRecord.targetRevenue : (isWeekendToday ? TARGET_REV_WEEKEND : TARGET_REV_WEEKDAY);
       const dailyTargetVis = todayRecord ? todayRecord.targetVisitors : (isWeekendToday ? TARGET_VIS_WEEKEND : TARGET_VIS_WEEKDAY);
 
-      const dailyActualRev = todayRecord ? todayRecord.totalRevenue : 0;
-      let dailyActualVis = todayRecord ? todayRecord.totalVisitors : 0;
+      // 실시간 원장 집계 (todayRecord 가 없거나 마감 전이어도 결제 원장 금액과 인원 즉시 반영)
+      const ledgerAgg = (typeof aggregateDailyFromLedger === 'function') ? aggregateDailyFromLedger(todayStr) : { ticketRevenue: 0, extraRevenue: 0, child: 0, adult: 0, group: 0 };
+      const ledgerRev = (ledgerAgg.ticketRevenue || 0) + (ledgerAgg.extraRevenue || 0);
+      const ledgerVis = (ledgerAgg.child || 0) + (ledgerAgg.adult || 0) + (ledgerAgg.group || 0);
+
+      const dailyActualRev = (todayRecord && todayRecord.totalRevenue > 0) ? todayRecord.totalRevenue : ledgerRev;
+      let dailyActualVis = (todayRecord && todayRecord.totalVisitors > 0) ? todayRecord.totalVisitors : ledgerVis;
 
       // Realtime issued tickets from consents
       try {
@@ -1862,7 +1870,7 @@
       const badgeDailyGapPill = document.getElementById('badgeDailyGapPill');
       const cardDailyEl = document.getElementById('cardDaily');
 
-      if (todayRecord) {
+      if (todayRecord || dailyActualRev > 0) {
         if (dailyActualRev >= dailyTargetRev) {
           badgeDailyEl.textContent = '목표 달성!';
           badgeDailyEl.className = 'px-2 py-0.5 text-[10px] font-black rounded-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
@@ -2021,6 +2029,12 @@
         const isMet = rec.totalRevenue >= rec.targetRevenue;
         const rate = ((rec.totalRevenue / rec.targetRevenue) * 100).toFixed(0);
 
+        // 일자별 객단가 (핵심 지표) — 누적 평균 대비 높고 낮음을 함께 표시
+        const dayTicket = rec.totalVisitors > 0 ? Math.round(rec.totalRevenue / rec.totalVisitors) : 0;
+        const diff = (dayTicket > 0 && avgTicket > 0) ? dayTicket - avgTicket : 0;
+        const diffHtml = diff === 0 ? ''
+          : `<span class="${diff > 0 ? 'text-emerald-400' : 'text-rose-400'}">${diff > 0 ? '▲' : '▼'}${Math.abs(diff).toLocaleString()}</span>`;
+
         // Format short date: e.g. "09/09(수)"
         const dtParts = rec.date.split('-');
         const shortDate = dtParts.length === 3 ? `${dtParts[1]}.${dtParts[2]}` : rec.date;
@@ -2037,12 +2051,17 @@
               </span>
             </div>
             <div class="text-[11px] text-slate-400 truncate">
-              ${rec.memo || `${rec.totalVisitors}명 정상 방문`}
+              ${escapeHtml(rec.memo || `${rec.totalVisitors}명 정상 방문`)}
             </div>
           </div>
           <div class="text-right font-mono shrink-0">
             <div class="font-black text-emerald-400 text-sm whitespace-nowrap">${rec.totalRevenue.toLocaleString()}원</div>
-            <div class="text-[10px] text-slate-500 whitespace-nowrap">입장 ${rec.ticketRevenue.toLocaleString()} · 부가 ${rec.extraRevenue.toLocaleString()}</div>
+            <div class="text-[10px] text-slate-500 whitespace-nowrap">입장 ${rec.ticketRevenue.toLocaleString()} · 부가 ${rec.extraRevenue.toLocaleString()} · <span class="text-slate-300">${rec.totalVisitors}명</span></div>
+            <div class="text-[11px] whitespace-nowrap mt-0.5">
+              <span class="text-slate-400">객단가</span>
+              <strong class="text-cyan-300 text-xs">${dayTicket ? dayTicket.toLocaleString() + '원' : '-'}</strong>
+              ${diffHtml}
+            </div>
           </div>
         `;
         container.appendChild(item);
@@ -2052,10 +2071,138 @@
     // -----------------------------------------------------------------
     // RENDER REVENUE TREND CHART (PROPER SCALE & CLEAN VIEW)
     // -----------------------------------------------------------------
+    function setChartMetric(metric) {
+      currentChartMetric = metric;
+      const on = 'touch-btn px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-600 text-white shadow whitespace-nowrap';
+      const off = 'touch-btn px-2.5 py-1 text-xs font-bold rounded-lg text-slate-400 hover:text-white whitespace-nowrap';
+      [['btnChartRev', 'revenue'], ['btnChartVis', 'visitors'], ['btnChartArpu', 'arpu']].forEach(([id, m]) => {
+        const el = document.getElementById(id);
+        if (el) el.className = (m === metric) ? on : off;
+      });
+      renderRevenueChart();
+    }
+
+    /* ===== 객단가(ARPU) 추적 — 핵심 지표 =====
+       객단가 = 총매출 ÷ 방문객 (보호자·영유아 포함 1인당, 시뮬레이터 혼합객단가와 같은 정의)
+       목표 = 기준정보 blended_price (config BLENDED_PRICE, 기본 12,036원) */
+    function arpuSeries() {
+      const rows = records.map(r => {
+        const vis = Number(r.totalVisitors) || 0;
+        return {
+          date: r.date,
+          arpu: vis > 0 ? Math.round((Number(r.totalRevenue) || 0) / vis) : null,
+          ticket: vis > 0 ? Math.round((Number(r.ticketRevenue) || 0) / vis) : null,
+          extra: vis > 0 ? Math.round((Number(r.extraRevenue) || 0) / vis) : null,
+          rev: Number(r.totalRevenue) || 0,
+          vis
+        };
+      });
+      // 7일 이동평균은 "합계 ÷ 합계"로 계산 (방문객이 많은 날에 가중 — 일별 객단가 단순평균보다 정확)
+      rows.forEach((row, i) => {
+        const win = rows.slice(Math.max(0, i - 6), i + 1);
+        const rev = win.reduce((s, w) => s + w.rev, 0);
+        const vis = win.reduce((s, w) => s + w.vis, 0);
+        row.ma7 = vis > 0 ? Math.round(rev / vis) : null;
+      });
+      return rows;
+    }
+
+    function arpuTarget() {
+      return Number(MASTER_T.annual_bep && MASTER_T.annual_bep.blended_price) || 12036;
+    }
+
+    function renderArpuTargetCard() {
+      const valEl = document.getElementById('arpuTargetValue');
+      const lblEl = document.getElementById('arpuTargetLabel');
+      const hintEl = document.getElementById('arpuBepHint');
+      if (!valEl) return;
+      const target = arpuTarget();
+      if (lblEl) lblEl.textContent = `/ 목표 ${target.toLocaleString()}원`;
+      const series = arpuSeries();
+      const last = series.length ? series[series.length - 1] : null;
+      if (!last || last.ma7 == null) {
+        valEl.textContent = '실적 대기';
+        valEl.className = 'text-xs sm:text-sm font-extrabold font-mono text-slate-500 mt-0.5';
+        if (hintEl) hintEl.textContent = '';
+        return;
+      }
+      const pct = Math.round((last.ma7 / target) * 100);
+      valEl.textContent = `${last.ma7.toLocaleString()}원 (${pct}%)`;
+      valEl.className = 'text-xs sm:text-sm font-extrabold font-mono mt-0.5 ' + (pct >= 100 ? 'text-emerald-400' : pct >= 90 ? 'text-amber-400' : 'text-rose-400');
+      // 현재 객단가가 유지될 때 연간 손익분기 인원 (고정비 ÷ (객단가 − 1인 변동비))
+      if (hintEl) {
+        const margin = last.ma7 - VAR_COST_PER_HEAD;
+        const baseBep = Number(MASTER_T.annual_bep && MASTER_T.annual_bep.target_visitors) || 19606;
+        if (margin > 0) {
+          const bep = Math.round(FIXED_ANNUAL_COST / margin);
+          const gap = bep - baseBep;
+          hintEl.textContent = `BEP ${bep.toLocaleString()}명 (${gap <= 0 ? '▼' : '▲'}${Math.abs(gap).toLocaleString()})`;
+          hintEl.className = 'text-[10px] font-mono mt-0.5 ' + (gap <= 0 ? 'text-emerald-500' : 'text-rose-400');
+        } else {
+          hintEl.textContent = '';
+        }
+      }
+    }
+
+    function renderArpuChart(canvas) {
+      const series = arpuSeries();
+      const target = arpuTarget();
+      const labels = series.map(s => {
+        const p = s.date.split('-');
+        return p.length === 3 ? `${p[1]}.${p[2]}` : s.date;
+      });
+      if (chartInstance) chartInstance.destroy();
+      chartInstance = new Chart(canvas.getContext('2d'), {
+        data: {
+          labels,
+          datasets: [
+            { type: 'bar', label: '입장 객단가', data: series.map(s => s.ticket), backgroundColor: 'rgba(16, 185, 129, 0.55)', stack: 'arpu', order: 3 },
+            { type: 'bar', label: '부가 객단가', data: series.map(s => s.extra), backgroundColor: 'rgba(245, 158, 11, 0.75)', stack: 'arpu', order: 3 },
+            { type: 'line', label: '7일 평균 객단가', data: series.map(s => s.ma7), borderColor: '#22d3ee', backgroundColor: '#22d3ee', borderWidth: 3, tension: 0.3, pointRadius: 3, fill: false, order: 1, stack: 'ma7' },
+            { type: 'line', label: `목표 ${target.toLocaleString()}원`, data: series.map(() => target), borderColor: '#f43f5e', borderWidth: 2, borderDash: [6, 4], pointRadius: 0, fill: false, order: 2, stack: 'target' }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { position: 'top', labels: { color: '#cbd5e1', font: { family: 'Noto Sans KR', size: 11, weight: 'bold' } } },
+            tooltip: {
+              callbacks: {
+                label: (c) => `${c.dataset.label}: ${c.parsed.y == null ? '-' : c.parsed.y.toLocaleString() + '원'}`,
+                footer: (items) => {
+                  const s = series[items[0].dataIndex];
+                  return s && s.arpu != null ? `일 객단가 ${s.arpu.toLocaleString()}원 · ${s.vis}명` : '';
+                }
+              }
+            }
+          },
+          scales: {
+            x: { stacked: true, grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#94a3b8', font: { family: 'JetBrains Mono', size: 11 } } },
+            y: {
+              stacked: true,
+              suggestedMin: 0,
+              suggestedMax: Math.round(target * 1.3),
+              grid: { color: 'rgba(255, 255, 255, 0.05)' },
+              ticks: { color: '#94a3b8', font: { family: 'JetBrains Mono', size: 11 }, callback: (v) => (v / 1000).toLocaleString() + '천' }
+            }
+          }
+        }
+      });
+    }
+
     function renderRevenueChart() {
       const canvas = document.getElementById('mainTrendChart');
       const floatBox = document.getElementById('chartEmptyFloatBox');
       if (!canvas || typeof Chart === 'undefined') return;
+
+      renderArpuTargetCard();
+      if (currentChartMetric === 'arpu') {
+        if (floatBox) floatBox.classList.toggle('hidden', records.length > 0);
+        renderArpuChart(canvas);
+        return;
+      }
 
       if (records.length === 0) {
         if (floatBox) floatBox.classList.remove('hidden');
@@ -2473,19 +2620,10 @@
       });
 
       // Chart Toggle
-      document.getElementById('btnChartRev')?.addEventListener('click', () => {
-        currentChartMetric = 'revenue';
-        document.getElementById('btnChartRev').className = 'touch-btn px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-600 text-white shadow';
-        document.getElementById('btnChartVis').className = 'touch-btn px-2.5 py-1 text-xs font-bold rounded-lg text-slate-400 hover:text-white';
-        renderRevenueChart();
-      });
-
-      document.getElementById('btnChartVis')?.addEventListener('click', () => {
-        currentChartMetric = 'visitors';
-        document.getElementById('btnChartVis').className = 'touch-btn px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-600 text-white shadow';
-        document.getElementById('btnChartRev').className = 'touch-btn px-2.5 py-1 text-xs font-bold rounded-lg text-slate-400 hover:text-white';
-        renderRevenueChart();
-      });
+      document.getElementById('btnChartRev')?.addEventListener('click', () => setChartMetric('revenue'));
+      document.getElementById('btnChartVis')?.addEventListener('click', () => setChartMetric('visitors'));
+      document.getElementById('btnChartArpu')?.addEventListener('click', () => setChartMetric('arpu'));
+      document.getElementById('arpuTargetCard')?.addEventListener('click', () => setChartMetric('arpu'));
 
       // Fullscreen
       document.getElementById('btnToggleFullscreen')?.addEventListener('click', () => {
@@ -2606,6 +2744,8 @@
     function openPosModal(fromDailyClose = false) {
       isPosForDailyClose = !!fromDailyClose;
       document.getElementById('posModal').classList.remove('hidden');
+      const searchEl = document.getElementById('posVisitSearch');
+      if (searchEl) searchEl.value = '';
       populatePosVisits();
       renderPosProducts();
       updatePosSummary();
@@ -2616,22 +2756,42 @@
       document.getElementById('posModal').classList.add('hidden');
     }
 
-    function populatePosVisits() {
+    function populatePosVisits(query) {
       const select = document.getElementById('posVisitSelect');
       if (!select) return;
-      select.innerHTML = '<option value="">- 워크인 / 일반 현장 결제 -</option>';
+      // 매점 운영 방침(2026-09-22 대표 결정): 손님 이름을 여쭙고 방문 가족을 연동하면 매점 할인 적용.
+      // "오늘 발권 · 아직 퇴장 전" 가족을 최근 입장순으로 보여주고, 검색어가 있으면 이름·전화 뒷4자리·서약번호로 좁힌다.
+      const q = String(query || '').trim().toLowerCase();
+      const qDigits = q.replace(/[^0-9]/g, '');
+      const prev = select.value;
+      select.innerHTML = '<option value="">- 워크인 / 일반 현장 결제 (연동 없음) -</option>';
       try {
         const raw = localStorage.getItem('bongplay_safety_consents') || localStorage.getItem('bongtteurak_consents_v1');
         if (raw) {
-          const consents = JSON.parse(raw);
-          consents.filter(c => c.isIssued || c.issued).forEach(c => {
+          const todayYmd = BongplaySync.toLocalDateStr(new Date());
+          const consents = JSON.parse(raw)
+            .filter(c => (c.isIssued || c.is_issued || c.issued) && !c.exit_at)
+            .filter(c => (c.created_date || c.createdDate || (c.arrival_at || '').slice(0, 10)) === todayYmd)
+            .sort((a, b) => new Date(b.entry_at || b.ticket_issued_at || 0) - new Date(a.entry_at || a.ticket_issued_at || 0));
+          let matched = 0;
+          consents.forEach(c => {
+            const phone = String(c.guardianPhone || c.guardian_phone || '').replace(/[^0-9]/g, '');
+            const name = String(c.guardianName || c.guardian_name || '');
+            const pass = String(c.passCode || c.pass_code || '');
+            const kids = (c.children || []).map(ch => (typeof ch === 'string' ? ch : (ch && ch.name) || '')).join(' ');
+            if (q && !(name.toLowerCase().includes(q) || kids.toLowerCase().includes(q) || (qDigits.length >= 2 && phone.endsWith(qDigits)) || pass.toLowerCase().includes(q))) return;
             const opt = document.createElement('option');
             opt.value = c.visit_id || c.id;
-            opt.textContent = `[${c.passCode || '고객'}] ${c.guardianName || c.name || '방문객'} (${c.residence || '일반'})`;
+            opt.textContent = `[${pass || '고객'}] ${name || '방문객'}${phone ? ' · ' + phone.slice(-4) : ''}${c.entry_at ? '' : ' (입장 전)'}`;
             select.appendChild(opt);
+            matched++;
           });
+          // 검색 결과가 한 가족뿐이면 바로 선택 (계산대에서 클릭 한 번 절약)
+          if (q && matched === 1) select.selectedIndex = 1;
+          else if (prev && Array.from(select.options).some(o => o.value === prev)) select.value = prev;
         }
       } catch (e) { console.warn(e); }
+      if (query !== undefined) updatePosSummary();
     }
 
     // POS 탭을 카탈로그에서 생성 (탭 키 ≠ 상품 category 로 인한 빈 화면 방지)
@@ -2717,7 +2877,14 @@
     function posPricing() {
       const cart = Object.keys(posCart).map(pid => ({ product_id: pid, quantity: posCart[pid] }));
       const ruleSel = document.getElementById('posDiscountRule');
-      return BongplayID.computeCartPricing(cart, { forceRuleId: (ruleSel && ruleSel.value) || 'none' });
+      const visitSel = document.getElementById('posVisitSelect');
+      const memberLinked = !!(visitSel && visitSel.value);
+      const hint = document.getElementById('posMemberHint');
+      if (hint) {
+        const rate = Number(window.BongplaySite && BongplaySite.get('store.member_discount_rate')) || 0;
+        hint.textContent = rate > 0 ? (memberLinked ? `· 매점 ${Math.round(rate * 100)}% 할인 적용 중` : `· 연동 시 매점 ${Math.round(rate * 100)}% 할인`) : '';
+      }
+      return BongplayID.computeCartPricing(cart, { forceRuleId: (ruleSel && ruleSel.value) || 'none', memberLinked: memberLinked });
     }
 
     /* ---- POS 복합 결제 배분 (매표 데스크와 동일 규칙) ---- */
@@ -2727,19 +2894,34 @@
       const wrap = document.getElementById('posMethodRows');
       if (!wrap || !window.BongplayID) return { valid: false, payments: [], remain: total, sum: 0 };
 
+      // 입력칸은 여기서만 새로 그린다. 타이핑 중에는 refreshPosAlloc 만 호출해 커서를 유지한다.
       wrap.innerHTML = BongplayID.getPaymentMethods().map(m => {
         const amt = Number(posAlloc[m.id] || 0);
-        const active = amt > 0;
         return `
-          <div class="flex items-center gap-1.5">
-            <button type="button" onclick="posAllocRemainTo('${m.id}')"
-              class="shrink-0 px-2 py-1.5 rounded-lg text-[11px] font-black ${active ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-300 hover:text-white'}"
+          <div data-alloc-row="${m.id}" class="flex items-center gap-1.5">
+            <button type="button" data-alloc-btn onclick="posAllocRemainTo('${m.id}')"
+              class="shrink-0 px-2 py-1.5 rounded-lg text-[11px] font-black bg-slate-800 text-slate-300 hover:text-white"
               title="잔여금 전액 배분">${m.icon} ${m.short}</button>
-            <input type="number" min="0" step="100" inputmode="numeric" value="${amt || ''}" placeholder="0"
-              oninput="posSetAlloc('${m.id}', this.value)"
-              class="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-right font-mono text-xs text-white outline-none">
+            <input type="text" inputmode="numeric" autocomplete="off" value="${amt ? amt.toLocaleString() : ''}" placeholder="0"
+              oninput="posSetAlloc('${m.id}', this.value, true)"
+              onfocus="this.value = this.value.replace(/[^0-9]/g, ''); this.select();"
+              onblur="this.value = (Number(posAlloc['${m.id}']) || 0) ? Number(posAlloc['${m.id}']).toLocaleString() : ''"
+              class="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-right font-mono text-xs text-white outline-none focus:border-amber-500">
           </div>`;
       }).join('');
+      return refreshPosAlloc(total);
+    }
+
+    // 배분 합계·잔액·버튼 강조만 갱신 (입력칸은 건드리지 않음)
+    function refreshPosAlloc(total) {
+      document.querySelectorAll('#posMethodRows [data-alloc-row]').forEach(row => {
+        const active = Number(posAlloc[row.dataset.allocRow] || 0) > 0;
+        const btn = row.querySelector('[data-alloc-btn]');
+        btn.classList.toggle('bg-amber-600', active);
+        btn.classList.toggle('text-white', active);
+        btn.classList.toggle('bg-slate-800', !active);
+        btn.classList.toggle('text-slate-300', !active);
+      });
 
       const built = BongplayID.buildPayments(posAlloc, total);
       document.getElementById('posAllocSum').textContent = built.sum.toLocaleString();
@@ -2759,11 +2941,12 @@
       updatePosSummary();
     }
 
-    function posSetAlloc(methodId, value) {
-      const v = Math.max(0, Math.round(Number(value) || 0));
+    function posSetAlloc(methodId, value, fromTyping) {
+      const v = Math.max(0, Math.round(Number(String(value).replace(/[^0-9]/g, '')) || 0));
       if (v === 0) delete posAlloc[methodId];
       else posAlloc[methodId] = v;
-      updatePosSummary();
+      if (fromTyping) refreshPosAlloc(posPricing().summary.total);
+      else updatePosSummary();
     }
 
     function updatePosSummary() {
@@ -2853,6 +3036,11 @@
         const approvalEl = document.getElementById('posApprovalNo');
         if (approvalEl) approvalEl.value = '';
         posAlloc = {};
+        // 다음 손님에게 이전 가족 연동·매점 할인이 이어지지 않도록 초기화
+        const searchEl = document.getElementById('posVisitSearch');
+        if (searchEl) searchEl.value = '';
+        const visitEl = document.getElementById('posVisitSelect');
+        if (visitEl) visitEl.value = '';
         clearPosCart();
         closePosModal();
       } else {
@@ -3494,28 +3682,44 @@
     }
 
     /* ================= Section 10: Visit 360° Journey Modal ================= */
-    function openOpJourneyModal() {
+    async function openOpJourneyModal() {
       const modal = document.getElementById('modalOpJourney');
       if (!modal) return;
       modal.classList.remove('hidden');
+      renderOpJourneyList();
 
-      // Populate select options
-      const visitList = (window.BongplayID && BongplayID.getAllVisitsSummary) ? BongplayID.getAllVisitsSummary(20) : [];
+      // 열 때마다 서버에서 최신 서약·주문·설문을 받아와 다시 그림 (실시간 연동)
+      const note = document.getElementById('opJourneySyncNote');
+      if (window.BongplaySync && BongplaySync.pullAll && BongplaySync.getStatus().configured && navigator.onLine) {
+        if (note) note.textContent = '서버에서 최신 기록을 불러오는 중…';
+        try {
+          await BongplaySync.pullAll();
+          if (!modal.classList.contains('hidden')) renderOpJourneyList(document.getElementById('opJourneyVisitSelect')?.value);
+          if (note) note.textContent = `실제 기록 기준 · ${new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} 갱신`;
+        } catch (e) {
+          if (note) note.textContent = '서버 연결 실패 · 이 기기에 저장된 기록으로 표시 중';
+        }
+      } else if (note) {
+        note.textContent = '오프라인 · 이 기기에 저장된 기록으로 표시 중';
+      }
+    }
+
+    function renderOpJourneyList(keepVisitId) {
+      const visitList = (window.BongplayID && BongplayID.getAllVisitsSummary) ? BongplayID.getAllVisitsSummary(30) : [];
       const sel = document.getElementById('opJourneyVisitSelect');
       if (sel) {
         sel.innerHTML = '<option value="">최근 방문 선택...</option>' + visitList.map(v => `
-          <option value="${v.visit_id}">${v.visit_id} - ${v.guardian_name} (${v.date})</option>
+          <option value="${escapeHtml(v.visit_id)}">${escapeHtml(v.date.slice(5))} ${escapeHtml(v.arrival_time)} · ${escapeHtml(v.guardian_name)} · ${escapeHtml(v.status)}</option>
         `).join('');
       }
-
-      const defaultVId = visitList.length > 0 ? visitList[0].visit_id : null;
-      if (defaultVId) {
-        loadOpJourney(defaultVId);
+      const target = (keepVisitId && visitList.some(v => v.visit_id === keepVisitId)) ? keepVisitId : (visitList[0] && visitList[0].visit_id);
+      if (target) {
+        if (sel) sel.value = target;
+        loadOpJourney(target, true);
       } else {
+        ['opJStayTime', 'opJSpend', 'opJRides', 'opJNps'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = '-'; });
         const box = document.getElementById('opJourneyTimelineBox');
-        if (box) {
-          box.innerHTML = '<div class="text-center py-6 text-slate-500 text-xs">등록된 방문 여정이 없습니다. 아래 [1회 여정 시뮬레이션 생성]을 클릭하세요.</div>';
-        }
+        if (box) box.innerHTML = '<div class="text-center py-6 text-slate-500 text-xs">아직 기록된 방문이 없습니다. 손님이 서약을 하면 여기에 여정이 나타납니다.</div>';
       }
       lucide.createIcons();
     }
@@ -3533,24 +3737,29 @@
       loadOpJourney(q);
     }
 
-    function loadOpJourney(targetId) {
+    function loadOpJourney(targetId, silent) {
+      if (!targetId) return;
       if (!window.BongplayID || typeof window.BongplayID.getVisitFullJourney !== 'function') return;
       const journey = BongplayID.getVisitFullJourney(targetId);
       if (!journey || !journey.success) {
-        alert('해당 방문 여정을 찾을 수 없습니다.');
+        if (!silent) alert('해당 방문 여정을 찾을 수 없습니다.\n방문 ID, 서약 번호, 보호자 성함, 휴대폰 뒷번호 4자리로 검색해 보세요.');
         return;
       }
       const sm = journey.summary;
+      const sel = document.getElementById('opJourneyVisitSelect');
+      if (sel && Array.from(sel.options).some(o => o.value === sm.visit_id)) sel.value = sm.visit_id;
 
-      document.getElementById('opJStayTime').textContent = `${sm.stay_duration_minutes}분`;
-      document.getElementById('opJSpend').textContent = `${sm.total_spend.toLocaleString()}원`;
-      document.getElementById('opJRides').textContent = `${sm.total_rides}회`;
-      document.getElementById('opJNps').textContent = sm.nps_score !== null ? `+${sm.nps_score}점` : '미작성';
+      document.getElementById('opJStayTime').textContent = sm.stay_label;
+      document.getElementById('opJSpend').textContent = sm.total_spend ? `${sm.total_spend.toLocaleString()}원` : '-';
+      document.getElementById('opJRides').textContent = sm.fnb_spend ? `${sm.fnb_spend.toLocaleString()}원` : '-';
+      document.getElementById('opJNps').textContent = sm.satisfaction_score != null ? `${sm.satisfaction_score} / 5` : '미응답';
 
       const box = document.getElementById('opJourneyTimelineBox');
-      if (box) {
+      if (box && !journey.timeline.length) {
+        box.innerHTML = '<div class="text-center py-6 text-slate-500 text-xs">기록된 사건이 없습니다.</div>';
+      } else if (box) {
         box.innerHTML = journey.timeline.map(node => {
-          const time = (node.timestamp || '').slice(11, 16) || '10:00';
+          const time = node.time_label || '--:--';
           return `
             <div class="flex items-start gap-2.5 p-2 rounded-xl bg-slate-900 border border-slate-800 text-xs">
               <span class="px-2 py-0.5 rounded-md bg-slate-950 font-mono text-[10px] text-slate-400 font-bold shrink-0">${time}</span>
@@ -3566,14 +3775,6 @@
         }).join('');
       }
       lucide.createIcons();
-    }
-
-    function createOpSimulatedJourney() {
-      if (!window.BongplayID || typeof window.BongplayID.createSimulatedFullJourney !== 'function') return;
-      const vId = BongplayID.createSimulatedFullJourney();
-      alert(`표준 1회 여정 데이터가 생성되었습니다: ${vId}`);
-      openOpJourneyModal();
-      loadOpJourney(vId);
     }
 
     // XSS 방어 유틸리티 (management.html과 동일 구현)

@@ -105,6 +105,11 @@
         <span class="hidden sm:inline">손님 서약창 열기</span>
       </a>
 
+      <button type="button" onclick="printConsentQrPoster()" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-xl text-xs font-black border border-slate-700 transition flex items-center gap-1" title="매표소·입구 비치용 서약 QR 안내문 인쇄 (A4)">
+        <i data-lucide="printer" class="w-3.5 h-3.5"></i>
+        <span class="hidden sm:inline">QR 인쇄</span>
+      </button>
+
       <button onclick="toggleFullScreen()" class="p-2 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded-xl border border-slate-700 transition" title="전체화면">
         <i data-lucide="maximize" class="w-4 h-4"></i>
       </button>
@@ -489,6 +494,84 @@
       renderDateFilterBar();
       await loadData();
     });
+
+    // 현장 비치용 서약 QR 안내문 (A4) — 손님 서약 화면(consent.html) 주소를 QR 로 인쇄
+    function printConsentQrPoster() {
+      const consentUrl = new URL('consent.html', window.location.href).href.split('?')[0];
+      const host = window.location.hostname;
+      if (window.location.protocol === 'file:' || host === 'localhost' || host === '127.0.0.1') {
+        if (!confirm('지금 주소(' + window.location.origin + ')는 손님 휴대폰에서 열 수 없습니다.\n실제 배포 주소에서 인쇄해야 QR 이 작동합니다.\n\n그래도 미리보기를 열까요?')) return;
+      }
+
+      const box = document.createElement('div');
+      box.style.cssText = 'position:fixed;left:-9999px;top:0';
+      document.body.appendChild(box);
+      let qrSrc = '';
+      try {
+        new QRCode(box, { text: consentUrl, width: 480, height: 480, colorDark: '#064e3b', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.H });
+        const canvas = box.querySelector('canvas');
+        qrSrc = canvas ? canvas.toDataURL('image/png') : ((box.querySelector('img') || {}).src || '');
+      } catch (e) {
+        console.warn('QR 생성 실패:', e);
+      }
+      box.remove();
+      if (!qrSrc) { alert('QR 코드를 만들지 못했습니다. 인터넷 연결을 확인한 뒤 새로고침하세요.'); return; }
+
+      const site = (window.BongplaySite && BongplaySite.get) ? BongplaySite : null;
+      const facility = escapeHtml((site && site.get('facility.name')) || '리틀포레스트 봉플레이');
+      const address = escapeHtml((site && site.get('address.road')) || '');
+      const hong = site && site.findStaff ? site.findStaff('staff_hong') : null;
+      const phone = escapeHtml((site && site.get('contact.phone')) || (hong && hong.phone) || '');
+      const legal = escapeHtml((site && site.get('facility.legal_basis')) || '「어린이놀이시설 안전관리법」 시행규칙 제16조');
+
+      const w = window.open('', '_blank');
+      if (!w) { alert('팝업이 차단되었습니다. 브라우저에서 팝업을 허용해 주세요.'); return; }
+      w.document.write(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>서약 QR 안내문</title>
+<style>
+  @page { size: A4; margin: 12mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'Pretendard','Malgun Gothic',sans-serif; color: #0f172a; background: #fff; }
+  .sheet { max-width: 186mm; margin: 0 auto; padding: 8mm 4mm; text-align: center; }
+  .tag { display: inline-block; padding: 4px 14px; border-radius: 999px; background: #d1fae5; color: #064e3b; font-weight: 900; font-size: 13px; }
+  h1 { font-size: 34px; line-height: 1.3; margin: 14px 0 8px; font-weight: 900; letter-spacing: -0.5px; }
+  h1 span { color: #047857; }
+  .lead { font-size: 15px; color: #475569; margin: 0 0 18px; }
+  .head { border-bottom: 3px solid #065f46; padding-bottom: 18px; }
+  .qr { display: inline-block; padding: 14px; border: 6px solid #059669; border-radius: 24px; margin: 22px 0 8px; }
+  .qr img { width: 85mm; height: 85mm; display: block; }
+  .hint { display: inline-block; font-size: 13px; font-weight: 800; color: #475569; background: #f1f5f9; padding: 5px 14px; border-radius: 999px; }
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 22px; padding-top: 18px; border-top: 1px solid #e2e8f0; text-align: left; }
+  .step { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 12px; }
+  .num { width: 26px; height: 26px; border-radius: 8px; background: #047857; color: #fff; font-weight: 900; font-size: 13px; display: flex; align-items: center; justify-content: center; margin-bottom: 6px; }
+  .step b { font-size: 14px; } .step p { margin: 4px 0 0; font-size: 12px; color: #64748b; line-height: 1.45; }
+  .url { margin-top: 14px; font-size: 11px; color: #94a3b8; word-break: break-all; }
+  .foot { margin-top: 16px; padding-top: 12px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #64748b; display: flex; justify-content: space-between; gap: 12px; text-align: left; }
+  .bar { position: fixed; top: 12px; right: 12px; display: flex; gap: 8px; }
+  .bar button { padding: 10px 16px; border: 0; border-radius: 12px; font-weight: 900; cursor: pointer; background: #059669; color: #fff; }
+  .bar button.ghost { background: #e2e8f0; color: #0f172a; }
+  @media print { .bar { display: none; } }
+</style></head><body>
+<div class="bar"><button onclick="window.print()">인쇄 (A4)</button><button class="ghost" onclick="window.close()">닫기</button></div>
+<div class="sheet">
+  <div class="head">
+    <div class="tag">🌿 ${facility} 공식 현장 안내</div>
+    <h1>대기 없는 빠른 입장을 위한<br><span>모바일 안전이용서약</span></h1>
+    <p class="lead">스마트폰 카메라로 아래 QR 코드를 비추면 <strong>20초 만에 서약 완료!</strong></p>
+  </div>
+  <div class="qr"><img src="${qrSrc}" alt="안전이용서약 QR"></div><br>
+  <span class="hint">기본 카메라 앱을 켜서 QR을 비춰주세요</span>
+  <div class="steps">
+    <div class="step"><div class="num">1</div><b>QR 코드 촬영</b><p>앱 설치 없이 스마트폰 카메라로 촬영</p></div>
+    <div class="step"><div class="num">2</div><b>모바일 전자 서약</b><p>보호자 정보·자녀 입력 후 손가락으로 간편 서명</p></div>
+    <div class="step"><div class="num">3</div><b>매표소 즉시 발권</b><p>화면의 서약 QR·번호를 창구에 제시하고 입장</p></div>
+  </div>
+  <div class="url">${escapeHtml(consentUrl)}</div>
+  <div class="foot"><span>${legal} 준수</span><span>${facility}${address ? ' · ' + address : ''}${phone ? ' · 문의 ' + phone : ''}</span></div>
+</div>
+<script>window.onload = function () { setTimeout(function () { window.print(); }, 300); };<\/script>
+</body></html>`);
+      w.document.close();
+    }
 
     // 고객이 입력한 성명·연락처 등을 innerHTML 에 넣기 전 이스케이프 (저장형 XSS 방지)
     function escapeHtml(str) {
@@ -919,22 +1002,44 @@
       const total = payCtx.pricing.summary.total;
       payCtx.alloc = payCtx.alloc || {};
 
+      // 금액 입력칸은 여기서만 새로 그린다. 타이핑 중(setAlloc)에는 다시 그리지 않아야
+      // 커서가 유지되어 여러 자리 금액을 직접 입력할 수 있다.
       const rows = BongplayID.getPaymentMethods().map(m => {
         const amt = Number(payCtx.alloc[m.id] || 0);
-        const active = amt > 0;
         return `
-          <div class="flex items-center gap-2 bg-slate-950/70 border ${active ? 'border-brand-700/70' : 'border-slate-800'} rounded-xl px-2.5 py-2">
-            <button type="button" onclick="allocRemainTo('${m.id}')"
-              class="shrink-0 px-2.5 py-2 rounded-lg text-xs font-black ${active ? 'bg-brand-600 text-white' : 'bg-slate-800 text-slate-300 hover:text-white'}"
+          <div data-alloc-row="${m.id}" class="flex items-center gap-2 bg-slate-950/70 border border-slate-800 rounded-xl px-2.5 py-2">
+            <button type="button" data-alloc-btn onclick="allocRemainTo('${m.id}')"
+              class="shrink-0 px-2.5 py-2 rounded-lg text-xs font-black bg-slate-800 text-slate-300 hover:text-white"
               title="잔여금 전액을 이 수단으로">${m.icon} ${m.short}</button>
-            <input type="number" min="0" step="100" inputmode="numeric" value="${amt || ''}" placeholder="0"
-              oninput="setAlloc('${m.id}', this.value)"
-              class="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-right font-mono text-sm text-white outline-none">
+            <input type="text" inputmode="numeric" autocomplete="off" value="${amt ? amt.toLocaleString() : ''}" placeholder="0"
+              oninput="setAlloc('${m.id}', this.value, true)"
+              onfocus="this.value = this.value.replace(/[^0-9]/g, ''); this.select();"
+              onblur="this.value = (Number(payCtx.alloc['${m.id}']) || 0) ? Number(payCtx.alloc['${m.id}']).toLocaleString() : ''"
+              class="flex-1 min-w-0 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-right font-mono text-sm text-white outline-none focus:border-brand-500">
             <span class="text-[10px] text-slate-500 shrink-0 w-6">원</span>
-            ${amt > 0 ? `<button type="button" onclick="setAlloc('${m.id}', 0)" class="shrink-0 w-7 h-7 rounded-lg bg-slate-800 text-slate-400 text-xs">×</button>` : '<span class="w-7"></span>'}
+            <button type="button" data-alloc-clear onclick="setAlloc('${m.id}', 0)" class="shrink-0 w-7 h-7 rounded-lg bg-slate-800 text-slate-400 text-xs">×</button>
           </div>`;
       }).join('');
       document.getElementById('payMethodRows').innerHTML = rows;
+      refreshPaymentAllocation();
+    }
+
+    // 배분 합계·잔액·버튼·행 강조만 갱신 (입력칸은 건드리지 않음)
+    function refreshPaymentAllocation() {
+      if (!payCtx || !payCtx.pricing) return;
+      const total = payCtx.pricing.summary.total;
+
+      document.querySelectorAll('#payMethodRows [data-alloc-row]').forEach(row => {
+        const active = Number(payCtx.alloc[row.dataset.allocRow] || 0) > 0;
+        row.classList.toggle('border-brand-700/70', active);
+        row.classList.toggle('border-slate-800', !active);
+        const btn = row.querySelector('[data-alloc-btn]');
+        btn.classList.toggle('bg-brand-600', active);
+        btn.classList.toggle('text-white', active);
+        btn.classList.toggle('bg-slate-800', !active);
+        btn.classList.toggle('text-slate-300', !active);
+        row.querySelector('[data-alloc-clear]').style.visibility = active ? 'visible' : 'hidden';
+      });
 
       const built = BongplayID.buildPayments(payCtx.alloc, total);
       payCtx.built = built;
@@ -966,12 +1071,13 @@
       renderPaymentAllocation();
     }
 
-    function setAlloc(methodId, value) {
+    function setAlloc(methodId, value, fromTyping) {
       if (!payCtx) return;
-      const v = Math.max(0, Math.round(Number(value) || 0));
+      const v = Math.max(0, Math.round(Number(String(value).replace(/[^0-9]/g, '')) || 0));
       if (v === 0) delete payCtx.alloc[methodId];
       else payCtx.alloc[methodId] = v;
-      renderPaymentAllocation();
+      if (fromTyping) refreshPaymentAllocation();
+      else renderPaymentAllocation();
     }
 
     async function confirmPayment() {
@@ -1028,6 +1134,13 @@
       const now = new Date().toISOString();
       rec.visit_id = rec.visit_id || BongplayID.generateVisitId();
       rec.household_id = rec.household_id || BongplayID.generateHouseholdId(rec.guardianPhone || rec.guardian_phone);
+
+      // 재발권인 경우 기존 주문·발권 원장을 먼저 자동 취소하여 중복 합산 방지
+      try {
+        if (rec.ticket_issued_at || (rec.ticket_ids && rec.ticket_ids.length > 0)) {
+          await BongplayID.cancelOrdersByConsent(rec.id, '재발권에 의한 이전 주문 대체');
+        }
+      } catch (e) {}
 
       // 1) 품목 원장(order_items) + 수납 원장(order_payments, 복합 결제는 2건)
       const order = BongplayID.createOrder({

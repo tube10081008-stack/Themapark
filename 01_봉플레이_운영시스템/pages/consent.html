@@ -2,15 +2,18 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#020617">
   <title>리틀포레스트 봉플레이 - 모바일 안전이용동의서</title>
-  
+
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Lucide Icons -->
   <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
   <!-- QRCode.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <!-- Pretendard (한글 웹폰트) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/static/pretendard.css">
 
   <script>
     tailwind.config = {
@@ -21,6 +24,8 @@
             brand: {
               50: '#f0fdf4',
               100: '#dcfce7',
+              300: '#86efac',
+              400: '#4ade80',
               500: '#22c55e',
               600: '#16a34a',
               700: '#15803d',
@@ -35,18 +40,39 @@
   </script>
 
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800;900&display=swap');
     * {
       font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
       box-sizing: border-box;
       -webkit-tap-highlight-color: transparent;
     }
-    canvas#sigCanvas {
-      touch-action: none;
+    /* 한글이 단어 중간에서 끊기지 않도록 */
+    body { word-break: keep-all; overflow-wrap: anywhere; }
+    /* iOS 는 16px 미만 입력칸에 포커스하면 화면을 확대하므로 입력 글꼴을 16px 로 고정 */
+    input, textarea, select { font-size: 16px !important; }
+    input[type=number]::-webkit-outer-spin-button,
+    input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
+    canvas#sigCanvas { touch-action: none; user-select: none; -webkit-user-select: none; }
+    .field {
+      width: 100%;
+      background: #020617;
+      border: 1px solid #334155;
+      border-radius: 0.875rem;
+      padding: 0.8rem 0.95rem;
+      color: #fff;
+      outline: none;
+      transition: border-color .15s, box-shadow .15s;
     }
-    ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: #0f172a; }
-    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    .field::placeholder { color: #64748b; }
+    .field:focus { border-color: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, .18); }
+    .step-no {
+      width: 1.6rem; height: 1.6rem; border-radius: 999px;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: #14532d; color: #bbf7d0; font-size: .75rem; font-weight: 900; flex-shrink: 0;
+    }
+    .check { width: 1.25rem; height: 1.25rem; flex-shrink: 0; accent-color: #22c55e; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+    .animate-fadeIn { animation: fadeIn .25s ease-out; }
   </style>
 
   <script>
@@ -59,302 +85,291 @@
   <script src="../assets/bongplay-sync.js"></script>
   <script src="../assets/bongplay-id.js"></script>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased select-none">
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased">
 
   <!-- ================================================================= -->
-  <!-- TOP HEADER (순수 고객용)                                            -->
+  <!-- TOP HEADER (순수 고객용 — 직원용 동기화 배지는 노출하지 않음)          -->
   <!-- ================================================================= -->
-  <header class="bg-slate-900/90 border-b border-slate-800 sticky top-0 z-40 backdrop-blur-md px-4 py-3 flex items-center justify-between">
-    <div class="flex items-center gap-2.5">
-      <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center text-white font-black text-xs shadow-md shadow-brand-600/30">
-        봉플
+  <header class="bg-slate-950/90 border-b border-slate-800/80 sticky top-0 z-40 backdrop-blur-md px-4 py-3" style="padding-top: max(0.75rem, env(safe-area-inset-top));">
+    <div class="max-w-xl mx-auto flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center shadow-md shadow-brand-600/30 shrink-0">
+        <i data-lucide="trees" class="w-5 h-5 text-white"></i>
       </div>
-      <div>
-        <h1 class="text-sm sm:text-base font-black tracking-tight text-white flex items-center gap-1.5">
-          <span>리틀포레스트 봉플레이</span>
-          <span class="text-[10px] font-extrabold text-brand-400 bg-brand-950/80 px-2 py-0.5 rounded-full border border-brand-800/60">
-            모바일 안전서약
-          </span>
-        </h1>
-        <p class="text-[10px] text-slate-400">어린이 안전놀이시설 전자동의서</p>
+      <div class="min-w-0">
+        <h1 class="text-[15px] font-black tracking-tight text-white truncate" data-site="facility.name">리틀포레스트 봉플레이</h1>
+        <p class="text-xs text-slate-400">모바일 안전이용 서약</p>
       </div>
     </div>
-
-    <!-- Sync status indicator (minimal) -->
-    <div id="syncStatusBadge"></div>
   </header>
 
   <!-- ================================================================= -->
   <!-- MAIN CONTAINER: INTAKE FORM OR VOUCHER SCREEN                      -->
   <!-- ================================================================= -->
-  <main class="flex-1 flex flex-col items-center justify-start p-3.5 sm:p-6 w-full max-w-xl mx-auto overflow-y-auto">
-    
+  <main class="flex-1 w-full max-w-xl mx-auto px-4 pt-4 pb-10">
+
     <!-- ── 1. INTAKE FORM VIEW ── -->
     <div id="formSection" class="w-full space-y-4">
-      
-      <!-- Hero Notice Card -->
-      <div class="w-full bg-gradient-to-br from-brand-950/70 via-slate-900 to-slate-900 border border-brand-800/40 rounded-3xl p-4 sm:p-5 shadow-xl text-center relative overflow-hidden">
-        <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-brand-900/60 border border-brand-700/60 text-brand-300 text-xs font-extrabold mb-2">
-          <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
-          <span>개장 전 필수 안전서약 (소요시간 약 20초)</span>
-        </div>
-        <h2 class="text-lg sm:text-xl font-black text-white tracking-tight">
-          안전하고 즐거운 숲 놀이를 위한<br>
-          <span class="text-brand-400">보호자 동의 및 안전수칙 서약</span>
+
+      <!-- Hero -->
+      <section class="rounded-3xl border border-brand-800/50 bg-gradient-to-br from-brand-950 via-slate-900 to-slate-900 p-5">
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-brand-900/70 text-brand-300 text-xs font-bold">
+          <i data-lucide="timer" class="w-3.5 h-3.5"></i>
+          약 1분 소요
+        </span>
+        <h2 class="mt-3 text-[22px] leading-snug font-black text-white">
+          입장 전<br><span class="text-brand-400">보호자 안전서약</span>을 해주세요
         </h2>
-        <p class="text-xs text-slate-300 mt-2 leading-relaxed">
-          짚코스터·네트어드벤처·트램펄린 이용 전 보호자 서약을 완료하시면<br class="hidden xs:inline">
-          매표소에서 <b>즉시 발권 가능한 모바일 바우처 QR</b>이 발급됩니다.
+        <p class="mt-2 text-sm leading-relaxed text-slate-300">
+          서약을 마치면 <b class="text-white">입장 QR</b>이 바로 나옵니다.<br>
+          매표소에 보여주시면 빠르게 발권해 드려요.
         </p>
-      </div>
+      </section>
 
       <!-- Consent Input Form -->
-      <form id="consentForm" onsubmit="handleConsentSubmit(event)" class="space-y-4">
+      <form id="consentForm" onsubmit="handleConsentSubmit(event)" class="space-y-4" novalidate>
 
         <!-- STEP 1: GUARDIAN INFO -->
-        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
-          <div class="flex items-center gap-2 pb-2 border-b border-slate-800 text-brand-400 font-extrabold text-sm">
-            <i data-lucide="user-check" class="w-4 h-4"></i>
-            <span>1. 법적 보호자(성인) 정보</span>
+        <section class="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-4">
+          <div class="flex items-center gap-2.5">
+            <span class="step-no">1</span>
+            <h3 class="text-base font-black text-white">보호자 정보</h3>
           </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="space-y-3">
             <div>
-              <label class="block text-xs font-bold text-slate-300 mb-1">보호자 성명 <span class="text-rose-400">*</span></label>
-              <input type="text" id="guardianName" required placeholder="예: 홍길동"
-                class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition">
+              <label for="guardianName" class="block text-sm font-bold text-slate-300 mb-1.5">성명 <span class="text-rose-400">*</span></label>
+              <input type="text" id="guardianName" required placeholder="홍길동" autocomplete="name" class="field">
             </div>
             <div>
-              <label class="block text-xs font-bold text-slate-300 mb-1">휴대전화번호 <span class="text-rose-400">*</span></label>
-              <input type="tel" id="guardianPhone" required placeholder="010-0000-0000" maxlength="13" oninput="autoHyphenPhone(this)"
-                class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition font-mono">
+              <label for="guardianPhone" class="block text-sm font-bold text-slate-300 mb-1.5">휴대전화 <span class="text-rose-400">*</span></label>
+              <input type="tel" id="guardianPhone" required placeholder="010-0000-0000" maxlength="13" inputmode="numeric" autocomplete="tel"
+                oninput="autoHyphenPhone(this)" class="field font-mono tracking-wide">
             </div>
+            <!-- 재방문 고객 자녀 정보 자동불러오기 편의 배너 (QR 발급 프로세스 내 제공) -->
+            <div id="repeatFamilyBox" class="hidden"></div>
           </div>
 
           <div>
-            <label class="block text-xs font-bold text-slate-300 mb-1">거주 지역 (봉화군민 할인 확인용)</label>
-            <div class="grid grid-cols-2 gap-2 text-xs font-bold">
-              <label class="cursor-pointer border border-slate-700 rounded-xl p-2.5 flex items-center justify-center gap-2 hover:bg-slate-800 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-950/50 has-[:checked]:text-brand-300 transition">
-                <input type="radio" name="residenceType" value="봉화군민" class="accent-brand-500">
-                <span>봉화군민 (신분증 제시)</span>
-              </label>
-              <label class="cursor-pointer border border-slate-700 rounded-xl p-2.5 flex items-center justify-center gap-2 hover:bg-slate-800 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-950/50 has-[:checked]:text-brand-300 transition">
-                <input type="radio" name="residenceType" value="관외일반" checked class="accent-brand-500">
-                <span>관외 일반 방문객</span>
-              </label>
-            </div>
-          </div>
-        </div>
-
-        <!-- STEP 2: CHILDREN INFO (With Height & Weight) -->
-        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
-          <div class="flex items-center justify-between pb-2 border-b border-slate-800">
-            <div class="flex items-center gap-2 text-brand-400 font-extrabold text-sm">
-              <i data-lucide="baby" class="w-4 h-4"></i>
-              <span>2. 동반 아동 정보 (신체 안전규격)</span>
-            </div>
-            <button type="button" onclick="addChildRow()" class="text-xs text-brand-400 hover:text-brand-300 font-bold flex items-center gap-1 bg-brand-950 px-2.5 py-1 rounded-lg border border-brand-800/80 transition">
-              <i data-lucide="plus" class="w-3.5 h-3.5"></i>
-              <span>아동 추가</span>
-            </button>
-          </div>
-
-          <p class="text-[11px] text-slate-400 leading-relaxed">
-            ※ 실버 짚코스터는 <b>신장 100cm 이상, 체중 85kg 이하</b> 탑승 가능합니다. 정확한 안전 운영을 위해 입력 부탁드립니다.
-          </p>
-
-          <div id="childrenContainer" class="space-y-2.5">
-            <!-- Child Row 1 -->
-            <div class="child-row bg-slate-950/80 border border-slate-800 rounded-xl p-3 space-y-2">
-              <div class="flex items-center justify-between">
-                <span class="text-xs font-black text-brand-400 flex items-center gap-1">
-                  <span class="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center text-[10px] text-white">1</span>
-                  <span>동반 아동</span>
+            <span class="block text-sm font-bold text-slate-300 mb-1.5">거주 지역</span>
+            <div class="grid grid-cols-2 gap-2">
+              <label class="cursor-pointer rounded-2xl border border-slate-700 bg-slate-950 p-3 flex items-start gap-2.5 transition has-[:checked]:border-brand-500 has-[:checked]:bg-brand-950/60">
+                <input type="radio" name="residenceType" value="봉화군민" class="check mt-0.5">
+                <span>
+                  <span class="block text-sm font-bold text-white">봉화군민</span>
+                  <span class="block text-xs text-slate-400 mt-0.5">30% 할인 (신분증)</span>
                 </span>
-              </div>
-              <div class="grid grid-cols-2 gap-2">
-                <input type="text" name="childName[]" required placeholder="아동 성명"
-                  class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500">
-                <input type="text" name="childBirth[]" placeholder="생년월일(예: 20180501)" maxlength="8"
-                  class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 font-mono">
-              </div>
-              <div class="grid grid-cols-2 gap-2">
-                <div class="relative">
-                  <input type="number" name="childHeight[]" placeholder="신장 (cm)" min="50" max="200"
-                    class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 font-mono">
-                  <span class="absolute right-3 top-2 text-[10px] text-slate-500 font-bold">cm</span>
-                </div>
-                <div class="relative">
-                  <input type="number" name="childWeight[]" placeholder="체중 (kg)" min="10" max="150"
-                    class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 font-mono">
-                  <span class="absolute right-3 top-2 text-[10px] text-slate-500 font-bold">kg</span>
-                </div>
-              </div>
+              </label>
+              <label class="cursor-pointer rounded-2xl border border-slate-700 bg-slate-950 p-3 flex items-start gap-2.5 transition has-[:checked]:border-brand-500 has-[:checked]:bg-brand-950/60">
+                <input type="radio" name="residenceType" value="영주·안동" class="check mt-0.5">
+                <span>
+                  <span class="block text-sm font-bold text-white">영주 · 안동</span>
+                  <span class="block text-xs text-slate-400 mt-0.5">인접 생활권</span>
+                </span>
+              </label>
+              <label class="cursor-pointer rounded-2xl border border-slate-700 bg-slate-950 p-3 flex items-start gap-2.5 transition has-[:checked]:border-brand-500 has-[:checked]:bg-brand-950/60">
+                <input type="radio" name="residenceType" value="대구·경북" class="check mt-0.5">
+                <span>
+                  <span class="block text-sm font-bold text-white">대구 · 경북</span>
+                  <span class="block text-xs text-slate-400 mt-0.5">광역 생활권</span>
+                </span>
+              </label>
+              <label class="cursor-pointer rounded-2xl border border-slate-700 bg-slate-950 p-3 flex items-start gap-2.5 transition has-[:checked]:border-brand-500 has-[:checked]:bg-brand-950/60">
+                <input type="radio" name="residenceType" value="수도권·기타" checked class="check mt-0.5">
+                <span>
+                  <span class="block text-sm font-bold text-white">수도권 · 기타</span>
+                  <span class="block text-xs text-slate-400 mt-0.5">일반 방문객</span>
+                </span>
+              </label>
             </div>
           </div>
-        </div>
+        </section>
 
-        <!-- STEP 3: TERMS & MASTER AGREE TOGGLE -->
-        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
-          <div class="flex items-center gap-2 pb-2 border-b border-slate-800 text-brand-400 font-extrabold text-sm">
-            <i data-lucide="check-square" class="w-4 h-4"></i>
-            <span>3. 안전수칙 준수 및 이용 동의</span>
+        <!-- STEP 2: CHILDREN INFO -->
+        <section class="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-4">
+          <div class="flex items-center gap-2.5">
+            <span class="step-no">2</span>
+            <h3 class="text-base font-black text-white">함께 온 아이</h3>
           </div>
 
-          <!-- Master Agreement Box (전체 동의하기) -->
-          <label class="cursor-pointer bg-brand-950/60 border border-brand-500/50 rounded-xl p-3.5 flex items-center gap-3 transition hover:bg-brand-950/90">
-            <input type="checkbox" id="agreeAllToggle" onchange="toggleAgreeAll(this.checked)"
-              class="w-5 h-5 rounded accent-brand-500 cursor-pointer">
-            <div class="flex-1">
-              <span class="text-xs sm:text-sm font-black text-white block">모든 약관에 전체 동의합니다 (필수 및 선택)</span>
-              <span class="text-[11px] text-brand-300 block mt-0.5">안전수칙, 개인정보 처리, 비상연락망 제공에 일괄 동의합니다.</span>
-            </div>
+          <div class="flex gap-2 rounded-2xl bg-amber-500/10 border border-amber-500/30 p-3 text-xs leading-relaxed text-amber-100">
+            <i data-lucide="info" class="w-4 h-4 text-amber-400 shrink-0 mt-0.5"></i>
+            <span>짚코스터는 <b>키 100cm 이상 · 몸무게 85kg 이하</b>만 탈 수 있어요. 안전을 위해 정확히 적어주세요.</span>
+          </div>
+
+          <div id="childrenContainer" class="space-y-3"></div>
+
+          <button type="button" onclick="addChildRow()"
+            class="w-full py-3 rounded-2xl border-2 border-dashed border-slate-700 text-sm font-bold text-brand-400 flex items-center justify-center gap-1.5 active:bg-slate-800 transition">
+            <i data-lucide="plus" class="w-4 h-4"></i>
+            아이 추가
+          </button>
+        </section>
+
+        <!-- STEP 3: TERMS -->
+        <section class="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-3">
+          <div class="flex items-center gap-2.5">
+            <span class="step-no">3</span>
+            <h3 class="text-base font-black text-white">안전수칙 동의</h3>
+          </div>
+
+          <label class="cursor-pointer rounded-2xl border border-brand-600/60 bg-brand-950/60 p-4 flex items-center gap-3">
+            <input type="checkbox" id="agreeAllToggle" onchange="toggleAgreeAll(this.checked)" class="check">
+            <span class="text-[15px] font-black text-white">전체 동의하기</span>
           </label>
 
-          <!-- Sub Checklist -->
-          <div class="space-y-2 pt-1 text-xs text-slate-300">
-            <label class="flex items-start gap-2.5 cursor-pointer">
-              <input type="checkbox" id="agreeRules" required class="term-check mt-0.5 accent-brand-500">
-              <span><b>[필수]</b> 안전요원의 통제에 따르며, 시설별 신장·체중 규격을 준수합니다.</span>
+          <div class="divide-y divide-slate-800 rounded-2xl border border-slate-800 bg-slate-950/60">
+            <label class="flex items-start gap-3 p-3.5 cursor-pointer">
+              <input type="checkbox" id="agreeRules" required class="term-check check mt-0.5" onchange="syncAgreeAll()">
+              <span class="text-sm leading-relaxed text-slate-200"><b class="text-brand-400">[필수]</b> 안전요원의 안내에 따르고, 시설별 키·몸무게 기준을 지킵니다.</span>
             </label>
-            <label class="flex items-start gap-2.5 cursor-pointer">
-              <input type="checkbox" id="agreeGuardian" required class="term-check mt-0.5 accent-brand-500">
-              <span><b>[필수]</b> 만 12세 이하 어린이는 법적 보호자가 원내에 상주하여 지도합니다.</span>
+            <label class="flex items-start gap-3 p-3.5 cursor-pointer">
+              <input type="checkbox" id="agreeGuardian" required class="term-check check mt-0.5" onchange="syncAgreeAll()">
+              <span class="text-sm leading-relaxed text-slate-200"><b class="text-brand-400">[필수]</b> 만 12세 이하 어린이는 보호자가 시설 안에서 함께 지도합니다.</span>
             </label>
-            <label class="flex items-start gap-2.5 cursor-pointer">
-              <input type="checkbox" id="agreePrivacy" required class="term-check mt-0.5 accent-brand-500">
-              <span><b>[필수]</b> 안전사고 발생 시 비상연락 및 영업배상책임보험 접수를 위한 개인정보 수집에 동의합니다.</span>
+            <label class="flex items-start gap-3 p-3.5 cursor-pointer">
+              <input type="checkbox" id="agreePrivacy" required class="term-check check mt-0.5" onchange="syncAgreeAll()">
+              <span class="text-sm leading-relaxed text-slate-200"><b class="text-brand-400">[필수]</b> 사고 시 비상연락과 배상책임보험 접수를 위한 개인정보 수집·이용에 동의합니다.</span>
             </label>
-            <label class="flex items-start gap-2.5 cursor-pointer">
-              <input type="checkbox" id="agreeMarketing" class="term-check mt-0.5 accent-brand-500">
-              <span class="text-slate-400"><b>[선택]</b> 봉플레이 축제·이벤트 및 재방문 할인 혜택 SMS 수신에 동의합니다.</span>
+            <label class="flex items-start gap-3 p-3.5 cursor-pointer">
+              <input type="checkbox" id="agreeMarketing" class="term-check check mt-0.5" onchange="syncAgreeAll()">
+              <span class="text-sm leading-relaxed text-slate-400"><b>[선택]</b> 축제·이벤트 및 재방문 할인 문자 수신에 동의합니다.</span>
             </label>
           </div>
-        </div>
+        </section>
 
-        <!-- STEP 4: SIGNATURE CANVAS -->
-        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
-          <div class="flex items-center justify-between pb-2 border-b border-slate-800">
-            <div class="flex items-center gap-2 text-brand-400 font-extrabold text-sm">
-              <i data-lucide="pen-tool" class="w-4 h-4"></i>
-              <span>4. 법적 보호자 전자서명</span>
+        <!-- STEP 4: SIGNATURE -->
+        <section class="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-3">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2.5">
+              <span class="step-no">4</span>
+              <h3 class="text-base font-black text-white">보호자 서명</h3>
             </div>
-            <button type="button" onclick="clearSignature()" class="text-xs text-slate-400 hover:text-white font-bold flex items-center gap-1 bg-slate-800 px-2.5 py-1 rounded-lg transition">
-              <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
-              <span>서명 다시 쓰기</span>
+            <button type="button" onclick="clearSignature()" class="text-sm text-slate-300 font-bold flex items-center gap-1 bg-slate-800 active:bg-slate-700 px-3 py-1.5 rounded-xl transition">
+              <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+              지우기
             </button>
           </div>
 
-          <div class="relative bg-slate-950 border border-slate-700 rounded-xl overflow-hidden touch-none h-36 flex items-center justify-center">
-            <canvas id="sigCanvas" class="w-full h-full cursor-crosshair"></canvas>
-            <span id="sigPlaceholder" class="absolute pointer-events-none text-xs text-slate-600 font-bold">
-              여기에 손가락 또는 스타일러스로 정자로 서명해 주세요.
+          <div class="relative bg-white rounded-2xl overflow-hidden touch-none h-48 flex items-center justify-center">
+            <canvas id="sigCanvas" class="absolute inset-0 w-full h-full"></canvas>
+            <span id="sigPlaceholder" class="pointer-events-none text-sm text-slate-400 font-bold flex items-center gap-1.5">
+              <i data-lucide="pen-line" class="w-4 h-4"></i>
+              여기에 손가락으로 서명해 주세요
             </span>
+            <div class="pointer-events-none absolute left-5 right-5 bottom-10 border-b border-dashed border-slate-300"></div>
           </div>
-        </div>
+        </section>
+
+        <p id="formError" class="hidden rounded-2xl bg-rose-500/10 border border-rose-500/40 p-3 text-sm font-bold text-rose-300"></p>
 
         <!-- SUBMIT BUTTON -->
-        <button type="submit" id="btnSubmitConsent" class="w-full py-4 bg-brand-600 hover:bg-brand-500 active:scale-[0.99] text-white font-black text-sm sm:text-base rounded-2xl shadow-lg shadow-brand-600/30 transition flex items-center justify-center gap-2">
+        <button type="submit" id="btnSubmitConsent" class="w-full py-4 bg-brand-600 active:bg-brand-700 active:scale-[0.99] text-white font-black text-base rounded-2xl shadow-lg shadow-brand-600/30 transition flex items-center justify-center gap-2 disabled:opacity-60">
           <i data-lucide="shield-check" class="w-5 h-5"></i>
-          <span>안전서약 완료 및 매표 바우처 받기</span>
+          <span>서약 완료하고 입장 QR 받기</span>
         </button>
       </form>
     </div>
 
     <!-- ── 2. VOUCHER VIEW (서약 완료 시 노출) ── -->
     <div id="voucherSection" class="hidden w-full space-y-4 text-center animate-fadeIn">
-      
-      <div class="bg-gradient-to-br from-brand-950/90 via-slate-900 to-slate-900 border border-brand-500/50 rounded-3xl p-6 shadow-2xl space-y-4">
-        <div class="w-14 h-14 rounded-full bg-brand-500/20 text-brand-400 mx-auto flex items-center justify-center">
-          <i data-lucide="check-circle" class="w-8 h-8"></i>
-        </div>
 
+      <div class="bg-gradient-to-b from-brand-950 to-slate-900 border border-brand-600/50 rounded-3xl p-6 space-y-5">
         <div>
-          <span class="text-[11px] font-extrabold text-brand-400 uppercase tracking-wider bg-brand-950 px-2.5 py-1 rounded-full border border-brand-800">
-            서약 접수 완료
-          </span>
-          <h3 class="text-xl font-black text-white mt-2">매표소 제시용 모바일 바우처</h3>
-          <p class="text-xs text-slate-300 mt-1">
-            아래의 QR 코드 또는 바우처 번호를 매표소 직원에게 보여주세요.
-          </p>
+          <div class="w-14 h-14 rounded-full bg-brand-500/20 text-brand-400 mx-auto flex items-center justify-center">
+            <i data-lucide="check" class="w-8 h-8"></i>
+          </div>
+          <h3 class="text-xl font-black text-white mt-3">서약이 완료되었습니다</h3>
+          <p class="text-sm text-slate-300 mt-1">매표소에서 이 화면을 보여주세요.</p>
         </div>
 
         <!-- Big QR Code Container -->
-        <div class="bg-white p-4 rounded-2xl inline-block mx-auto shadow-inner">
-          <div id="voucherQrCode" class="w-48 h-48 flex items-center justify-center"></div>
+        <div class="bg-white p-4 rounded-3xl inline-block mx-auto">
+          <div id="voucherQrCode" class="w-56 h-56 flex items-center justify-center"></div>
         </div>
 
         <!-- Pass Code Display -->
-        <div class="bg-slate-950 p-3 rounded-2xl border border-slate-800 max-w-xs mx-auto">
-          <span class="text-[10px] text-slate-400 font-bold block">바우처 접수번호</span>
-          <span id="voucherCodeText" class="text-xl font-black font-mono text-brand-400 tracking-wider">BP-XXXXXX</span>
+        <div>
+          <span class="text-xs text-slate-400 font-bold block">서약 번호</span>
+          <span id="voucherCodeText" class="text-2xl font-black font-mono text-brand-400 tracking-wider">BP-XXXXXX</span>
         </div>
 
         <!-- Summary Info -->
-        <div class="grid grid-cols-2 gap-2 text-xs bg-slate-950/60 p-3 rounded-2xl border border-slate-800/80 text-left">
-          <div>
-            <span class="text-slate-500 text-[10px] block">보호자 성명</span>
+        <div class="grid grid-cols-2 gap-2 text-left">
+          <div class="bg-slate-950/70 rounded-2xl border border-slate-800 p-3">
+            <span class="text-slate-500 text-xs block">보호자</span>
             <span id="voucherGuardianText" class="font-bold text-white">-</span>
           </div>
-          <div>
-            <span class="text-slate-500 text-[10px] block">동반 인원수</span>
+          <div class="bg-slate-950/70 rounded-2xl border border-slate-800 p-3">
+            <span class="text-slate-500 text-xs block">인원</span>
             <span id="voucherPeopleCountText" class="font-bold text-brand-300">-</span>
           </div>
         </div>
 
-        <!-- Next Action Buttons -->
-        <div class="pt-2 space-y-2">
-          <button type="button" onclick="resetForNewGuest()" class="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5">
-            <i data-lucide="user-plus" class="w-4 h-4"></i>
-            <span>새로운 일행 서약 작성하기</span>
-          </button>
-          <p class="text-[10px] text-slate-500">
-            ※ 브라우저 창을 닫아도 발권 데스크에 안전하게 보존됩니다.
-          </p>
-        </div>
+        <p class="flex items-center justify-center gap-1.5 text-xs text-slate-400">
+          <i data-lucide="camera" class="w-3.5 h-3.5"></i>
+          화면을 캡처해 두시면 편해요
+        </p>
       </div>
+
+      <button type="button" id="btnVoucherSurvey" onclick="openFullSurveyPage(currentVoucherCode)" class="w-full py-3.5 bg-amber-500/15 border border-amber-500/40 active:bg-amber-500/25 text-amber-200 font-bold text-sm rounded-2xl transition flex items-center justify-center gap-1.5">
+        <i data-lucide="star" class="w-4 h-4"></i>
+        <span id="btnVoucherSurveyLabel">다 놀고 나가실 때 만족도 남기기</span>
+      </button>
+
+      <button type="button" onclick="resetForNewGuest()" class="w-full py-3.5 bg-slate-800 active:bg-slate-700 text-slate-200 font-bold text-sm rounded-2xl transition flex items-center justify-center gap-1.5">
+        <i data-lucide="user-plus" class="w-4 h-4"></i>
+        다른 일행 서약하기
+      </button>
     </div>
 
     <!-- ── 3. EXIT SATISFACTION SURVEY MODAL (URL 연동형) ── -->
-    <div id="surveyModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div id="surveyModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-3">
       <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-5 space-y-4 shadow-2xl text-left">
-        <div class="flex items-center justify-between pb-2 border-b border-slate-800">
-          <div class="flex items-center gap-2">
-            <div class="w-7 h-7 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-black">
-              <i data-lucide="star" class="w-4 h-4"></i>
+        <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div class="flex items-center gap-2.5">
+            <div class="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center">
+              <i data-lucide="star" class="w-5 h-5"></i>
             </div>
             <div>
-              <h3 class="text-sm font-black text-white">10초 경험 만족도 설문</h3>
-              <p class="text-[10px] text-slate-400 font-mono" id="surveyTargetPass">BP-XXXXXX</p>
+              <h3 class="text-base font-black text-white">오늘 어떠셨나요?</h3>
+              <p class="text-xs text-slate-400 font-mono" id="surveyTargetPass">BP-XXXXXX</p>
             </div>
           </div>
-          <button onclick="closeSurveyModal()" class="p-1 text-slate-400 hover:text-white rounded-lg">
-            <i data-lucide="x" class="w-4 h-4"></i>
+          <button onclick="closeSurveyModal()" class="p-2 text-slate-400 hover:text-white rounded-xl" aria-label="닫기">
+            <i data-lucide="x" class="w-5 h-5"></i>
           </button>
         </div>
 
-        <div class="space-y-3 text-xs">
+        <div id="surveyThanks" class="hidden py-6 text-center space-y-2">
+          <div class="text-5xl">🌿</div>
+          <div class="text-lg font-black text-white">소중한 의견 감사합니다!</div>
+          <div class="text-sm text-slate-400">안전한 귀갓길 되세요. 또 놀러 오세요.</div>
+          <button type="button" onclick="closeSurveyModal()" class="mt-3 w-full py-3.5 bg-slate-800 active:bg-slate-700 text-slate-200 font-bold text-sm rounded-2xl">닫기</button>
+        </div>
+
+        <div id="surveyFormBody" class="space-y-4">
+        <div class="space-y-4">
           <div>
-            <label class="block text-xs font-bold text-slate-300 mb-1">오늘 숲 놀이 경험은 어떠셨나요?</label>
-            <div class="grid grid-cols-5 gap-1.5 text-center">
-              <button type="button" onclick="selectScore(1)" class="score-btn p-2 bg-slate-950 border border-slate-800 rounded-xl hover:border-amber-400">1점</button>
-              <button type="button" onclick="selectScore(2)" class="score-btn p-2 bg-slate-950 border border-slate-800 rounded-xl hover:border-amber-400">2점</button>
-              <button type="button" onclick="selectScore(3)" class="score-btn p-2 bg-slate-950 border border-slate-800 rounded-xl hover:border-amber-400">3점</button>
-              <button type="button" onclick="selectScore(4)" class="score-btn p-2 bg-slate-950 border border-slate-800 rounded-xl hover:border-amber-400">4점</button>
-              <button type="button" onclick="selectScore(5)" class="score-btn p-2 bg-amber-500/20 border border-amber-400 text-amber-300 font-bold rounded-xl">5점</button>
+            <label class="block text-sm font-bold text-slate-300 mb-2">만족도</label>
+            <div class="grid grid-cols-5 gap-2 text-center text-sm">
+              <button type="button" onclick="selectScore(1)" class="score-btn py-3 bg-slate-950 border border-slate-800 rounded-xl">1점</button>
+              <button type="button" onclick="selectScore(2)" class="score-btn py-3 bg-slate-950 border border-slate-800 rounded-xl">2점</button>
+              <button type="button" onclick="selectScore(3)" class="score-btn py-3 bg-slate-950 border border-slate-800 rounded-xl">3점</button>
+              <button type="button" onclick="selectScore(4)" class="score-btn py-3 bg-slate-950 border border-slate-800 rounded-xl">4점</button>
+              <button type="button" onclick="selectScore(5)" class="score-btn py-3 bg-amber-500/20 border border-amber-400 text-amber-300 font-bold rounded-xl">5점</button>
             </div>
           </div>
 
           <div>
-            <label class="block text-xs font-bold text-slate-300 mb-1">개선 의견 또는 직원 칭찬 (선택)</label>
-            <textarea id="surveyComment" rows="2" placeholder="자유롭게 의견을 남겨주세요."
-              class="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500"></textarea>
+            <label for="surveyComment" class="block text-sm font-bold text-slate-300 mb-2">하고 싶은 말씀 (선택)</label>
+            <textarea id="surveyComment" rows="3" placeholder="좋았던 점, 아쉬운 점, 직원 칭찬 모두 환영해요." class="field"></textarea>
           </div>
         </div>
 
-        <button type="button" onclick="submitExitSurvey()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow transition">
-          설문 완료 및 제출
+        <button type="button" onclick="submitExitSurvey()" class="w-full py-3.5 bg-amber-500 active:bg-amber-400 text-slate-950 font-black text-sm rounded-2xl transition">
+          보내기
         </button>
+        </div>
       </div>
     </div>
   </main>
@@ -368,66 +383,83 @@
     let selectedSurveyScore = 5;
 
     document.addEventListener('DOMContentLoaded', function () {
+      addChildRow();
       lucide.createIcons();
-      BongplaySync.renderBadge('syncStatusBadge');
       initSignatureCanvas();
 
-      // Check survey query param (?survey=BP-xxx or ?pass=BP-xxx)
+      // 오늘 이 폰에서 이미 서약했다면 바우처(QR·설문 버튼) 화면을 다시 보여준다
+      const mine = loadMyVoucher();
+      if (mine) showVoucher(mine);
+
+      // 퇴장 게이트 QR 등으로 들어온 설문 (?survey=BP-xxx or ?pass=BP-xxx)
       try {
         const params = new URLSearchParams(window.location.search);
         const pass = params.get('survey') || params.get('pass');
         if (pass) {
-          openSurveyModal(pass);
+          // 예전에 인쇄·배포된 설문 링크(?survey=)는 새 후기 설문 페이지로 넘긴다
+          openFullSurveyPage(pass);
+          return;
         }
       } catch (e) {}
     });
 
-    // 1. Master Agree All Toggle (User Feedback #5)
+    // 1. 전체 동의 ↔ 개별 항목 동기화
     function toggleAgreeAll(checked) {
-      const checkboxes = document.querySelectorAll('.term-check');
-      checkboxes.forEach(cb => { cb.checked = checked; });
+      document.querySelectorAll('.term-check').forEach(cb => { cb.checked = checked; });
+    }
+    function syncAgreeAll() {
+      const all = Array.from(document.querySelectorAll('.term-check')).every(cb => cb.checked);
+      document.getElementById('agreeAllToggle').checked = all;
     }
 
     // 2. Add / Remove Child
+    function renumberChildren() {
+      document.querySelectorAll('#childrenContainer .child-row').forEach((row, i) => {
+        row.querySelector('[data-child-no]').textContent = i + 1;
+        const del = row.querySelector('[data-child-del]');
+        if (del) del.style.visibility = i === 0 ? 'hidden' : 'visible';
+      });
+    }
+
+    function removeChildRow(btn) {
+      btn.closest('.child-row').remove();
+      renumberChildren();
+    }
+
     function addChildRow() {
       const container = document.getElementById('childrenContainer');
       const count = container.querySelectorAll('.child-row').length + 1;
       if (count > 8) {
-        alert('한 번에 최대 8명의 아동까지 서약 등록이 가능합니다.');
+        alert('한 번에 최대 8명의 아이까지 서약할 수 있어요.');
         return;
       }
 
       const div = document.createElement('div');
-      div.className = 'child-row bg-slate-950/80 border border-slate-800 rounded-xl p-3 space-y-2';
+      div.className = 'child-row rounded-2xl border border-slate-800 bg-slate-950/60 p-3.5 space-y-2.5';
       div.innerHTML = `
         <div class="flex items-center justify-between">
-          <span class="text-xs font-black text-brand-400 flex items-center gap-1">
-            <span class="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center text-[10px] text-white">${count}</span>
-            <span>동반 아동</span>
+          <span class="text-sm font-black text-slate-200 flex items-center gap-2">
+            <span data-child-no class="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center text-xs text-white">${count}</span>
+            아이
           </span>
-          <button type="button" onclick="this.closest('.child-row').remove()" class="text-[11px] text-rose-400 hover:text-rose-300">삭제</button>
+          <button type="button" data-child-del onclick="removeChildRow(this)" class="text-sm font-bold text-rose-400 px-2 py-1 rounded-lg active:bg-rose-500/10">삭제</button>
         </div>
-        <div class="grid grid-cols-2 gap-2">
-          <input type="text" name="childName[]" required placeholder="아동 성명"
-            class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500">
-          <input type="text" name="childBirth[]" placeholder="생년월일(예: 20180501)" maxlength="8"
-            class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 font-mono">
-        </div>
+        <input type="text" name="childName[]" required placeholder="이름" autocomplete="off" class="field">
+        <input type="text" name="childBirth[]" placeholder="생년월일 8자리 (예: 20180501)" maxlength="8" inputmode="numeric" autocomplete="off" class="field font-mono">
         <div class="grid grid-cols-2 gap-2">
           <div class="relative">
-            <input type="number" name="childHeight[]" placeholder="신장 (cm)" min="50" max="200"
-              class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 font-mono">
-            <span class="absolute right-3 top-2 text-[10px] text-slate-500 font-bold">cm</span>
+            <input type="number" name="childHeight[]" placeholder="키" min="50" max="200" inputmode="decimal" class="field font-mono pr-12">
+            <span class="absolute right-3.5 top-1/2 -translate-y-1/2 text-sm text-slate-500 font-bold">cm</span>
           </div>
           <div class="relative">
-            <input type="number" name="childWeight[]" placeholder="체중 (kg)" min="10" max="150"
-              class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 font-mono">
-            <span class="absolute right-3 top-2 text-[10px] text-slate-500 font-bold">kg</span>
+            <input type="number" name="childWeight[]" placeholder="몸무게" min="10" max="150" inputmode="decimal" class="field font-mono pr-12">
+            <span class="absolute right-3.5 top-1/2 -translate-y-1/2 text-sm text-slate-500 font-bold">kg</span>
           </div>
         </div>
       `;
       container.appendChild(div);
-      lucide.createIcons();
+      renumberChildren();
+      if (count > 1) div.querySelector('input[name="childName[]"]').focus();
     }
 
     // 3. Signature Canvas
@@ -435,15 +467,29 @@
       sigCanvas = document.getElementById('sigCanvas');
       if (!sigCanvas) return;
       sigCtx = sigCanvas.getContext('2d');
+      let lastWidth = 0;
 
-      function resize() {
-        const rect = sigCanvas.parentElement.getBoundingClientRect();
-        sigCanvas.width = rect.width;
-        sigCanvas.height = rect.height;
-        sigCtx.strokeStyle = '#22c55e';
-        sigCtx.lineWidth = 3;
+      function applyPen() {
+        sigCtx.strokeStyle = '#0f172a';
+        sigCtx.lineWidth = 2.6;
         sigCtx.lineCap = 'round';
         sigCtx.lineJoin = 'round';
+      }
+
+      // 모바일에서 스크롤 시 주소창이 접히며 resize 가 자주 발생한다.
+      // 가로 폭이 그대로면 캔버스를 건드리지 않아 서명이 지워지지 않게 하고,
+      // 폭이 실제로 바뀌어 다시 그려야 할 때는 서명 상태도 함께 초기화한다.
+      function resize() {
+        const rect = sigCanvas.parentElement.getBoundingClientRect();
+        if (Math.round(rect.width) === lastWidth) return;
+        const hadDrawing = lastWidth !== 0 && hasSignature;
+        lastWidth = Math.round(rect.width);
+        const dpr = Math.max(1, window.devicePixelRatio || 1);
+        sigCanvas.width = Math.round(rect.width * dpr);
+        sigCanvas.height = Math.round(rect.height * dpr);
+        sigCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        applyPen();
+        if (hadDrawing) clearSignature();
       }
       resize();
       window.addEventListener('resize', resize);
@@ -456,12 +502,15 @@
       }
 
       function start(e) {
+        e.preventDefault();
         isDrawing = true;
         hasSignature = true;
         document.getElementById('sigPlaceholder').style.display = 'none';
         const pos = getPos(e);
         sigCtx.beginPath();
         sigCtx.moveTo(pos.x, pos.y);
+        sigCtx.lineTo(pos.x + 0.1, pos.y + 0.1);
+        sigCtx.stroke();
       }
 
       function draw(e) {
@@ -485,9 +534,12 @@
 
     function clearSignature() {
       if (!sigCtx || !sigCanvas) return;
+      sigCtx.save();
+      sigCtx.setTransform(1, 0, 0, 1, 0, 0);
       sigCtx.clearRect(0, 0, sigCanvas.width, sigCanvas.height);
+      sigCtx.restore();
       hasSignature = false;
-      document.getElementById('sigPlaceholder').style.display = 'block';
+      document.getElementById('sigPlaceholder').style.display = 'flex';
     }
 
     function autoHyphenPhone(input) {
@@ -499,107 +551,356 @@
       } else {
         input.value = v;
       }
+      checkRepeatFamily(v);
+    }
+
+    function escapeHtml(str) {
+      return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    let cachedFamily = null;
+    async function checkRepeatFamily(digits) {
+      const box = document.getElementById('repeatFamilyBox');
+      if (!box) return;
+      if (digits.length !== 11) {
+        box.classList.add('hidden');
+        box.innerHTML = '';
+        cachedFamily = null;
+        return;
+      }
+
+      // 1. 로컬 캐시 우선 조회 (이전 방문 서약 가구 데이터)
+      let fam = null;
+      try {
+        const raw = localStorage.getItem('bongplay_family_' + digits);
+        if (raw) fam = JSON.parse(raw);
+      } catch (e) {}
+
+      // 2. 로컬 safety_consents 조회
+      if (!fam) {
+        try {
+          const list = JSON.parse(localStorage.getItem('bongplay_safety_consents') || '[]');
+          const match = list.find(c => {
+            const p = (c.guardian_phone || c.guardianPhone || '').replace(/[^0-9]/g, '');
+            return p === digits && Array.isArray(c.children) && c.children.length > 0;
+          });
+          if (match) {
+            fam = {
+              guardianName: match.guardian_name || match.guardianName || '',
+              residence: match.residence || '',
+              children: match.children || []
+            };
+          }
+        } catch (e) {}
+      }
+
+      // 3. Supabase RPC 보안 함수 조회 (서버에 이전 방문 이력이 있는 경우)
+      if (!fam && window.BongplaySync && typeof BongplaySync.rpc === 'function') {
+        try {
+          const res = await BongplaySync.rpc('lookup_family_children', { p_phone: digits });
+          if (res && res.ok && res.data) {
+            fam = res.data;
+          }
+        } catch (e) {}
+      }
+
+      if (fam && Array.isArray(fam.children) && fam.children.length > 0) {
+        cachedFamily = fam;
+        const childNames = fam.children.map(c => c.name).filter(Boolean).join(', ');
+        box.className = 'rounded-2xl border border-brand-500/50 bg-brand-950/80 p-3.5 space-y-2 animate-fadeIn';
+        box.innerHTML = `
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-brand-300 flex items-center gap-1.5">
+              <i data-lucide="sparkles" class="w-3.5 h-3.5 text-brand-400"></i>
+              이전 방문 자녀 기록 발견 (${fam.children.length}명)
+            </span>
+            <span class="text-[11px] text-slate-400">QR 발급 간편 입력</span>
+          </div>
+          <p class="text-xs text-slate-200 leading-snug">
+            등록된 자녀 <b>${escapeHtml(childNames)}</b> 님의 이전 정보를 불러올까요?
+          </p>
+          <button type="button" onclick="applyRecentFamily()" class="w-full py-2.5 bg-brand-600 hover:bg-brand-500 active:scale-[0.99] text-white text-xs font-black rounded-xl shadow transition flex items-center justify-center gap-1.5">
+            <i data-lucide="download" class="w-3.5 h-3.5"></i>
+            자녀 정보 불러오기 (오늘 키·몸무게 확인 필요)
+          </button>
+        `;
+        box.classList.remove('hidden');
+        if (window.lucide) lucide.createIcons();
+      } else {
+        box.classList.add('hidden');
+        box.innerHTML = '';
+        cachedFamily = null;
+      }
+    }
+
+    function applyRecentFamily() {
+      if (!cachedFamily) return;
+      const fam = cachedFamily;
+
+      // 1. 보호자 성명이 비어있으면 자동 입력
+      const nameInput = document.getElementById('guardianName');
+      if (fam.guardianName && !nameInput.value.trim()) {
+        nameInput.value = fam.guardianName;
+      }
+
+      // 2. 거주지 선택
+      if (fam.residence) {
+        const radio = document.querySelector(`input[name="residenceType"][value="${fam.residence}"]`);
+        if (radio) radio.checked = true;
+      }
+
+      // 3. 자녀 정보 컨테이너 채우기
+      const container = document.getElementById('childrenContainer');
+      container.innerHTML = '';
+
+      fam.children.forEach(c => {
+        addChildRow();
+        const rows = container.querySelectorAll('.child-row');
+        const lastRow = rows[rows.length - 1];
+        if (lastRow) {
+          const nameEl = lastRow.querySelector('input[name="childName[]"]');
+          const birthEl = lastRow.querySelector('input[name="childBirth[]"]');
+          const hEl = lastRow.querySelector('input[name="childHeight[]"]');
+          const wEl = lastRow.querySelector('input[name="childWeight[]"]');
+          if (nameEl) nameEl.value = c.name || '';
+          if (birthEl) birthEl.value = c.birth || '';
+          if (hEl) hEl.value = c.height || '';
+          if (wEl) wEl.value = c.weight || '';
+        }
+      });
+
+      // 배너 상태를 확인 알림으로 변경
+      const box = document.getElementById('repeatFamilyBox');
+      if (box) {
+        box.className = 'rounded-2xl border border-emerald-500/50 bg-emerald-950/70 p-3 space-y-1 animate-fadeIn';
+        box.innerHTML = `
+          <div class="flex items-center gap-1.5 text-xs font-bold text-emerald-300">
+            <i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-400"></i>
+            자녀 ${fam.children.length}명의 정보가 자동 입력되었습니다.
+          </div>
+          <p class="text-[11px] text-slate-300 leading-snug">
+            ⚠️ 짚코스터 탑승 안전 기준(100cm)을 위해 <b>오늘 기준 키·몸무게를 한 번 더 확인</b>해 주세요.
+          </p>
+        `;
+        if (window.lucide) lucide.createIcons();
+      }
+
+      const firstChildHeight = container.querySelector('input[name="childHeight[]"]');
+      if (firstChildHeight) firstChildHeight.focus();
+    }
+
+    // 입력 누락 시 해당 칸으로 이동 + 화면 안내 (브라우저 기본 말풍선은 모바일에서 잘 안 보임)
+    function showFormError(msg, focusEl) {
+      const box = document.getElementById('formError');
+      box.textContent = msg;
+      box.classList.remove('hidden');
+      if (focusEl) {
+        focusEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (focusEl.focus) setTimeout(() => focusEl.focus({ preventScroll: true }), 300);
+      }
+      return false;
+    }
+
+    function validateForm() {
+      document.getElementById('formError').classList.add('hidden');
+      const name = document.getElementById('guardianName');
+      if (!name.value.trim()) return showFormError('보호자 성명을 입력해 주세요.', name);
+      const phone = document.getElementById('guardianPhone');
+      const digits = phone.value.replace(/[^0-9]/g, '');
+      if (digits.length < 10) return showFormError('휴대전화 번호를 정확히 입력해 주세요.', phone);
+      const firstChild = document.querySelector('#childrenContainer input[name="childName[]"]');
+      const anyChild = Array.from(document.querySelectorAll('#childrenContainer input[name="childName[]"]')).some(i => i.value.trim());
+      if (!anyChild) return showFormError('함께 온 아이 이름을 한 명 이상 입력해 주세요.', firstChild);
+      for (const id of ['agreeRules', 'agreeGuardian', 'agreePrivacy']) {
+        const cb = document.getElementById(id);
+        if (!cb.checked) return showFormError('필수 항목에 모두 동의해 주세요.', cb.closest('label'));
+      }
+      if (!hasSignature) return showFormError('보호자 서명을 해주세요.', document.getElementById('sigCanvas').parentElement);
+      return true;
     }
 
     // 4. Form Submit Handler
     async function handleConsentSubmit(e) {
       e.preventDefault();
+      if (!validateForm()) return;
 
-      if (!hasSignature) {
-        alert('보호자 전자서명을 작성해 주십시오.');
-        return;
+      const submitBtn = document.getElementById('btnSubmitConsent');
+      submitBtn.disabled = true;
+
+      try {
+        const guardianName = document.getElementById('guardianName').value.trim();
+        const guardianPhone = document.getElementById('guardianPhone').value.trim();
+        const residenceType = document.querySelector('input[name="residenceType"]:checked')?.value || '수도권·기타';
+        const agreeMarketing = document.getElementById('agreeMarketing').checked;
+
+        // Children list
+        const chRows = document.querySelectorAll('.child-row');
+        const children = [];
+        chRows.forEach(row => {
+          const name = row.querySelector('input[name="childName[]"]')?.value.trim();
+          const birth = row.querySelector('input[name="childBirth[]"]')?.value.trim() || '';
+          const height = row.querySelector('input[name="childHeight[]"]')?.value.trim() || '';
+          const weight = row.querySelector('input[name="childWeight[]"]')?.value.trim() || '';
+          if (name) children.push({ name, birth, height, weight });
+        });
+
+        // Generate IDs
+        const now = new Date();
+        const dateStr = BongplaySync.toLocalDateStr(now);
+        const visitId = BongplayID ? BongplayID.generateVisitId(now) : ('vst_' + Date.now());
+        const householdId = BongplayID ? BongplayID.generateHouseholdId(guardianPhone) : ('hh_' + guardianPhone.replace(/[^0-9]/g, ''));
+        const passSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+        const passCode = `BP-${dateStr.replace(/-/g, '').slice(2)}-${passSuffix}`;
+        currentVoucherCode = passCode;
+
+        const recordId = 'cst_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+        const sigData = sigCanvas.toDataURL('image/png');
+
+        const consentRecord = {
+          id: recordId,
+          site_id: 'bongplay_bonghwa',
+          visit_id: visitId,
+          household_id: householdId,
+          pass_code: passCode,
+          guardian_name: guardianName,
+          guardian_phone: guardianPhone,
+          residence: residenceType,
+          children: children,
+          signature_data: sigData,
+          consent_marketing: agreeMarketing,
+          is_issued: false,
+          arrival_at: now.toISOString(),
+          created_date: dateStr,
+          timestamp_text: BongplaySync.toLocalDatetimeLocalStr(now)
+        };
+
+        // Save via BongplaySync (offline resilient outbox)
+        await BongplaySync.upsert('safety_consents', consentRecord);
+
+        const voucher = {
+          passCode,
+          consentId: recordId,
+          visitId,
+          householdId,
+          guardianName,
+          peopleText: `${children.length + 1}명 (성인 1 · 아이 ${children.length})`,
+          date: dateStr
+        };
+        // 손님 본인 폰에만 당일 바우처를 보관 → 창을 닫았다 다시 열어도 QR·설문 버튼 유지
+        try { localStorage.setItem(MY_VOUCHER_KEY, JSON.stringify(voucher)); } catch (e) {}
+
+        // 재방문 시 QR 발급 과정 내 빠른 자녀 정보 채움을 위한 가구 프로필 캐시
+        try {
+          const cleanDigits = guardianPhone.replace(/[^0-9]/g, '');
+          if (cleanDigits.length >= 10) {
+            localStorage.setItem('bongplay_family_' + cleanDigits, JSON.stringify({
+              guardianName,
+              residence: residenceType,
+              children: children.map(c => ({ name: c.name, birth: c.birth, height: c.height, weight: c.weight }))
+            }));
+          }
+        } catch (e) {}
+        showVoucher(voucher);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } finally {
+        submitBtn.disabled = false;
       }
+    }
 
-      const guardianName = document.getElementById('guardianName').value.trim();
-      const guardianPhone = document.getElementById('guardianPhone').value.trim();
-      const residenceType = document.querySelector('input[name="residenceType"]:checked')?.value || '관외일반';
-      const agreeMarketing = document.getElementById('agreeMarketing').checked;
+    const MY_VOUCHER_KEY = 'bongplay_my_voucher';
 
-      // Children list
-      const chRows = document.querySelectorAll('.child-row');
-      const children = [];
-      chRows.forEach(row => {
-        const name = row.querySelector('input[name="childName[]"]')?.value.trim();
-        const birth = row.querySelector('input[name="childBirth[]"]')?.value.trim() || '';
-        const height = row.querySelector('input[name="childHeight[]"]')?.value.trim() || '';
-        const weight = row.querySelector('input[name="childWeight[]"]')?.value.trim() || '';
-        if (name) children.push({ name, birth, height, weight });
-      });
+    function loadMyVoucher() {
+      try {
+        const v = JSON.parse(localStorage.getItem(MY_VOUCHER_KEY) || 'null');
+        if (v && v.passCode && v.date === BongplaySync.toLocalDateStr(new Date())) return v;
+      } catch (e) {}
+      return null;
+    }
 
-      // Generate IDs
-      const now = new Date();
-      const dateStr = BongplaySync.toLocalDateStr(now);
-      const visitId = BongplayID ? BongplayID.generateVisitId(now) : ('vst_' + Date.now());
-      const householdId = BongplayID ? BongplayID.generateHouseholdId(guardianPhone) : ('hh_' + guardianPhone.replace(/[^0-9]/g, ''));
-      const passSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
-      const passCode = `BP-${dateStr.replace(/-/g, '').slice(2)}-${passSuffix}`;
-      currentVoucherCode = passCode;
+    function showVoucher(v) {
+      currentVoucherCode = v.passCode;
+      document.getElementById('voucherCodeText').textContent = v.passCode;
+      document.getElementById('voucherGuardianText').textContent = v.guardianName;
+      document.getElementById('voucherPeopleCountText').textContent = v.peopleText;
 
-      const recordId = 'cst_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-      const sigData = sigCanvas.toDataURL('image/png');
-
-      const consentRecord = {
-        id: recordId,
-        site_id: 'bongplay_bonghwa',
-        visit_id: visitId,
-        household_id: householdId,
-        pass_code: passCode,
-        guardian_name: guardianName,
-        guardian_phone: guardianPhone,
-        residence: residenceType,
-        children: children,
-        signature_data: sigData,
-        consent_marketing: agreeMarketing,
-        is_issued: false,
-        arrival_at: now.toISOString(),
-        created_date: dateStr,
-        timestamp_text: BongplaySync.toLocalDatetimeLocalStr(now)
-      };
-
-      // Save via BongplaySync (offline resilient outbox)
-      await BongplaySync.upsert('safety_consents', consentRecord);
-
-      // Render Voucher
-      document.getElementById('voucherCodeText').textContent = passCode;
-      document.getElementById('voucherGuardianText').textContent = guardianName;
-      document.getElementById('voucherPeopleCountText').textContent = `총 ${children.length + 1}명 (성인 1 · 아동 ${children.length})`;
-
-      // Render QR
       const qrEl = document.getElementById('voucherQrCode');
       qrEl.innerHTML = '';
-      const gateUrl = `${window.location.origin}${window.location.pathname.replace('consent.html', 'gate.html')}?pass=${encodeURIComponent(passCode)}`;
+      // 같은 폴더 기준으로 주소 계산 ('.html' 없는 주소로 열려도 정확)
+      const gateUrlObj = new URL('gate.html', window.location.href);
+      gateUrlObj.searchParams.set('pass', v.passCode);
+      const gateUrl = gateUrlObj.href;
       new QRCode(qrEl, {
         text: gateUrl,
-        width: 180,
-        height: 180,
+        width: 224,
+        height: 224,
         colorDark: '#022c22',
         colorLight: '#ffffff',
         correctLevel: QRCode.CorrectLevel.M
       });
 
-      // Switch view
+      refreshVoucherSurveyButton();
       document.getElementById('formSection').classList.add('hidden');
       document.getElementById('voucherSection').classList.remove('hidden');
       lucide.createIcons();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function refreshVoucherSurveyButton() {
+      const done = isSurveyDone(currentVoucherCode);
+      const btn = document.getElementById('btnVoucherSurvey');
+      btn.disabled = done;
+      btn.classList.toggle('opacity-60', done);
+      document.getElementById('btnVoucherSurveyLabel').textContent = done ? '후기 설문 완료 · 감사합니다' : '🎁 다 놀고 나가실 때 1분 후기 남기고 선물 받기';
     }
 
     // 5. Reset for New Guest
     function resetForNewGuest() {
+      try { localStorage.removeItem(MY_VOUCHER_KEY); } catch (e) {}
+      currentVoucherCode = null;
       document.getElementById('consentForm').reset();
+      document.getElementById('formError').classList.add('hidden');
       clearSignature();
+      const box = document.getElementById('repeatFamilyBox');
+      if (box) { box.classList.add('hidden'); box.innerHTML = ''; }
+      cachedFamily = null;
       const container = document.getElementById('childrenContainer');
-      const rows = container.querySelectorAll('.child-row');
-      for (let i = 1; i < rows.length; i++) rows[i].remove();
+      container.innerHTML = '';
+      addChildRow();
       document.getElementById('voucherSection').classList.add('hidden');
       document.getElementById('formSection').classList.remove('hidden');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     // 6. Survey Handling
+    function surveyDoneKey(passCode) { return 'bongplay_survey_done_' + (passCode || ''); }
+    function isSurveyDone(passCode) {
+      if (!passCode) return false;
+      try {
+        return localStorage.getItem(surveyDoneKey(passCode)) === '1'
+          || !!localStorage.getItem('bongplay_survey_v2_done_' + passCode);   // 새 후기 설문(survey.html) 완료
+      } catch (e) { return false; }
+    }
+
+    // 방문 후기는 전용 설문 페이지(survey.html)에서 받는다 (정성 문항 · 선물 교환 번호)
+    function openFullSurveyPage(passCode) {
+      const u = new URL('survey.html', window.location.href);
+      if (passCode) u.searchParams.set('pass', passCode);
+      u.searchParams.set('ch', 'voucher');
+      window.location.href = u.href;
+    }
+
     function openSurveyModal(passCode) {
+      if (!passCode) return;
       document.getElementById('surveyTargetPass').textContent = passCode;
+      const done = isSurveyDone(passCode);
+      document.getElementById('surveyFormBody').classList.toggle('hidden', done);
+      document.getElementById('surveyThanks').classList.toggle('hidden', !done);
       document.getElementById('surveyModal').classList.remove('hidden');
+      lucide.createIcons();
     }
     function closeSurveyModal() {
       document.getElementById('surveyModal').classList.add('hidden');
@@ -608,25 +909,33 @@
       selectedSurveyScore = score;
       document.querySelectorAll('.score-btn').forEach((b, idx) => {
         if (idx + 1 === score) {
-          b.className = 'score-btn p-2 bg-amber-500/20 border border-amber-400 text-amber-300 font-bold rounded-xl';
+          b.className = 'score-btn py-3 bg-amber-500/20 border border-amber-400 text-amber-300 font-bold rounded-xl';
         } else {
-          b.className = 'score-btn p-2 bg-slate-950 border border-slate-800 rounded-xl hover:border-amber-400';
+          b.className = 'score-btn py-3 bg-slate-950 border border-slate-800 rounded-xl';
         }
       });
     }
-    async function submitExitSurvey() {
+    function submitExitSurvey() {
       const pass = document.getElementById('surveyTargetPass').textContent;
+      if (isSurveyDone(pass)) return;
       const comment = document.getElementById('surveyComment').value.trim();
-      const surveyPayload = {
-        id: 'surv_' + Date.now(),
+      const mine = loadMyVoucher();
+      const sameVisit = mine && mine.passCode === pass;
+      // 운영 대시보드가 읽는 customer_experience_surveys 로 기록 (예전 guest_surveys 는 DB 에 없는 테이블이었음)
+      BongplayID.recordCustomerSurvey({
+        satisfaction_score: selectedSurveyScore,
+        notes: comment,
         pass_code: pass,
-        score: selectedSurveyScore,
-        comment: comment,
-        submitted_at: new Date().toISOString()
-      };
-      await BongplaySync.upsert('guest_surveys', surveyPayload);
-      alert('소중한 의견 감사합니다! 안전한 귀갓길 되십시오.');
-      closeSurveyModal();
+        consent_id: sameVisit ? mine.consentId : null,
+        visit_id: sameVisit ? mine.visitId : null,
+        household_id: sameVisit ? mine.householdId : null,
+        survey_channel: 'mobile'
+      });
+      try { localStorage.setItem(surveyDoneKey(pass), '1'); } catch (e) {}
+      document.getElementById('surveyFormBody').classList.add('hidden');
+      document.getElementById('surveyThanks').classList.remove('hidden');
+      if (currentVoucherCode) refreshVoucherSurveyButton();
+      lucide.createIcons();
     }
   </script>
 </body>

@@ -192,6 +192,53 @@
     color: var(--accent);
     border-color: var(--accent);
   }
+  .header-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+  }
+  .btn-format {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    background: rgba(99, 102, 241, 0.15);
+    color: #a5b4fc;
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .btn-format:hover {
+    background: rgba(99, 102, 241, 0.25);
+    color: #ffffff;
+    border-color: rgba(99, 102, 241, 0.5);
+  }
+  .priority {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 6px;
+    display: inline-block;
+  }
+  .priority.high {
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+  }
+  .priority.medium {
+    background: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+  }
+  .priority.low {
+    background: rgba(148, 163, 184, 0.15);
+    color: #94a3b8;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+  }
 </style>
 </head>
 <body>
@@ -219,7 +266,10 @@
       <h1>봉뜨락 업무로그</h1>
       <div class="sub">단톡방 대화 → 자동 분류 → 구글 시트</div>
     </div>
-    <a id="sheetLink" href="#" target="_blank" rel="noopener" hidden>시트 열기 ↗</a>
+    <div class="header-actions">
+      <button id="btnFormatSheet" type="button" class="btn-format" title="스프레드시트에 1행 고정, 우선순위 색상 뱃지, 줄무늬 행, 열 너비 자동 최적화를 적용합니다">✨ 서식 자동 정리</button>
+      <a id="sheetLink" href="#" target="_blank" rel="noopener" hidden>시트 열기 ↗</a>
+    </div>
   </header>
 
   <div class="card" id="gate" hidden>
@@ -563,6 +613,7 @@
       due.className = 'due' + (overdue ? ' soon' : '');
       due.textContent = !row.due || row.due === '미정' ? '마감 미정' : '~' + row.due + (overdue ? ' ⚠' : '');
       var priority = document.createElement('span');
+      priority.className = 'priority ' + String(row.priority || '').toLowerCase();
       priority.textContent = row.priority || '';
       var status = document.createElement('span');
       status.textContent = row.status || '';
@@ -733,6 +784,25 @@
   });
 
   $('refresh').addEventListener('click', loadRows);
+
+  var btnFormat = $('btnFormatSheet');
+  if (btnFormat) {
+    btnFormat.addEventListener('click', function () {
+      if (!confirm('구글 스프레드시트에 고품질 프리미엄 서식을 자동 적용하시겠습니까?\n\n- 1행 틀 고정 (헤더 스크롤 고정)\n- 우선순위 HIGH(붉은색), MEDIUM(호박색), LOW 색상 뱃지\n- 상태(대기/진행/검토/완료) & 분류별 컬러 태그\n- 줄무늬 행(Zebra Striping) & 열 너비 최적화\n- 데이터 필터 장착')) return;
+      btnFormat.disabled = true;
+      var orig = btnFormat.textContent;
+      btnFormat.textContent = '서식 적용 중…';
+      api('format').then(function (res) {
+        alert('✅ ' + (res.message || '서식 적용이 완료되었습니다!') + '\n\n우측의 [시트 열기 ↗] 를 누르면 깔끔하게 정리된 스프레드시트를 바로 확인하실 수 있습니다.');
+        loadRows();
+      }).catch(function (err) {
+        alert('서식 적용 중 오류가 발생했습니다: ' + (err.message || err));
+      }).finally(function () {
+        btnFormat.disabled = false;
+        btnFormat.textContent = orig;
+      });
+    });
+  }
 
   $('input').addEventListener('input', function () {
     try { localStorage.setItem('bt_draft', $('input').value); } catch (e) {}

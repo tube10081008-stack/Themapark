@@ -821,9 +821,6 @@
           </p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
-          <button onclick="generateSimulatedJourney()" class="px-3.5 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-xl text-xs font-black shadow-lg shadow-indigo-900/40 transition flex items-center gap-2">
-            <i data-lucide="sparkles" class="w-4 h-4"></i> 표준 1회 여정 시뮬레이션 생성
-          </button>
           <button onclick="copyJourneyJson()" class="px-3.5 py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow">
             <i data-lucide="copy" class="w-4 h-4 text-purple-400"></i> AI 에피소드 복사
           </button>
@@ -2226,12 +2223,12 @@
 
     // P1-4 Customer Exit Experience & NPS
     const surveys = (window.BongplayID && BongplayID.getCustomerSurveys) ? BongplayID.getCustomerSurveys() : readLS('bongplay_customer_surveys', []);
-    const npsSummary = (window.BongplayID && BongplayID.getNpsSummary) ? BongplayID.getNpsSummary() : { nps: 75, avg_satisfaction: 4.8, avg_wait_satisfaction: 4.2 };
+    const npsSummary = (window.BongplayID && BongplayID.getNpsSummary) ? BongplayID.getNpsSummary() : { nps: 0, avg_satisfaction: 0, avg_wait_satisfaction: 0 };
     const elSrvCnt = document.getElementById('aiSurveyCount');
     const elNps = document.getElementById('aiNpsScore');
     const elSatScore = document.getElementById('aiAvgSatScore');
     if (elSrvCnt) elSrvCnt.textContent = `${surveys.length}건`;
-    if (elNps) elNps.textContent = `+${npsSummary.nps}`;
+    if (elNps) elNps.textContent = surveys.length ? `${npsSummary.nps > 0 ? '+' : ''}${npsSummary.nps}` : '-';
     if (elSatScore) elSatScore.textContent = `${npsSummary.avg_satisfaction} / ${npsSummary.avg_wait_satisfaction}`;
 
     // P1-5 & P1-6 Staff Shifts, Reassignments & Task Durations
@@ -2364,7 +2361,7 @@
       const currentVal = targetVisitId || select.value;
       select.innerHTML = '<option value="">방문 세션을 선택하세요...</option>' + visitList.map(v => {
         const isSel = (v.visit_id === currentVal) ? 'selected' : '';
-        return `<option value="${v.visit_id}" ${isSel}>${v.visit_id} - ${v.guardian_name} (${v.date}, ${v.total_spend.toLocaleString()}원)</option>`;
+        return `<option value="${escapeHtml(v.visit_id)}" ${isSel}>${escapeHtml(v.date)} ${escapeHtml(v.arrival_time)} · ${escapeHtml(v.guardian_name)} · ${v.total_spend.toLocaleString()}원 · ${escapeHtml(v.status)}</option>`;
       }).join('');
     }
 
@@ -2376,12 +2373,9 @@
       const track = document.getElementById('jTimelineTrack');
       if (track) {
         track.innerHTML = `
-          <div class="text-center py-12 text-slate-500 space-y-3 font-sans">
-            <p class="text-sm font-bold">등록된 방문 여정 데이터가 없습니다.</p>
-            <p class="text-xs text-slate-400">상단의 [표준 1회 여정 시뮬레이션 생성] 버튼을 누르면 발권부터 퇴장까지 완벽한 샘플 여정이 자동 생성됩니다.</p>
-            <button onclick="generateSimulatedJourney()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black inline-flex items-center gap-1.5 shadow">
-              <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> 표준 1회 여정 생성
-            </button>
+          <div class="text-center py-12 text-slate-500 space-y-2 font-sans">
+            <p class="text-sm font-bold">아직 기록된 방문이 없습니다.</p>
+            <p class="text-xs text-slate-400">손님이 서약·발권·입장을 하면 실제 기록으로 여정이 자동 구성됩니다.</p>
           </div>
         `;
         lucide.createIcons();
@@ -2391,7 +2385,10 @@
 
     // 3. 단일 여정 복원
     const journey = BongplayID.getVisitFullJourney(query);
-    if (!journey || !journey.success) return;
+    if (!journey || !journey.success) {
+      showToast('해당 방문을 찾을 수 없습니다. 방문 ID·서약 번호·성함·휴대폰 뒷번호로 검색하세요.');
+      return;
+    }
     currentJourneyData = journey;
     const sm = journey.summary;
 
@@ -2404,13 +2401,13 @@
     const elNps = document.getElementById('jNpsScore');
     const elNpsSub = document.getElementById('jNpsSub');
 
-    if (elStay) elStay.textContent = `${sm.stay_duration_minutes}분`;
+    if (elStay) elStay.textContent = sm.stay_label;
     if (elSpend) elSpend.textContent = `${sm.total_spend.toLocaleString()}원`;
     if (elSpendSub) elSpendSub.textContent = `입장 ${sm.ticket_spend.toLocaleString()} + 부가 ${sm.fnb_spend.toLocaleString()}`;
-    if (elRides) elRides.textContent = `${sm.total_rides}회`;
-    if (elWait) elWait.textContent = `${sm.total_wait_minutes}분`;
-    if (elNps) elNps.textContent = sm.nps_score !== null ? `+${sm.nps_score}점` : '미작성';
-    if (elNpsSub) elNpsSub.textContent = sm.nps_score !== null ? (sm.nps_score >= 9 ? '적극 추천 고객' : '일반 고객') : '설문 대기';
+    if (elRides) elRides.textContent = sm.total_rides ? `${sm.total_rides}회` : '미측정';
+    if (elWait) elWait.textContent = sm.total_wait_minutes ? `${sm.total_wait_minutes}분` : '미측정';
+    if (elNps) elNps.textContent = sm.satisfaction_score != null ? `${sm.satisfaction_score} / 5` : '미응답';
+    if (elNpsSub) elNpsSub.textContent = sm.satisfaction_score != null ? (sm.satisfaction_score >= 5 ? '추천 고객' : sm.satisfaction_score >= 4 ? '만족' : '개선 필요') : '설문 대기';
 
     // 프로필 카드 갱신
     const elVId = document.getElementById('jProfileVisitId');
@@ -2425,7 +2422,7 @@
     if (elHhId) elHhId.textContent = sm.household_id;
     if (elGrd) elGrd.textContent = `${sm.guardian_name} (${sm.residence})`;
     if (elParty) elParty.textContent = `총 ${sm.party_size}명 (어린이 ${sm.child_count}명, 보호자 ${sm.adult_count}명)`;
-    if (elDate) elDate.textContent = `${sm.date} (${(sm.arrival_at||'').slice(11, 16)} ~ ${(sm.exit_at||'').slice(11, 16)})`;
+    if (elDate) elDate.textContent = `${sm.date} (${sm.arrival_time || '-'} ~ ${sm.exit_time || (sm.entry_at ? '이용 중' : '-')})`;
     if (elBkg) elBkg.textContent = sm.pillar_linkage.booking ? '사전 단체예약 연계' : '현장 워크인(Walk-in)';
     
     if (elStatus) {
@@ -2447,11 +2444,11 @@
       const pl = sm.pillar_linkage;
       const chkItems = [
         { name: '사전 예약 (Booking)', status: pl.booking ? '연계 완료' : '미연계(워크인)', ok: pl.booking },
-        { name: '안전서약서 (Consent)', status: '완벽 연계 (전자서명)', ok: true },
+        { name: '안전서약서 (Consent)', status: '전자서명 접수', ok: true },
         { name: '주문 원장 (Order Items)', status: `${pl.order_items_count}개 품목 결제`, ok: pl.order },
         { name: '시설 이용 (Facility Usage)', status: `${pl.facility_events_count}건 탑승 기록`, ok: pl.facility_usage },
         { name: '대기 스냅샷 (Queue Telemetry)', status: pl.queue_snapshot ? `${sm.total_wait_minutes}분 실측` : '대기열 미발생', ok: pl.queue_snapshot },
-        { name: '만족도 설문 (NPS Feedback)', status: pl.feedback ? `NPS ${sm.nps_score}점 응답` : '미작성', ok: pl.feedback },
+        { name: '만족도 설문 (Feedback)', status: pl.feedback ? `만족도 ${sm.satisfaction_score != null ? sm.satisfaction_score + '/5' : '응답'}` : '미응답', ok: pl.feedback },
         { name: '사고/민원 (Safety/Issues)', status: sm.had_incident ? '사고 1건 발생' : (sm.had_complaint ? '민원 1건 접수' : '무사고 0건'), ok: !sm.had_incident }
       ];
 
@@ -2479,7 +2476,7 @@
 
     if (track) {
       track.innerHTML = journey.timeline.map((node, idx) => {
-        const timeStr = (node.timestamp || '').slice(11, 16) || '10:00';
+        const timeStr = node.time_label || '--:--';
         const colorMap = {
           cyan: 'bg-cyan-500 text-cyan-950 border-cyan-400',
           amber: 'bg-amber-500 text-amber-950 border-amber-400',
@@ -2528,15 +2525,6 @@
     renderJourneyView(q);
   }
 
-  function generateSimulatedJourney() {
-    if (!window.BongplayID || typeof window.BongplayID.createSimulatedFullJourney !== 'function') {
-      showToast('BongplayID 시뮬레이션 모듈이 준비되지 않았습니다.');
-      return;
-    }
-    const newVId = BongplayID.createSimulatedFullJourney();
-    showToast(`표준 1회 여정 데이터가 생성되었습니다: ${newVId}`);
-    renderJourneyView(newVId);
-  }
 
   function copyJourneyJson() {
     if (!currentJourneyData) {

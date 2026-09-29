@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#020617">
+  <title>리틀포레스트 봉플레이 - 방문 후기 설문</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/static/pretendard.css">
+
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: { brand: { 300: '#86efac', 400: '#4ade80', 500: '#22c55e', 600: '#16a34a', 700: '#15803d', 800: '#166534', 900: '#14532d', 950: '#052e16' } } } }
+    };
+  </script>
+
+  <style>
+    * { font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body { word-break: keep-all; overflow-wrap: anywhere; }
+    textarea, input { font-size: 16px !important; }
+    .chip { transition: all .12s; }
+    .chip[aria-pressed="true"] { background: #14532d; border-color: #22c55e; color: #fff; }
+    .chip:active { transform: scale(.97); }
+    @keyframes slideIn { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+    .slide-in { animation: slideIn .22s ease-out; }
+  </style>
+
+  <script>
+    // 손님 화면: 인증 없이 열리고, 다른 손님 개인정보를 내려받지 않음
+    window.BONGPLAY_GUEST_MODE = true;
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../assets/bongplay-site.js"></script>
+  <script src="../assets/config.js"></script>
+  <script src="../assets/bongplay-sync.js"></script>
+  <script src="../assets/bongplay-id.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased">
+
+  <header class="bg-slate-950/90 border-b border-slate-800/80 sticky top-0 z-40 backdrop-blur-md px-4 py-3" style="padding-top: max(0.75rem, env(safe-area-inset-top));">
+    <div class="max-w-xl mx-auto flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center shrink-0">
+        <i data-lucide="trees" class="w-5 h-5 text-white"></i>
+      </div>
+      <div class="min-w-0 flex-1">
+        <h1 class="text-[15px] font-black text-white truncate" data-site="facility.name">리틀포레스트 봉플레이</h1>
+        <p class="text-xs text-slate-400">방문 후기 설문 · 약 1분</p>
+      </div>
+      <span id="stepCounter" class="text-xs font-mono text-slate-400 shrink-0"></span>
+      <button type="button" id="embedClose" onclick="closeEmbed()" class="hidden shrink-0 px-3 py-2 rounded-xl bg-slate-800 text-slate-300 text-sm font-bold">닫기</button>
+    </div>
+    <div class="max-w-xl mx-auto mt-2.5 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+      <div id="progressBar" class="h-full bg-brand-500 transition-all duration-300" style="width:0%"></div>
+    </div>
+  </header>
+
+  <main class="flex-1 w-full max-w-xl mx-auto px-4 pt-5 pb-28">
+    <div id="stage"></div>
+  </main>
+
+  <!-- 하단 이동 버튼 -->
+  <nav id="navBar" class="fixed bottom-0 inset-x-0 bg-slate-950/95 border-t border-slate-800 px-4 py-3 hidden" style="padding-bottom: max(0.75rem, env(safe-area-inset-bottom));">
+    <div class="max-w-xl mx-auto flex gap-2">
+      <button type="button" id="btnPrev" onclick="go(-1)" class="px-5 py-3.5 rounded-2xl bg-slate-800 text-slate-300 font-bold text-sm">이전</button>
+      <button type="button" id="btnNext" onclick="go(1)" class="flex-1 py-3.5 rounded-2xl bg-brand-600 active:bg-brand-700 text-white font-black text-base disabled:opacity-40">다음</button>
+    </div>
+  </nav>
+
+  <script>
+    /* ============================================================
+       방문 후기 설문 (정성 설문을 탭 한 번 방식으로)
+       ------------------------------------------------------------
+       · 모든 응답은 코드값으로 저장 → 집계·비교가 가능한 데이터
+       · 저장처: customer_experience_surveys (survey_channel = 'mobile_survey')
+       · 완료 시 선물 교환 코드 표시 → 직원이 확인 후 "선물 지급" 처리
+       · 문항을 바꾸려면 아래 QUESTIONS 만 수정 (코드값은 되도록 유지해야 추세 비교 가능)
+       ============================================================ */
+    const QUESTIONS = [
+      { key: 'satisfaction', type: 'faces', title: '오늘 방문, 전체적으로 어떠셨나요?', required: true,
+        options: [
+          { v: 1, emoji: '😞', label: '별로예요' }, { v: 2, emoji: '😕', label: '아쉬워요' },
+          { v: 3, emoji: '🙂', label: '보통이에요' }, { v: 4, emoji: '😀', label: '좋았어요' }, { v: 5, emoji: '🤩', label: '최고예요' }
+        ] },
+      { key: 'recommend', type: 'scale10', title: '친구나 가족에게 봉플레이를 추천하시겠어요?', sub: '0 = 전혀 아니다 · 10 = 꼭 추천한다', required: true },
+      { key: 'best', type: 'multi', max: 2, title: '가장 좋았던 것은? (최대 2개)', required: true,
+        options: [
+          { v: 'zip_coaster', label: '🎢 짚코스터' }, { v: 'net_adventure', label: '🕸️ 네트 어드벤처' },
+          { v: 'indoor_play', label: '🏠 실내 놀이' }, { v: 'trampoline', label: '🤸 트램펄린' },
+          { v: 'sled', label: '🛷 썰매' }, { v: 'cafe', label: '☕ 카페·매점' },
+          { v: 'staff', label: '🙋 직원 친절' }, { v: 'clean', label: '✨ 청결' },
+          { v: 'nature', label: '🌲 숲·자연 환경' }, { v: 'safety', label: '🛡️ 안전 관리' }
+        ] },
+      { key: 'improve', type: 'multi', max: 2, exclusive: 'none', title: '아쉬웠던 점은? (최대 2개)', required: true,
+        options: [
+          { v: 'wait', label: '⏱ 대기 시간' }, { v: 'crowd', label: '👥 혼잡' },
+          { v: 'facility', label: '🔧 시설 부족·고장' }, { v: 'toilet', label: '🚻 청결·화장실' },
+          { v: 'price', label: '💰 가격' }, { v: 'menu', label: '🍪 매점 메뉴' },
+          { v: 'parking', label: '🚗 주차·교통' }, { v: 'guide', label: '🪧 안내 부족' },
+          { v: 'rest', label: '🪑 쉴 곳 부족' }, { v: 'weather', label: '🌧 날씨 대비' },
+          { v: 'none', label: '👍 없었어요' }
+        ] },
+      { key: 'price', type: 'single', title: '가격은 어떠셨나요?', required: true,
+        options: [
+          { v: 'expensive', label: '비싼 편이에요' }, { v: 'fair', label: '적당해요' }, { v: 'cheap', label: '저렴한 편이에요' }
+        ] },
+      { key: 'source', type: 'single', title: '봉플레이를 어떻게 알게 되셨나요?', required: true,
+        options: [
+          { v: 'friend', label: '👫 지인 추천' }, { v: 'instagram', label: '📸 인스타그램' },
+          { v: 'blog', label: '📝 블로그·카페' }, { v: 'naver', label: '🔎 네이버 검색' },
+          { v: 'passing', label: '🚶 지나가다가' }, { v: 'county', label: '🏛 군청·학교 안내' },
+          { v: 'festival', label: '🎪 축제·행사' }, { v: 'revisit', label: '🔁 전에 와봤어요' }
+        ] },
+      { key: 'revisit', type: 'single', title: '다시 오실 생각이 있으세요?', required: true,
+        options: [
+          { v: 'definitely', label: '꼭 다시 올게요' }, { v: 'probably', label: '아마 올 것 같아요' },
+          { v: 'unsure', label: '잘 모르겠어요' }, { v: 'no', label: '안 올 것 같아요' }
+        ] },
+      { key: 'residence_detail', type: 'single', title: '어디에서 방문해 주셨나요? (거주 지역)', required: true,
+        options: [
+          { v: 'bonghwa', label: '🌲 봉화군 (관내 군민)' },
+          { v: 'yeongju', label: '🍎 영주시' },
+          { v: 'andong', label: '🎭 안동시' },
+          { v: 'adjacent_county', label: '⛰️ 태백 · 울진 · 영양' },
+          { v: 'daegu_gyeongbuk', label: '🏙️ 대구 · 기타 경북' },
+          { v: 'capital_region', label: '🚅 서울 · 수도권' },
+          { v: 'other_province', label: '🗺️ 충청 · 강원 · 기타' }
+        ] },
+      { key: 'wish', type: 'multi', max: 2, title: '다음에 생기면 좋겠는 것은? (선택)', required: false,
+        options: [
+          { v: 'party_room', label: '🎂 생일파티룸' }, { v: 'program', label: '🧑‍🏫 체험 프로그램' },
+          { v: 'food', label: '🍜 식사 메뉴' }, { v: 'membership', label: '💳 연간 회원권' },
+          { v: 'night', label: '🌙 야간 운영' }, { v: 'indoor_more', label: '🏠 실내 시설 확대' },
+          { v: 'baby_zone', label: '🍼 영유아 전용존' }, { v: 'event', label: '🎉 계절 이벤트' }
+        ] },
+      { key: 'comment', type: 'text', title: '하고 싶은 말씀이 있다면 (선택)', sub: '좋았던 점, 아쉬운 점, 직원 칭찬 모두 환영해요.', required: false }
+    ];
+
+    const params = new URLSearchParams(location.search);
+    const passCode = (params.get('pass') || params.get('survey') || '').trim().slice(0, 40) || null;
+    const channelHint = (params.get('ch') || '').slice(0, 20);   // gate / voucher
+    const visitIdParam = (params.get('visit') || '').slice(0, 80) || null;   // 게이트에서 넘겨준 방문 ID (체류·지출 결합용)
+    const consentIdParam = (params.get('cid') || '').slice(0, 80) || null;
+    // 게이트 태블릿 창 안에서 열린 경우 (퇴장 후 직원이 태블릿을 손님 쪽으로 돌려 진행)
+    const isEmbed = params.get('embed') === '1' && window.parent !== window;
+    const surveyChannel = isEmbed ? 'tablet_survey' : 'mobile_survey';
+
+    function closeEmbed() {
+      if (isEmbed) window.parent.postMessage({ type: 'bongplay-survey-close' }, window.location.origin);
+    }
+    const answers = {};
+    let step = 0;
+
+    function labelOf(q, v) {
+      const o = (q.options || []).find(x => x.v === v);
+      return o ? o.label.replace(/^[^\p{L}\p{N}]+\s*/u, '') : String(v);
+    }
+
+    function render() {
+      const stage = document.getElementById('stage');
+      const q = QUESTIONS[step];
+      document.getElementById('stepCounter').textContent = `${step + 1} / ${QUESTIONS.length}`;
+      document.getElementById('progressBar').style.width = `${Math.round((step / QUESTIONS.length) * 100)}%`;
+      document.getElementById('navBar').classList.remove('hidden');
+      document.getElementById('btnPrev').style.visibility = step === 0 ? 'hidden' : 'visible';
+
+      let body = '';
+      const val = answers[q.key];
+      if (q.type === 'faces') {
+        body = `<div class="grid grid-cols-5 gap-2">${q.options.map(o => `
+          <button type="button" class="chip flex flex-col items-center gap-1.5 py-4 rounded-2xl bg-slate-900 border border-slate-700" aria-pressed="${val === o.v}" onclick="pick('${q.key}', ${o.v}, true)">
+            <span class="text-4xl leading-none">${o.emoji}</span><span class="text-[11px] font-bold text-slate-300">${o.label}</span>
+          </button>`).join('')}</div>`;
+      } else if (q.type === 'scale10') {
+        body = `<div class="grid grid-cols-6 gap-2">${Array.from({ length: 11 }, (_, i) => `
+          <button type="button" class="chip py-3.5 rounded-xl bg-slate-900 border border-slate-700 font-black text-lg ${i <= 6 ? 'text-rose-300' : i <= 8 ? 'text-amber-300' : 'text-emerald-300'}" aria-pressed="${val === i}" onclick="pick('${q.key}', ${i}, true)">${i}</button>`).join('')}</div>
+          <div class="flex justify-between text-xs text-slate-500 mt-2"><span>전혀 아니다</span><span>꼭 추천한다</span></div>`;
+      } else if (q.type === 'single') {
+        body = `<div class="grid grid-cols-1 gap-2">${q.options.map(o => `
+          <button type="button" class="chip text-left px-4 py-4 rounded-2xl bg-slate-900 border border-slate-700 font-bold text-[15px]" aria-pressed="${val === o.v}" onclick="pick('${q.key}', '${o.v}', true)">${o.label}</button>`).join('')}</div>`;
+      } else if (q.type === 'multi') {
+        const sel = Array.isArray(val) ? val : [];
+        body = `<div class="grid grid-cols-2 gap-2">${q.options.map(o => `
+          <button type="button" class="chip text-left px-3.5 py-3.5 rounded-2xl bg-slate-900 border border-slate-700 font-bold text-sm" aria-pressed="${sel.includes(o.v)}" onclick="toggle('${q.key}', '${o.v}')">${o.label}</button>`).join('')}</div>
+          <p class="text-xs text-slate-500 mt-3">${q.max ? `최대 ${q.max}개까지 고를 수 있어요.` : ''}</p>`;
+      } else if (q.type === 'text') {
+        body = `<textarea id="commentBox" rows="5" maxlength="500" placeholder="자유롭게 적어 주세요" oninput="answers.comment = this.value"
+          class="w-full bg-slate-900 border border-slate-700 rounded-2xl p-4 text-white placeholder-slate-500 outline-none focus:border-brand-500">${escapeHtml(val || '')}</textarea>`;
+      }
+
+      stage.innerHTML = `<section class="slide-in space-y-4">
+        <h2 class="text-xl font-black text-white leading-snug">${q.title}</h2>
+        ${q.sub ? `<p class="text-sm text-slate-400 -mt-2">${q.sub}</p>` : ''}
+        ${body}
+      </section>`;
+      updateNext();
+      lucide.createIcons();
+    }
+
+    function answered(q) {
+      const v = answers[q.key];
+      if (q.type === 'multi') return Array.isArray(v) && v.length > 0;
+      if (q.type === 'text') return true;
+      return v !== undefined && v !== null && v !== '';
+    }
+
+    function updateNext() {
+      const q = QUESTIONS[step];
+      const btn = document.getElementById('btnNext');
+      const last = step === QUESTIONS.length - 1;
+      btn.textContent = last ? '제출하고 선물 받기 🎁' : (!q.required && !answered(q) ? '건너뛰기' : '다음');
+      btn.disabled = q.required && !answered(q);
+    }
+
+    function pick(key, v, autoAdvance) {
+      answers[key] = v;
+      render();
+      if (autoAdvance) setTimeout(() => { if (QUESTIONS[step].key === key) go(1); }, 220);
+    }
+
+    function toggle(key, v) {
+      const q = QUESTIONS.find(x => x.key === key);
+      let sel = Array.isArray(answers[key]) ? answers[key].slice() : [];
+      if (q.exclusive && v === q.exclusive) {
+        sel = sel.includes(v) ? [] : [v];
+      } else {
+        sel = sel.filter(x => x !== q.exclusive);
+        if (sel.includes(v)) sel = sel.filter(x => x !== v);
+        else if (!q.max || sel.length < q.max) sel.push(v);
+        else { sel.shift(); sel.push(v); }
+      }
+      answers[key] = sel;
+      render();
+    }
+
+    function go(d) {
+      const q = QUESTIONS[step];
+      if (d > 0 && q.required && !answered(q)) return;
+      if (d > 0 && step === QUESTIONS.length - 1) { submit(); return; }
+      step = Math.max(0, Math.min(QUESTIONS.length - 1, step + d));
+      render();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // 중복 응답 방지 키: 이용권 번호 기준. 번호 없이 태블릿에서 여는 경우는 여러 가족이 쓰므로 막지 않는다.
+    function doneKey() {
+      if (passCode) return 'bongplay_survey_v2_done_' + passCode;
+      return isEmbed ? null : 'bongplay_survey_v2_done_anon_' + (window.BongplaySync ? BongplaySync.toLocalDateStr(new Date()) : '');
+    }
+    function saveDone(info) { const k = doneKey(); if (k) try { localStorage.setItem(k, JSON.stringify(info)); } catch (e) {} }
+    function loadDone() { const k = doneKey(); if (!k) return null; try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } }
+
+    function submit() {
+      const q = (k) => QUESTIONS.find(x => x.key === k);
+      const giftCode = String(Math.floor(1000 + Math.random() * 9000));
+      const labels = (k) => (answers[k] || []).map(v => labelOf(q(k), v));
+      const survey = BongplayID.recordCustomerSurvey({
+        satisfaction_score: answers.satisfaction,
+        recommendation_score: answers.recommend,
+        favorite_facility: (answers.best || []).join(','),
+        improvement_reason: (answers.improve || []).join(','),
+        revisit_intent: answers.revisit,
+        notes: (answers.comment || '').trim(),
+        pass_code: passCode,
+        visit_id: visitIdParam,
+        consent_id: consentIdParam,
+        survey_channel: surveyChannel
+      });
+      // 정성 문항 전체(코드값 + 표시 라벨)를 함께 보존 — 문항이 바뀌어도 과거 응답을 해석할 수 있게
+      const extra = {
+        id: survey.id,
+        price_perception: answers.price || null,
+        visit_source: answers.source || null,
+        child_age_groups: null,
+        residence_region: answers.residence_detail || null,
+        wish_list: (answers.wish || []).join(',') || null,
+        gift_code: giftCode,
+        answers: {
+          version: 'v2-2026-09-24',
+          entry: channelHint || null,
+          codes: answers,
+          labels: {
+            best: labels('best'), improve: labels('improve'), wish: labels('wish'),
+            residence: answers.residence_detail ? labelOf(q('residence_detail'), answers.residence_detail) : null,
+            price: answers.price ? labelOf(q('price'), answers.price) : null,
+            source: answers.source ? labelOf(q('source'), answers.source) : null,
+            revisit: answers.revisit ? labelOf(q('revisit'), answers.revisit) : null
+          }
+        }
+      };
+      Object.assign(survey, extra);
+      try {
+        const key = 'bongplay_customer_experience_surveys';
+        const list = JSON.parse(localStorage.getItem(key) || '[]');
+        const i = list.findIndex(s => s.id === survey.id);
+        if (i >= 0) list[i] = survey; else list.unshift(survey);
+        localStorage.setItem(key, JSON.stringify(list));
+      } catch (e) {}
+      BongplaySync.upsert('customer_experience_surveys', extra);
+      saveDone({ id: survey.id, gift: giftCode, at: survey.submitted_at });
+      renderDone({ id: survey.id, gift: giftCode, at: survey.submitted_at });
+    }
+
+    function renderDone(info) {
+      document.getElementById('navBar').classList.add('hidden');
+      document.getElementById('progressBar').style.width = '100%';
+      document.getElementById('stepCounter').textContent = '완료';
+      const at = info.at ? new Date(info.at) : new Date();
+      const hm = `${at.getMonth() + 1}/${at.getDate()} ${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+      document.getElementById('stage').innerHTML = `
+        <section class="slide-in text-center space-y-5 pt-4">
+          <div class="text-6xl">🎁</div>
+          <div>
+            <h2 class="text-2xl font-black text-white">소중한 의견 감사합니다!</h2>
+            <p class="text-sm text-slate-300 mt-2">이 화면을 <b class="text-white">직원에게 보여주시면</b> 작은 선물을 드려요.</p>
+          </div>
+          <div class="rounded-3xl border-2 border-dashed border-brand-500/70 bg-brand-950/50 p-6">
+            <div class="text-xs text-brand-300 font-bold">선물 교환 번호</div>
+            <div class="text-5xl font-black font-mono text-white tracking-[0.2em] mt-1">${escapeHtml(info.gift)}</div>
+            <div class="text-xs text-slate-400 mt-2 font-mono">${hm}${passCode ? ' · ' + escapeHtml(passCode) : ''}</div>
+          </div>
+          <div id="giftStatus"></div>
+          ${isEmbed ? `<button type="button" onclick="closeEmbed()" class="w-full py-4 rounded-2xl bg-brand-600 active:bg-brand-700 text-white font-black text-base">처음 화면으로</button>` : ''}
+          <p class="text-xs text-slate-500">안전한 귀갓길 되세요. 또 놀러 오세요 🌿</p>
+        </section>`;
+      renderGiftStatus(info);
+    }
+
+    // 직원 확인: 버튼을 2초간 길게 눌러야 지급 처리 (손님이 실수로 누르지 않도록)
+    function renderGiftStatus(info) {
+      const box = document.getElementById('giftStatus');
+      if (!box) return;
+      if (info.given) {
+        box.innerHTML = `<div class="rounded-2xl bg-slate-900 border border-slate-700 p-4 text-sm text-slate-300">✅ 선물 지급 완료 (${escapeHtml(info.given)})</div>`;
+        return;
+      }
+      box.innerHTML = `<button type="button" id="btnGiftGiven" class="w-full py-3 rounded-2xl bg-slate-800 text-slate-400 text-sm font-bold select-none">직원 확인: 2초간 길게 눌러 선물 지급 처리</button>`;
+      const btn = document.getElementById('btnGiftGiven');
+      let t = null;
+      const start = (e) => { e.preventDefault(); btn.classList.add('bg-brand-700', 'text-white'); t = setTimeout(() => markGiven(info), 2000); };
+      const stop = () => { clearTimeout(t); btn.classList.remove('bg-brand-700', 'text-white'); };
+      btn.addEventListener('pointerdown', start);
+      ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => btn.addEventListener(ev, stop));
+      btn.addEventListener('contextmenu', e => e.preventDefault());
+    }
+
+    function markGiven(info) {
+      const nowIso = new Date().toISOString();
+      BongplaySync.upsert('customer_experience_surveys', { id: info.id, gift_given_at: nowIso });
+      const d = new Date(nowIso);
+      info.given = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      saveDone(info);
+      if (navigator.vibrate) navigator.vibrate(80);
+      renderGiftStatus(info);
+    }
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+      // 같은 이용권으로 이미 응답했으면 선물 화면을 다시 보여줌 (중복 응답·중복 선물 방지)
+      if (isEmbed) document.getElementById('embedClose').classList.remove('hidden');
+      const prev = loadDone();
+      if (prev && prev.id) { renderDone(prev); return; }
+      render();
+    });
+  </script>
+</body>
+</html>

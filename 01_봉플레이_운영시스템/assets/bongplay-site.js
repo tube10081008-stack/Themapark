@@ -58,6 +58,19 @@
       morning_ticket_until_hour: 12     // 조조권 적용 시간 (12시 이전)
     },
 
+    // 매점(식음료·굿즈) 방문고객 할인 — POS 에서 방문 가족을 연동하면 자동 적용
+    // (목적: 매점 구매를 방문 세션에 연결해 가족 단위 소비 데이터를 모음)
+    store: {
+      member_discount_rate: 0.10,                       // ★ 할인율 (0.10 = 10%, 0 이면 할인 없이 연동만)
+      member_discount_label: '방문고객 매점 할인',
+      member_discount_categories: ['fnb', 'merchandise'] // 적용 품목군 (입장권·체험권 제외)
+    },
+
+    // 시재금 (기초 준비금) 기준 설정 — 마감 시재의 기준치 (하드코딩 방지 SSOT)
+    cash: {
+      default_base_cash: 100000                         // 기본 개장 준비금 (시재 100,000원)
+    },
+
     /* 현장 인력 — id 는 원장(staff_id)에 기록되는 값이므로 변경 시 주의 */
     staff: [
       {
@@ -147,6 +160,11 @@
   }
 
   function partner(key) { return SITE.partners[key] || null; }
+
+  function defaultBaseCash() {
+    var c = SITE.cash || {};
+    return typeof c.default_base_cash === 'number' ? c.default_base_cash : 100000;
+  }
 
   // 정원 기준값 정합성 보정: 정원을 줄였을 때 '주의/쾌적' 기준이 정원을 넘지 않도록
   function capacity() {
@@ -338,6 +356,7 @@
     staffIdByName: staffIdByName,
     defaultInspector: defaultInspector,
     defaultManager: defaultManager,
+    defaultBaseCash: defaultBaseCash,
     partner: partner,
     capacity: capacity,
     digits: digits,
