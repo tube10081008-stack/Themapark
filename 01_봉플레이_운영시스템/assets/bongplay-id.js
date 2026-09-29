@@ -277,7 +277,7 @@
       weekday_type: 'all',
       discount_rule_id: 'none',
       version: '2026.v1',
-      description: '실내 924㎡ 놀이동 + 야외 네트어드벤처 2시간 정규 법정 고시가'
+      description: '놀이동(연면적 924㎡ / 실내 놀이공간 657.8㎡) + 야외 네트어드벤처 2시간 정규 고시가'
     },
     PROD_CHILD_BASIC_PROMO: {
       product_id: 'PROD_CHILD_BASIC_PROMO',
@@ -413,7 +413,9 @@
       official_name: '놀이동 실내 어드벤처 & 트램펄린 (돔형)',
       facility_type: 'indoor_play',
       capacity: 80,
-      area_sqm: 924.00,
+      building_area_sqm: 924.00,  // 놀이동 건물 연면적 (건축물대장)
+      play_area_sqm: 657.785,     // 실내 놀이공간 면적 (시설명세 세부내역, 약 199평)
+      area_sqm: 924.00,           // 호환성 유지용 (놀이동 건물 연면적)
       operating_start: '10:00',
       operating_end: '18:00',
       safety_class: 'statutory_inspection_passed',
@@ -1044,6 +1046,27 @@
       }
     }
     saveList(STORAGE_KEYS.TICKETS, tickets);
+
+    // 4) 안전서약 원장 (safety_consents: 취소 시 게이트 무단입장 방지)
+    const consents = readList(STORAGE_KEYS.CONSENTS);
+    for (const c of consents) {
+      if (c.id === consentId || (c.visit_id && result.order_ids.some(oid => oid.includes(c.visit_id)))) {
+        c.status = 'cancelled';
+        c.is_issued = false;
+        c.isIssued = false;
+        c.cancelled_at = now;
+        c.cancel_reason = reason || '현장 발권취소';
+        if (global.BongplaySync) {
+          await global.BongplaySync.patch('safety_consents', c.id, {
+            status: 'cancelled',
+            is_issued: false,
+            cancelled_at: now,
+            cancel_reason: reason || '현장 발권취소'
+          });
+        }
+      }
+    }
+    saveList(STORAGE_KEYS.CONSENTS, consents);
 
     return Object.assign({ ok: true }, result);
   }

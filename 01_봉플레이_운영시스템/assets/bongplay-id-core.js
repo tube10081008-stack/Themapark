@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ============================================================
  * 리틀포레스트 봉플레이 - Bongplay ID Core Module (id-core)
  * ============================================================
@@ -11,6 +11,7 @@
   'use strict';
 
   const BongplayID = global.BongplayID || (global.BongplayID = {});
+  global.BongplayIDCore = BongplayID;
   const SITE_ID = 'bongplay_bonghwa';
   const SALT = 'bongplay_causal_salt_2026_';
 
@@ -23,6 +24,8 @@
     }
     return (hash >>> 0).toString(16).padStart(8, '0');
   }
+
+  const fnv1aHex = fnv1a;
 
   function normalizePhone(phone) {
     return String(phone || '').replace(/[^0-9]/g, '');
@@ -70,6 +73,28 @@
     const cleanVisit = (visitId || '').replace(/^vst_/, '');
     const seq = String(index || 1).padStart(2, '0');
     return 'tkt_' + cleanVisit + '_' + seq;
+  }
+
+  function generateOrderItemId(orderId, index) {
+    const cleanOrder = (orderId || '').replace(/^ord_/, '');
+    const seq = String(index || 1).padStart(2, '0');
+    return 'item_' + cleanOrder + '_' + seq;
+  }
+
+  function generateFacilityEventId() {
+    return 'fev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+  }
+
+  function generateTelemetryId() {
+    return 'tel_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+  }
+
+  function generateActionId() {
+    return 'act_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+  }
+
+  function generateAssetMeasurementId() {
+    return 'asm_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
   }
 
   function detectCampaignId() {
@@ -177,7 +202,7 @@
       weekday_type: 'all',
       discount_rule_id: 'none',
       version: '2026.v1',
-      description: '실내 924㎡ 놀이동 + 야외 네트어드벤처 2시간 정규 법정 고시가'
+      description: '놀이동(연면적 924㎡ / 실내 놀이공간 657.8㎡) + 야외 네트어드벤처 2시간 정규 고시가'
     },
     PROD_CHILD_BASIC_PROMO: {
       product_id: 'PROD_CHILD_BASIC_PROMO',
@@ -313,7 +338,9 @@
       official_name: '놀이동 실내 어드벤처 & 트램펄린 (돔형)',
       facility_type: 'indoor_play',
       capacity: 80,
-      area_sqm: 924.00,
+      building_area_sqm: 924.00,  // 놀이동 건물 연면적 (건축물대장)
+      play_area_sqm: 657.785,     // 실내 놀이공간 면적 (시설명세 세부내역, 약 199평)
+      area_sqm: 924.00,           // 호환성 유지용 (놀이동 건물 연면적)
       operating_start: '10:00',
       operating_end: '18:00',
       safety_class: 'statutory_inspection_passed',
@@ -940,7 +967,12 @@
   }
 
 
+  const MASTER_ASSETS = ASSETS;
+  const MASTER_STAFF = STAFF;
+  const MASTER_PRICING_RULES = {};
+
   Object.assign(BongplayID, {
+    fnv1a,
     fnv1aHex,
     normalizePhone,
     SITE_ID,
@@ -967,23 +999,23 @@
     markVisitEntry,
     markVisitExit,
     createOrder,
-    getOrderItems,
+    checkIsRepeatHousehold,
     recordFacilityEvent,
-    getCampaignLedger,
-    createCampaignRecord,
+    getStoredConsents,
+    updateStoredConsent,
     detectCampaignId,
     updateBookingFunnel,
-    getBookingFunnelStages,
-    getHouseholdCrmProfile,
-    recordCustomerSurvey,
-    getNpsSummary,
-    startStaffShift,
+    saveMarketingCampaigns,
+    recordMarketingCampaign,
+    getCampaignAttribution,
+    getMarketingCampaigns,
+    /*
     endStaffShift,
     assignStaffToZone,
     recordStaffTaskDuration,
     getStaffTaskDurationLogs,
     getStaffShifts,
-    getMarketingCampaigns
+    */
   });
 
   if (typeof module !== 'undefined' && module.exports) {

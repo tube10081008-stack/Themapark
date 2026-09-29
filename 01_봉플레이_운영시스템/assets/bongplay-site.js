@@ -50,6 +50,13 @@
       caution: 200               // 혼잡 주의 기준
     },
 
+    // 시설 면적 기준정보 (BEN-002 확정 근거: 건축물대장 및 시설명세 세부내역)
+    area: {
+      building_gross_sqm: 924.0,       // 놀이동 건물 연면적 924㎡ (건축물대장)
+      indoor_play_sqm: 657.785,        // 실내 놀이공간 657.8㎡ (시설명세 실내놀이시설장)
+      indoor_play_pyeong: 199          // 약 199평
+    },
+
     hours: {
       open: '10:00',
       close: '18:00',
@@ -359,6 +366,7 @@
     defaultBaseCash: defaultBaseCash,
     partner: partner,
     capacity: capacity,
+    area: function () { return SITE.area; },
     digits: digits,
     apply: applyAll,
     applyLegacyReplacements: applyLegacyReplacements

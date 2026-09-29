@@ -690,6 +690,9 @@
       renderStaffTable();
       calculateCashBalance();
       updateClosingProgress();
+      document.getElementById('closingDate').addEventListener('change', () => {
+        loadSavedData();
+      });
       loadSavedData();
 
       if (window.BongplaySync) {
@@ -1026,21 +1029,19 @@
       const actualCash = c50k + c10k + c5k + c1k + cCoin;
       const diff = actualCash - bookBalance;
 
-      // 지류 상품권 실물 ↔ 전산 대조 (불일치 시 사유 기재 요구)
+      // 지류 상품권 실물 ↔ 전산 대조 (불일치 시 사유 기재 필수)
       const actualVoucher = getActualVoucher();
       const voucherDiff = actualVoucher - (systemLedger.voucher || 0);
       if (voucherDiff !== 0 && !notesVal) {
-        if (!confirm(`⚠️ 지류 상품권 과부족(${voucherDiff > 0 ? '+' : ''}${voucherDiff.toLocaleString()}원)이 있습니다.\n(전산 ${(systemLedger.voucher || 0).toLocaleString()}원 / 실물 ${actualVoucher.toLocaleString()}원)\n사유를 메모에 남기지 않고 마감하시겠습니까?`)) {
-          document.getElementById('handoverNotes').focus();
-          return;
-        }
+        alert(`⚠️ 지류 상품권 과부족(${voucherDiff > 0 ? '+' : ''}${voucherDiff.toLocaleString()}원)이 있습니다.\n(전산 ${(systemLedger.voucher || 0).toLocaleString()}원 / 실물 ${actualVoucher.toLocaleString()}원)\n인수인계 특이사항 메모에 과부족 사유를 반드시 기재해야 마감 확정이 가능합니다.`);
+        document.getElementById('handoverNotes').focus();
+        return;
       }
 
       if (diff !== 0 && !notesVal) {
-        if (!confirm(`⚠️ 시재 과부족(${diff > 0 ? '+' : ''}${diff.toLocaleString()}원)이 발생했습니다.\n인수인계 특이사항 메모에 과부족 사유를 기재하지 않고 마감 확정하시겠습니까?`)) {
-          document.getElementById('handoverNotes').focus();
-          return;
-        }
+        alert(`⚠️ 시재 과부족(${diff > 0 ? '+' : ''}${diff.toLocaleString()}원)이 발생했습니다.\n인수인계 특이사항 메모에 과부족 사유를 반드시 기재해야 마감 확정이 가능합니다.`);
+        document.getElementById('handoverNotes').focus();
+        return;
       }
 
       const data = {
@@ -1133,53 +1134,82 @@
     }
 
     function loadSavedData() {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) {
-        syncSystemLedger(); // 저장 기록이 없는 날도 원장 자동 집계
-        return;
-      }
-      try {
-        const data = JSON.parse(raw);
-        const now = new Date();
-        const yyyy = now.getFullYear();
-        const mm = String(now.getMonth() + 1).padStart(2, '0');
-        const dd = String(now.getDate()).padStart(2, '0');
-        const todayYmd = `${yyyy}-${mm}-${dd}`;
+      const selectedDate = document.getElementById('closingDate').value;
+      let data = null;
 
-        // 오늘 날짜로 이미 저장된 마감 일지가 있는 경우에만 복원
-        // (이전 코드는 이 if 블록의 닫는 괄호가 빠져 try/catch 구문이 깨져 있었습니다)
-        if (data && data.date === todayYmd) {
-          if (data.manager) document.getElementById('closingManager').value = data.manager;
-          if (data.notes) document.getElementById('handoverNotes').value = data.notes;
-          if (data.cash) {
-            const defBase = (window.BongplaySite && typeof BongplaySite.defaultBaseCash === 'function')
-              ? BongplaySite.defaultBaseCash()
-              : 100000;
-            document.getElementById('baseCash').value = (data.cash.base !== undefined && data.cash.base !== null && data.cash.base !== '')
-              ? data.cash.base
-              : defBase;
-            document.getElementById('cashSales').value = data.cash.sales || 0;
-            document.getElementById('cashExpenses').value = data.cash.exp || 0;
-            document.getElementById('count50k').value = data.cash.c50k || 0;
-            document.getElementById('count10k').value = data.cash.c10k || 0;
-            document.getElementById('count5k').value = data.cash.c5k || 0;
-            document.getElementById('count1k').value = data.cash.c1k || 0;
-            document.getElementById('countCoin').value = data.cash.cCoin || 0;
-            calculateCashBalance();
-          }
-          if (data.voucher) {
-            document.getElementById('voucher10k').value = data.voucher.v10k || 0;
-            document.getElementById('voucher5k').value = data.voucher.v5k || 0;
-            document.getElementById('voucherEtc').value = data.voucher.etc || 0;
-            calculateVoucherBalance();
-          }
-          applyClosingLock(!!data.is_locked, data.locked_at);
-          if (data.is_locked) return; // 확정된 날은 저장 당시 값을 그대로 보여줌
+      // 1. BongplaySync 캐시 조회
+      if (window.BongplaySync && typeof BongplaySync.getCached === 'function') {
+        const cached = BongplaySync.getCached('closing_records');
+        if (Array.isArray(cached)) {
+          data = cached.find(r => r.date === selectedDate || r.id === selectedDate);
+        } else if (cached && typeof cached === 'object') {
+          if (cached[selectedDate]) data = cached[selectedDate];
+          else if (cached.date === selectedDate) data = cached;
         }
-        syncSystemLedger();
-      } catch (e) {
-        syncSystemLedger();
       }
+
+      // 2. localStorage 폴백 조회
+      if (!data) {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && parsed.date === selectedDate) data = parsed;
+          }
+        } catch (e) {}
+      }
+
+      if (data && data.raw_payload) {
+        data = { ...data.raw_payload, ...data };
+      }
+
+      const defBase = (window.BongplaySite && typeof BongplaySite.defaultBaseCash === 'function')
+        ? BongplaySite.defaultBaseCash()
+        : 100000;
+
+      if (data && data.date === selectedDate) {
+        if (data.manager) document.getElementById('closingManager').value = data.manager;
+        if (data.notes !== undefined) document.getElementById('handoverNotes').value = data.notes;
+        if (data.cash) {
+          document.getElementById('baseCash').value = (data.cash.base !== undefined && data.cash.base !== null && data.cash.base !== '')
+            ? data.cash.base
+            : defBase;
+          document.getElementById('cashSales').value = data.cash.sales || 0;
+          document.getElementById('cashExpenses').value = data.cash.exp || 0;
+          document.getElementById('count50k').value = data.cash.c50k || 0;
+          document.getElementById('count10k').value = data.cash.c10k || 0;
+          document.getElementById('count5k').value = data.cash.c5k || 0;
+          document.getElementById('count1k').value = data.cash.c1k || 0;
+          document.getElementById('countCoin').value = data.cash.cCoin || 0;
+        }
+        if (data.voucher) {
+          document.getElementById('voucher10k').value = data.voucher.v10k || 0;
+          document.getElementById('voucher5k').value = data.voucher.v5k || 0;
+          document.getElementById('voucherEtc').value = data.voucher.etc || 0;
+        }
+        calculateCashBalance();
+        calculateVoucherBalance();
+        applyClosingLock(!!data.is_locked, data.locked_at);
+        if (data.is_locked) return; // 확정된 날은 저장 당시 값을 그대로 보여줌
+      } else {
+        // 해당 날짜에 저장된 마감이 없는 경우 잠금 해제 및 상태 초기화
+        applyClosingLock(false);
+        document.getElementById('baseCash').value = defBase;
+        document.getElementById('count50k').value = 0;
+        document.getElementById('count10k').value = 0;
+        document.getElementById('count5k').value = 0;
+        document.getElementById('count1k').value = 0;
+        document.getElementById('countCoin').value = 0;
+        document.getElementById('voucher10k').value = 0;
+        document.getElementById('voucher5k').value = 0;
+        document.getElementById('voucherEtc').value = 0;
+        document.getElementById('handoverNotes').value = '';
+      }
+
+      syncSystemLedger();
+      calculateCashBalance();
+      calculateVoucherBalance();
+      updateClosingProgress();
     }
 
     // KakaoTalk Report Generator

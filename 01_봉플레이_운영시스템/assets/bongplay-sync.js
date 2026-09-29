@@ -339,16 +339,35 @@
 
       if (cacheKey && idVal) {
         var raw = localStorage.getItem(cacheKey);
-        var list = raw ? JSON.parse(raw) : [];
-        if (Array.isArray(list)) {
-          var idx = list.findIndex(function (it) { return it[pkField] === idVal || it.id === idVal; });
+        var parsed = null;
+        try { parsed = raw ? JSON.parse(raw) : null; } catch (e) { parsed = null; }
+
+        if (Array.isArray(parsed)) {
+          var idx = parsed.findIndex(function (it) { return it[pkField] === idVal || it.id === idVal; });
           if (idx >= 0) {
-            list[idx] = Object.assign({}, list[idx], row);
+            parsed[idx] = Object.assign({}, parsed[idx], row);
           } else {
-            list.unshift(row);
+            parsed.unshift(row);
           }
-          localStorage.setItem(cacheKey, JSON.stringify(list));
+          localStorage.setItem(cacheKey, JSON.stringify(parsed));
+        } else if (table === 'closing_records') {
+          var updatedClose = (parsed && typeof parsed === 'object') ? Object.assign({}, parsed, row) : row;
+          localStorage.setItem(cacheKey, JSON.stringify(updatedClose));
         }
+      }
+
+      if (table === 'closing_records') {
+        var histRaw = localStorage.getItem('bongplay_closing_records_history');
+        var histList = [];
+        try { histList = histRaw ? JSON.parse(histRaw) : []; } catch (e) { histList = []; }
+        if (!Array.isArray(histList)) histList = [];
+        var hIdx = histList.findIndex(function (it) { return it.date === row.date || it.id === row.id; });
+        if (hIdx >= 0) {
+          histList[hIdx] = Object.assign({}, histList[hIdx], row);
+        } else {
+          histList.unshift(row);
+        }
+        localStorage.setItem('bongplay_closing_records_history', JSON.stringify(histList));
       }
     } catch (e) {
       console.warn('updateLocalCache error:', e);
@@ -360,7 +379,7 @@
     if (typeof window === 'undefined') return false;
     if (window.BONGPLAY_GUEST_MODE === true) return true;
     var path = (window.location && window.location.pathname) ? window.location.pathname.toLowerCase() : '';
-    return path.endsWith('consent.html') || path.endsWith('survey.html');
+    return path.endsWith('consent.html') || path.endsWith('survey.html') || path.endsWith('booking.html');
   }
 
   /* ---------- Supabase 조회 (SELECT) ---------- */
@@ -1052,6 +1071,7 @@
       // 5. closing_records
       var rClosing = await select('closing_records', '?select=*&order=date.desc&limit=30');
       if (rClosing.ok && Array.isArray(rClosing.data)) {
+        localStorage.setItem('bongplay_closing_records_history', JSON.stringify(rClosing.data));
         var todayStr2 = toLocalDateStr(new Date());
         var todayClose = rClosing.data.find(function (c) { return c.date === todayStr2; });
         if (todayClose) {

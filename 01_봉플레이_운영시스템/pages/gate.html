@@ -305,6 +305,7 @@
       let cumExit = 0;
 
       todayRecords.forEach(r => {
+        if (r.status === 'cancelled') return;
         const people = ((r.children && r.children.length) || 0) + 1;
         if (r.entry_at) {
           cumEntry += people;
@@ -546,9 +547,11 @@
       const isIssued = rec.isIssued || rec.is_issued;
       const hasEntered = !!rec.entry_at;
       const hasExited = !!rec.exit_at;
+      const isCancelled = rec.status === 'cancelled' || !!rec.cancelled_at;
 
-      let stage = 1; // 1: Consent only, 2: Issued (ready to enter), 3: Inside, 4: Exited
-      if (hasExited) stage = 4;
+      let stage = 1; // 1: Consent only, 2: Issued (ready to enter), 3: Inside, 4: Exited, 5: Cancelled
+      if (isCancelled) stage = 5;
+      else if (hasExited) stage = 4;
       else if (hasEntered) stage = 3;
       else if (isIssued) stage = 2;
 
@@ -609,9 +612,18 @@
           </div>
           ${renderExitSurveyBlock(rec)}
         `;
+      } else if (stage === 5) {
+        playChime('error');
+        actionHtml = `
+          <div class="bg-rose-950/70 border border-rose-800 rounded-3xl p-5 text-center space-y-2">
+            <i data-lucide="ban" class="w-10 h-10 text-rose-400 mx-auto"></i>
+            <div class="text-xl font-black text-white">취소·환불된 이용권입니다</div>
+            <p class="text-sm text-rose-200">해당 이용권은 매표소에서 취소 또는 환불 처리되어 입장이 불가합니다.</p>
+          </div>
+        `;
       }
 
-      const stageLabel = ['', '발권 전', '입장 전', '이용 중', '퇴장 완료'][stage];
+      const stageLabel = ['', '발권 전', '입장 전', '이용 중', '퇴장 완료', '취소됨'][stage];
       panel.innerHTML = `
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
@@ -841,47 +853,69 @@
       lucide.createIcons();
     }
 
+    let isExecutingGateAction = false;
     // 6. Execute Gate Action (Entry / Exit)
     async function executeGateAction(id, actionType) {
+      if (isExecutingGateAction) return;
       const rec = consents.find(c => c.id === id);
       if (!rec) return;
 
-      const now = new Date().toISOString();
-      const totalPeople = ((rec.children && rec.children.length) || 0) + 1;
-
-      if (actionType === 'entry') {
-        rec.entry_at = now;
-        playChime('entry');
-        addActivityLog({
-          time: BongplaySync.toLocalTimeStr(now),
-          type: '입장 승인',
-          pass: rec.passCode || rec.pass_code,
-          guardian: rec.guardianName || rec.guardian_name,
-          count: `+${totalPeople}명`,
-          status: '원내 입장'
-        });
-      } else if (actionType === 'exit') {
-        rec.exit_at = now;
-        // 체류 시간(분): 객단가·매점 소비 분석의 핵심 설명 변수 (예전엔 계산되지 않아 항상 비어 있었음)
-        if (rec.entry_at) {
-          const mins = Math.round((new Date(now) - new Date(rec.entry_at)) / 60000);
-          if (mins >= 0 && mins < 24 * 60) rec.stay_duration_minutes = mins;
-        }
-        playChime('exit');
-        addActivityLog({
-          time: BongplaySync.toLocalTimeStr(now),
-          type: '퇴장 승인',
-          pass: rec.passCode || rec.pass_code,
-          guardian: rec.guardianName || rec.guardian_name,
-          count: `-${totalPeople}명`,
-          status: '퇴장 완료'
-        });
+      if (rec.status === 'cancelled' || rec.cancelled_at) {
+        alert('취소·환불된 이용권은 입장/퇴장 처리가 불가합니다.');
+        return;
       }
 
-      // Save via BongplaySync
-      await BongplaySync.upsert('safety_consents', rec);
-      recalcOccupancy();
-      renderScanResult(rec, actionType === 'exit');
+      if (actionType === 'entry' && rec.entry_at) {
+        alert('이미 입장 처리된 이용권입니다.');
+        return;
+      }
+
+      if (actionType === 'exit' && rec.exit_at) {
+        alert('이미 퇴장 처리된 이용권입니다.');
+        return;
+      }
+
+      isExecutingGateAction = true;
+      try {
+        const now = new Date().toISOString();
+        const totalPeople = ((rec.children && rec.children.length) || 0) + 1;
+
+        if (actionType === 'entry') {
+          rec.entry_at = now;
+          playChime('entry');
+          addActivityLog({
+            time: BongplaySync.toLocalTimeStr(now),
+            type: '입장 승인',
+            pass: rec.passCode || rec.pass_code,
+            guardian: rec.guardianName || rec.guardian_name,
+            count: `+${totalPeople}명`,
+            status: '원내 입장'
+          });
+        } else if (actionType === 'exit') {
+          rec.exit_at = now;
+          // 체류 시간(분): 객단가·매점 소비 분석의 핵심 설명 변수 (예전엔 계산되지 않아 항상 비어 있었음)
+          if (rec.entry_at) {
+            const mins = Math.round((new Date(now) - new Date(rec.entry_at)) / 60000);
+            if (mins >= 0 && mins < 24 * 60) rec.stay_duration_minutes = mins;
+          }
+          playChime('exit');
+          addActivityLog({
+            time: BongplaySync.toLocalTimeStr(now),
+            type: '퇴장 승인',
+            pass: rec.passCode || rec.pass_code,
+            guardian: rec.guardianName || rec.guardian_name,
+            count: `-${totalPeople}명`,
+            status: '퇴장 완료'
+          });
+        }
+
+        // Save via BongplaySync
+        await BongplaySync.upsert('safety_consents', rec);
+        recalcOccupancy();
+        renderScanResult(rec, actionType === 'exit');
+      } finally {
+        isExecutingGateAction = false;
+      }
     }
 
     // 출입 로그는 메모리에만 쌓지 않고, 저장된 서약서의 입장·퇴장 시각(entry_at / exit_at)에서

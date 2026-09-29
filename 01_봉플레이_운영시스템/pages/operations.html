@@ -2967,8 +2967,12 @@
       }
     }
 
+    let isSubmittingPosOrder = false;
     function submitPosOrder() {
-      const pricing = posPricing();
+      if (isSubmittingPosOrder) return;
+      isSubmittingPosOrder = true;
+      try {
+        const pricing = posPricing();
       const items = pricing.items;
       const extraRevenueTotal = items
         .filter(it => it.product_category !== 'ticket')
@@ -3046,7 +3050,10 @@
       } else {
         alert('BongplayID 모듈이 로드되지 않았습니다.');
       }
+    } finally {
+      isSubmittingPosOrder = false;
     }
+  }
 
     // =================================================================
     // P0-3, P0-4, P0-5 FIELD AI OPS & TELEMETRY CONTROLLER
@@ -3964,8 +3971,13 @@
           if (res.ok && res.data) audits = res.data;
         }
 
-        const todayAudit = audits.find(a => (a.audit_date === todayStr) || (a.date || '').slice(0, 10) === todayStr);
-        if (todayAudit && todayAudit.decision === 'pass') {
+        const todayPassed = audits.some(a => {
+          const d = (a.audit_date || a.date || a.audit_at || '').slice(0, 10);
+          if (d !== todayStr) return false;
+          const dec = String(a.decision || a.result || a.overall_status || '').toLowerCase();
+          return dec === 'pass' || dec === 'passed';
+        });
+        if (todayPassed) {
           isSafetyInspectionPassed = true;
           if (banner) banner.classList.add('hidden');
         } else {
