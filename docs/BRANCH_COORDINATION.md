@@ -116,7 +116,11 @@ COORD-007 / Ben / ben/COORD-007-live-targets / 기준 ed5a2ce / 운영 대상 �
 |---|---|---|---|---|---|
 | ANT-001 | 아난티 | antigravity/ANT-001-operations-integrity | 01·QA·본인 행 | 안전점검/POS, 취소/퇴장/전파, 마감 날짜 전환 실제 UI 검증 | PR #11 최종 보완 지시 |
 | CLAUDE-005 | 클로이 | claude/CLAUDE-005-price-promotion-readiness (착수 master `38d0c00`) | 승격 준비 문서·본인 행 | 출처 SHA/품목/변경필드/검사 결과 정리 | 사전 점검 완료 — `docs/migration/CLAUDE-005_요금계약_승격준비.md`, #11 `db509c7` 대조 승격 모의 4/4 통과, 결정 요청 D1~D4 / 실제 승격은 #11 병합 후 별도 지시 |
-| GEO-003 | 지오 | aside/GEO-003-archive-parity | 통합 대조 문서·본인 행 | 현행→내부 기능/자료연결/직원보호 대조 | 읽기 점검 착수 |
+| GEO-003 | 지오 | aside/GEO-003-archive-parity (기준 `38d0c00`) | 통합 대조 문서·본인 행 | 현행→내부 기능/자료연결/직원보호 대조 | 읽기 대조 완료, `docs/qa/GEO-003_내부아카이브_통합대조.md` master 대상 PR 제출 / 미인증 목록 수신 확인, 벤 검토 대기 |
 | COORD-009 | Ben | ben/COORD-009-next-assignments | 본 지시·작업표 | 범위·의존·완료 기준 명시 | 대표 실행 요청에 따라 배정 |
 
 신규 브랜치 담당은 착수 기준 origin/master SHA를 본인 보고서에 기록한다. 세 담당 모두 완료 후 PR 최종 SHA와 결정 요청을 보고하며 벤이 대표 질문을 담당한다.
+
+## BEN-010 최신 판단
+
+[완료 검토·접근권한·버스지원](migration/BEN-010_완료검토_접근권한_버스지원.md)을 따른다. CLAUDE-005 문서 통합 완료, GEO-003은 벤이 작업표 충돌을 조정해 통합. ANT-001 d94411d는 시나리오1 진단 인계이며 세 흐름 완료 아님. 원본 Drive도 직원 전용/삭제는 관리자만 확정. 버스 지원은 자체 판촉비로 추진하되 금액·규모 미확정.
