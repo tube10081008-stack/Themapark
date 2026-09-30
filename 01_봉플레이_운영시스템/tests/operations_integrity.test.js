@@ -16,7 +16,8 @@ const path = require('node:path');
 const ROOT_DIR = path.resolve(__dirname, '..');
 
 function readFile(relPath) {
-  return fs.readFileSync(path.join(ROOT_DIR, relPath), 'utf-8');
+  const content = fs.readFileSync(path.join(ROOT_DIR, relPath), 'utf-8');
+  return content.replace(/\r\n/g, '\n');
 }
 
 // -----------------------------------------------------------------------------
@@ -339,12 +340,11 @@ test('6. [R4 P1] 취소 이용권 체류 인원 유지 및 게이트 퇴장 처�
   await t.test('6-2. [행동 검증] gate.html 실제 executeGateAction 라이프사이클 및 에러 처리 검증', async () => {
     const gateHtml = readFile('pages/gate.html');
     
-    // gate.html에서 실제 사용하는 executeGateAction 추출
-    const fnStart = gateHtml.indexOf('async function executeGateAction(id, actionType) {');
-    assert.ok(fnStart > 0, 'executeGateAction 함수가 gate.html에 존재해야 함');
-    const fnEnd = gateHtml.indexOf('\n    }\n\n    // 출입 로그는', fnStart);
-    assert.ok(fnEnd > fnStart, 'executeGateAction 종료 지점 확인');
-    const gateActionCode = gateHtml.substring(fnStart, fnEnd + 6);
+    // gate.html에서 실제 사용하는 executeGateAction 추출 (LF / CRLF 모두 지원하는 견고한 정규식 추출)
+    const match = gateHtml.match(/async\s+function\s+executeGateAction\s*\([\s\S]*?\n\s*\}\s*\n\s*\/\/\s*출입\s*로그는/);
+    assert.ok(match, 'executeGateAction 함수가 gate.html에 존재해야 함');
+    const endBraceIdx = match[0].lastIndexOf('}');
+    const gateActionCode = match[0].substring(0, endBraceIdx + 1);
 
     const today = new Date().toISOString().slice(0, 10);
     const consents = [
@@ -556,25 +556,75 @@ test('7. [추가 조건 1] 안전서약 취소 PATCH 서버 계약 및 오프라
   assert.equal(cachedDevB[0].status, 'cancelled', 'Device B에 취소 상태 전파 반영 확인');
 
   // 5. Unapplied Proposed SQL schema test (Supabase schema cache misses 'status' column)
-  const { mockWindow: devUnmigrated, sessionStore } = createSyncEnv({
+  const { mockWindow: devUnmigrated, store: storeUnmigrated, sessionStore } = createSyncEnv({
     'bongplay_supabase_config': JSON.stringify({ url: 'https://test.supabase.co', key: 'anon-key' })
   });
-  const fetchUnmigrated = async () => {
-    return {
-      ok: false,
-      status: 400,
-      text: async () => "Could not find the 'status' column of 'safety_consents' in the schema cache"
-    };
+
+  let patchAttemptCount = 0;
+  let receivedBodyOnServer = null;
+  const fetchUnmigrated = async (url, options) => {
+    if (options && options.method === 'PATCH') {
+      patchAttemptCount++;
+      receivedBodyOnServer = JSON.parse(options.body);
+      // First attempt: Server schema does not have 'status' column yet
+      return {
+        ok: false,
+        status: 400,
+        text: async () => "Could not find the 'status' column of 'safety_consents' in the schema cache"
+      };
+    }
+    return { ok: true, status: 200, text: async () => '[]' };
   };
   global.fetch = fetchUnmigrated;
   devUnmigrated.fetch = fetchUnmigrated;
 
-  const resUnmigrated = await devUnmigrated.BongplaySync.patch('safety_consents', 'c_999', {
+  const callerInput = {
     status: 'cancelled',
-    cancelled_at: '2026-09-30T10:00:00Z'
-  });
-  assert.ok(resUnmigrated.ok, '미적용 컬럼 오류 시에도 크래시 없이 정상 반환');
-  assert.ok(sessionStore['bongplay_invalid_columns'].includes('status'), 'invalidColumnCache에 누락 컬럼 등록되어 재발 방지');
+    cancelled_at: '2026-09-30T10:00:00Z',
+    is_issued: false
+  };
+
+  const resUnmigrated = await devUnmigrated.BongplaySync.patch('safety_consents', 'c_999', callerInput);
+
+  // 5-1. Caller input object MUST NOT be mutated (status preserved)
+  assert.equal(callerInput.status, 'cancelled', '호출자 원본 객체의 status 필드 보존 확인');
+  assert.equal(callerInput.is_issued, false, '호출자 원본 객체의 is_issued 필드 보존 확인');
+
+  // 5-2. Must NOT claim success or drop status column!
+  assert.equal(resUnmigrated.ok, false, '필수 컬럼 미반영 상태에서 임의 성공 처리 방지 (ok === false)');
+  assert.equal(resUnmigrated.schema_blocked, true, 'schema_blocked 플래그로 명시적 보류 보고');
+  assert.equal(resUnmigrated.queued, true, '서버 반영 전까지 아웃박스 큐 적재 보고');
+  assert.ok(sessionStore['bongplay_invalid_columns'].includes('status'), 'invalidColumnCache에 누락 컬럼 등록');
+
+  // 5-3. Outbox queue must retain the FULL payload including status, and pending === 1
+  const unmigratedPending = await devUnmigrated.BongplaySync.getPendingCount();
+  assert.equal(unmigratedPending, 1, '스키마 미적용 시 큐에서 조기 해소되지 않고 1건 보존');
+  const unmigratedOutbox = JSON.parse(storeUnmigrated['bongplay_outbox_queue_v2']);
+  assert.equal(unmigratedOutbox[0].payload.status, 'cancelled', '아웃박스 페이로드에 원본 status 보존 확인');
+
+  // 5-4. Attempting flush while still unmigrated -> remains blocked in outbox
+  await devUnmigrated.BongplaySync.flushOutbox();
+  const stillPending = await devUnmigrated.BongplaySync.getPendingCount();
+  assert.equal(stillPending, 1, '스키마 미적용 상태에서 flushOutbox 호출 시에도 조기 삭제 방지');
+
+  // 5-5. Migration applied on Supabase -> retry flush successfully transmits full payload!
+  let migratedSentBody = null;
+  const fetchMigrated = async (url, options) => {
+    if (options && options.method === 'PATCH') {
+      migratedSentBody = JSON.parse(options.body);
+      return { ok: true, status: 200, text: async () => '[]' };
+    }
+    return { ok: true, status: 200, text: async () => '[]' };
+  };
+  global.fetch = fetchMigrated;
+  devUnmigrated.fetch = fetchMigrated;
+
+  await devUnmigrated.BongplaySync.flushOutbox();
+  assert.ok(migratedSentBody, '스키마 적용 후 서버로 재전송 수행 확인');
+  assert.equal(migratedSentBody.status, 'cancelled', '스키마 적용 후 flush 시 원본 status가 온전히 서버로 전송됨 확인');
+  assert.equal(migratedSentBody.is_issued, false);
+  const finalPending = await devUnmigrated.BongplaySync.getPendingCount();
+  assert.equal(finalPending, 0, '스키마 적용 후 정상 전송 완료 시 큐가 0으로 해소');
 });
 
 // -----------------------------------------------------------------------------

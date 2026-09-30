@@ -605,6 +605,19 @@
             invalidColumnCache[table].push(missingCol);
             try { var sess = getSession() || sessionStorage; if (sess) sess.setItem('bongplay_invalid_columns', JSON.stringify(invalidColumnCache)); } catch (e) {}
           }
+          var criticalCols = ['status', 'cancelled_at', 'cancel_reason', 'closing_status'];
+          if (criticalCols.indexOf(missingCol) !== -1) {
+            var outId = payload[pkField] || ('out_' + Date.now());
+            await enqueueOutbox({
+              id: outId,
+              table: table,
+              action: 'upsert',
+              payload: payload,
+              created_at: new Date().toISOString()
+            });
+            broadcast({ type: 'SCHEMA_BLOCKED', table: table, row: payload, missing_column: missingCol });
+            return { ok: false, schema_blocked: true, queued: true, missing_column: missingCol, row: payload };
+          }
           delete payload[missingCol];
           continue;
         }
@@ -684,15 +697,33 @@
     var cfg = getConfig();
     idCol = idCol || (table === 'ticket_ledger' ? 'ticket_id' : 'id');
 
+    // 호출자의 patchData 객체를 직접 수정(변조)하지 않음
     var patchPayload = Object.assign({}, patchData);
     patchPayload[idCol] = idVal;
     updateLocalCache(table, patchPayload);
 
-    // 이미 알려진 누락 컬럼 제거
+    var sendData = Object.assign({}, patchData);
+
+    // 이미 알려진 누락 컬럼이 패치 대상에 포함된 경우:
+    // 필수 상태/계약 필드는 버리지 않고 아웃박스에 영구 보존하며 schema_blocked로 대기
+    var criticalCols = ['status', 'cancelled_at', 'cancel_reason', 'closing_status'];
     if (invalidColumnCache[table]) {
-      invalidColumnCache[table].forEach(function (col) {
-        delete patchData[col];
+      var hasBlockedCritical = invalidColumnCache[table].some(function (c) {
+        return criticalCols.indexOf(c) !== -1 && sendData[c] !== undefined;
       });
+      if (hasBlockedCritical) {
+        await enqueueOutbox({
+          id: 'patch_' + idVal,
+          idVal: idVal,
+          idCol: idCol,
+          table: table,
+          action: 'patch',
+          payload: sendData,
+          created_at: new Date().toISOString()
+        });
+        broadcast({ type: 'SCHEMA_BLOCKED', table: table, id: idVal, data: patchPayload, offline: true });
+        return { ok: false, schema_blocked: true, queued: true };
+      }
     }
 
     var _fetch = getFetch();
@@ -703,17 +734,11 @@
         idCol: idCol,
         table: table,
         action: 'patch',
-        payload: patchData,
+        payload: sendData,
         created_at: new Date().toISOString()
       });
       broadcast({ type: 'UPDATE_SUCCESS', table: table, id: idVal, data: patchPayload, offline: true });
       return { ok: true, queued: true };
-    }
-
-    // 서버 스키마에 존재하지 않는 컬럼만 있는 경우 (미적용 DDL 제안 상태) 로컬 보존 후 정상 리턴
-    if (Object.keys(patchData).length === 0) {
-      broadcast({ type: 'UPDATE_SUCCESS', table: table, id: idVal, data: patchPayload, schema_unmigrated: true });
-      return { ok: true, schema_unmigrated: true };
     }
 
     try {
@@ -726,7 +751,7 @@
           'Content-Type': 'application/json',
           'Prefer': 'return=representation'
         },
-        body: JSON.stringify(patchData)
+        body: JSON.stringify(sendData)
       });
       if (res.ok) {
         broadcast({ type: 'UPDATE_SUCCESS', table: table, id: idVal, data: patchPayload });
@@ -735,7 +760,8 @@
       var errTxt = await res.text();
       console.warn('Supabase patch error:', res.status, errTxt);
 
-      // 서버 DB 스키마 컬럼 부재(미적용 SQL 제안 상태) 감지 시 자동 제외 및 캐시
+      // 서버 DB 스키마 컬럼 부재(미적용 SQL 제안 상태) 감지 시:
+      // status, cancelled_at 등 필수 필드를 임의로 drop하고 성공 처리하면 안 됨!
       var colMatch = errTxt.match(/Could not find the '([^']+)' column/);
       if (colMatch && colMatch[1]) {
         var missingCol = colMatch[1];
@@ -744,27 +770,19 @@
           invalidColumnCache[table].push(missingCol);
           try { var sess = getSession() || sessionStorage; if (sess) sess.setItem('bongplay_invalid_columns', JSON.stringify(invalidColumnCache)); } catch (e) {}
         }
-        delete patchData[missingCol];
-        if (Object.keys(patchData).length === 0) {
-          broadcast({ type: 'UPDATE_SUCCESS', table: table, id: idVal, data: patchPayload, schema_unmigrated: true });
-          return { ok: true, schema_unmigrated: true };
-        }
-        try {
-          var resRetry = await _fetch(url, {
-            method: 'PATCH',
-            headers: {
-              'apikey': cfg.key,
-              'Authorization': 'Bearer ' + cfg.key,
-              'Content-Type': 'application/json',
-              'Prefer': 'return=representation'
-            },
-            body: JSON.stringify(patchData)
-          });
-          if (resRetry.ok) {
-            broadcast({ type: 'UPDATE_SUCCESS', table: table, id: idVal, data: patchPayload });
-            return { ok: true };
-          }
-        } catch (retryErr) {}
+
+        // 원본 payload를 아웃박스에 보존하고 schema_blocked로 명시적 보류 처리 (성공 방송 방지)
+        await enqueueOutbox({
+          id: 'patch_' + idVal,
+          idVal: idVal,
+          idCol: idCol,
+          table: table,
+          action: 'patch',
+          payload: sendData,
+          created_at: new Date().toISOString()
+        });
+        broadcast({ type: 'SCHEMA_BLOCKED', table: table, id: idVal, data: patchPayload, missing_column: missingCol, offline: true });
+        return { ok: false, schema_blocked: true, queued: true, missing_column: missingCol };
       }
 
       await enqueueOutbox({
@@ -773,7 +791,7 @@
         idCol: idCol,
         table: table,
         action: 'patch',
-        payload: patchData,
+        payload: sendData,
         created_at: new Date().toISOString()
       });
       return { ok: true, queued: true };
@@ -784,7 +802,7 @@
         idCol: idCol,
         table: table,
         action: 'patch',
-        payload: patchData,
+        payload: sendData,
         created_at: new Date().toISOString()
       });
       return { ok: true, queued: true };
@@ -921,70 +939,56 @@
             var errTxt = await res.text();
             var colMatch = errTxt.match(/Could not find the '([^']+)' column/);
             if (colMatch && colMatch[1]) {
-              delete item.payload[colMatch[1]];
-              var resRetry = await fetchFn(cfg.url + '/rest/v1/' + item.table, {
-                method: 'POST',
-                headers: {
-                  'apikey': cfg.key,
-                  'Authorization': 'Bearer ' + cfg.key,
-                  'Content-Type': 'application/json',
-                  'Prefer': 'resolution=merge-duplicates,return=minimal'
-                },
-                body: JSON.stringify(item.payload)
-              });
-              if (resRetry.ok) success = true;
+              var missingColU = colMatch[1];
+              var criticalColsU = ['status', 'cancelled_at', 'cancel_reason', 'closing_status'];
+              if (criticalColsU.indexOf(missingColU) !== -1) {
+                // 필수 상태 컬럼 누락: 아웃박스에서 삭제하지 않고 대기 유지
+                success = false;
+              } else {
+                delete item.payload[missingColU];
+                var resRetry = await fetchFn(cfg.url + '/rest/v1/' + item.table, {
+                  method: 'POST',
+                  headers: {
+                    'apikey': cfg.key,
+                    'Authorization': 'Bearer ' + cfg.key,
+                    'Content-Type': 'application/json',
+                    'Prefer': 'resolution=merge-duplicates,return=minimal'
+                  },
+                  body: JSON.stringify(item.payload)
+                });
+                if (resRetry.ok) success = true;
+              }
             }
           }
         } else if (item.action === 'patch') {
           var pk = item.idCol || (item.table === 'ticket_ledger' ? 'ticket_id' : 'id');
-          // 이미 알려진 누락 컬럼 제외
-          if (invalidColumnCache[item.table]) {
-            invalidColumnCache[item.table].forEach(function (col) {
-              delete item.payload[col];
-            });
-          }
-          if (Object.keys(item.payload).length === 0) {
-            success = true; // 서버 미마이그레이션 상태: 로컬 반영 완료, 아웃박스 해소
-          } else {
-            var resP = await fetchFn(cfg.url + '/rest/v1/' + item.table + '?' + pk + '=eq.' + encodeURIComponent(item.idVal), {
-              method: 'PATCH',
-              headers: {
-                'apikey': cfg.key,
-                'Authorization': 'Bearer ' + cfg.key,
-                'Content-Type': 'application/json',
-                'Prefer': 'return=representation'
-              },
-              body: JSON.stringify(item.payload)
-            });
-            if (resP.ok) {
-              success = true;
-            } else if (resP.status >= 400 && resP.status < 500) {
-              var errTxtP = await resP.text();
-              var matchP = errTxtP.match(/Could not find the '([^']+)' column/);
-              if (matchP && matchP[1]) {
-                var missingColP = matchP[1];
-                if (!invalidColumnCache[item.table]) invalidColumnCache[item.table] = [];
-                if (invalidColumnCache[item.table].indexOf(missingColP) === -1) {
-                  invalidColumnCache[item.table].push(missingColP);
-                  try { var sess = getSession() || sessionStorage; if (sess) sess.setItem('bongplay_invalid_columns', JSON.stringify(invalidColumnCache)); } catch (e) {}
-                }
-                delete item.payload[missingColP];
-                if (Object.keys(item.payload).length === 0) {
-                  success = true;
-                } else {
-                  var resRetryP = await fetchFn(cfg.url + '/rest/v1/' + item.table + '?' + pk + '=eq.' + encodeURIComponent(item.idVal), {
-                    method: 'PATCH',
-                    headers: {
-                      'apikey': cfg.key,
-                      'Authorization': 'Bearer ' + cfg.key,
-                      'Content-Type': 'application/json',
-                      'Prefer': 'return=representation'
-                    },
-                    body: JSON.stringify(item.payload)
-                  });
-                  if (resRetryP.ok) success = true;
-                }
+          var patchSend = Object.assign({}, item.payload);
+          delete patchSend[pk];
+
+          var resP = await fetchFn(cfg.url + '/rest/v1/' + item.table + '?' + pk + '=eq.' + encodeURIComponent(item.idVal), {
+            method: 'PATCH',
+            headers: {
+              'apikey': cfg.key,
+              'Authorization': 'Bearer ' + cfg.key,
+              'Content-Type': 'application/json',
+              'Prefer': 'return=representation'
+            },
+            body: JSON.stringify(patchSend)
+          });
+          if (resP.ok) {
+            success = true;
+          } else if (resP.status >= 400 && resP.status < 500) {
+            var errTxtP = await resP.text();
+            var matchP = errTxtP.match(/Could not find the '([^']+)' column/);
+            if (matchP && matchP[1]) {
+              var missingColP = matchP[1];
+              if (!invalidColumnCache[item.table]) invalidColumnCache[item.table] = [];
+              if (invalidColumnCache[item.table].indexOf(missingColP) === -1) {
+                invalidColumnCache[item.table].push(missingColP);
+                try { var sess = getSession() || sessionStorage; if (sess) sess.setItem('bongplay_invalid_columns', JSON.stringify(invalidColumnCache)); } catch (e) {}
               }
+              // 스키마 미적용 상태: 필수 필드를 삭제하거나 큐를 해소하지 않고 대기 보류
+              success = false;
             }
           }
         } else if (item.action === 'delete') {
