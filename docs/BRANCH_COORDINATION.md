@@ -115,7 +115,7 @@ COORD-007 / Ben / ben/COORD-007-live-targets / 기준 ed5a2ce / 운영 대상 �
 | ID | 담당 | 브랜치 | 범위 | 완료 조건 | 현재 상태 |
 |---|---|---|---|---|---|
 | ANT-001 | 아난티 | antigravity/ANT-001-operations-integrity | 01·QA·본인 행 | 안전점검/POS, 취소/퇴장/전파, 마감 날짜 전환 실제 UI 검증 | PR #11 최종 보완 지시 |
-| CLAUDE-005 | 클로이 | claude/CLAUDE-005-price-promotion-readiness | 승격 준비 문서·본인 행 | 출처 SHA/품목/변경필드/검사 결과 정리 | 사전 점검 착수, 실제 승격은 #11 병합 후 별도 지시 |
+| CLAUDE-005 | 클로이 | claude/CLAUDE-005-price-promotion-readiness (착수 master `38d0c00`) | 승격 준비 문서·본인 행 | 출처 SHA/품목/변경필드/검사 결과 정리 | 사전 점검 완료 — `docs/migration/CLAUDE-005_요금계약_승격준비.md`, #11 `db509c7` 대조 승격 모의 4/4 통과, 결정 요청 D1~D4 / 실제 승격은 #11 병합 후 별도 지시 |
 | GEO-003 | 지오 | aside/GEO-003-archive-parity | 통합 대조 문서·본인 행 | 현행→내부 기능/자료연결/직원보호 대조 | 읽기 점검 착수 |
 | COORD-009 | Ben | ben/COORD-009-next-assignments | 본 지시·작업표 | 범위·의존·완료 기준 명시 | 대표 실행 요청에 따라 배정 |
 
