@@ -62,7 +62,7 @@
 | ANT-001 | 아난티 | `antigravity/ANT-001-operations-integrity` | `6769559` 검토 | 01 운영 UI·공통 JS·테스트·검증 보고서·본 행 | 전체 화면·핵심 흐름 검증, 재현된 P0/P1 수정, 면적 의미 분리, 회귀 테스트와 PR | PR #11 병합 보류 / R1~R4·행동검증 보완 |
 | CLAUDE-003 | Claude | `claude/CLAUDE-003-legacy-business-docs` | `3830fad` | `03_봉뜨락_도면및행정자료/_참고_초기기획_20260830/` 신규 5개(원본 4 + README), 본 작업표 1행 | 운영계획서·손익 그리드·채용 제안서 2종을 원본 그대로(blob 동일) 보존, README에 원본 SHA·구버전·현행 판단 미사용 명시. 제안서 2종은 대표 결정(2026-09-29)으로 보관 전용 | 벤 검토 통과 / 이력 보존 통합 |
 | CLAUDE-004 | Claude | `claude/CLAUDE-004-agents-design` | `3830fad` | `05_봉플레이_AI에이전트/DESIGN.md` 신규, 본 작업표 1행 | 6종 이관 1차 설계: 기준정보 JSON 계약·입력 스냅샷·숨은 쓰기 경로·테스트 계획·PR 순서 (코드 이동 없음) | 설계 벤 검토 통과 / 이력 보존 통합 |
-| CLAUDE-004b | 클로이 | `claude/CLAUDE-004b-profile-contract` | `0197ffe` 검토 | 05 계약·검증·gate·테스트 | PR #9 R1/R2 요금 추출 누락 보완 후 재검토 | PR #9 병합 보류 / 벤 재현 2건 |
+| CLAUDE-004b | 클로이 | `claude/CLAUDE-004b-profile-contract` | `2314e75` (+ master `1bc6ff1` 병합) | 05 계약·검증·gate·테스트 (`site_profile.json`, `core/`, `tests/`, README, `env.template`, DESIGN 갱신) | PR #9 R1/R2 요금 추출 누락 보완 후 재검토 | R1/R2 보완 `4613a7a`, 작업 폴더 지정·실행 환경 문서화 추가, Linux·Python 3.11.15에서 키 없이 83건 통과 / PR 본문 최신화 / 벤 재검토 대기 (Windows 재실행 미확인) |
 | ASIDE-001 | 지오 | `aside/ASIDE-001-institution-directory` | `ed5a2cefd72d58daba1465f1d2a25ccfc27d01b6` (이후 `1ff3891` 동기화) | `docs/research/ASIDE-001_수집방법과_커버리지.md`, 본 행 (CSV는 저장소 밖) | 9칸 커버리지, CSV는 저장소 밖 대표 전달 | 9칸 248개 수집·CSV 대표 전달, 방법 문서 PR #16 제출 / 벤 검토 대기 |
 | ASIDE-HIST-001 | 지오·대표 | 해당 없음 | 대표 보고 2026-09-29 | 네이버 블로그 자동화 기존 운영 | 대표 운영 성공 보고 기록 | 보고 기준 완료 / 벤 미검증 / 신규 게시 미배정 |
 | COORD-004 | Ben | `ben/COORD-004-chloe-review` | `bb0fcec` | PR #4~#6 이력 통합·작업표·결정문·추가 지시 | 원본 검증·작업행 보존·통합 PR | 검토 및 통합 |
@@ -103,3 +103,20 @@ COORD-007 / Ben / ben/COORD-007-live-targets / 기준 ed5a2ce / 운영 대상 �
 
 - GEO-002 / 지오 / aside/GEO-002-live-deployment-audit / 기준 SHA 착수 시 기록 / 현행 두 서비스 읽기 검증·문서 / 도메인별 배포 식별 및 관찰 범위 정정 PR / 배정, 전달 대기.
 - [GEO-002 지시](tasks/GEO-002_현행배포_대상정정.md)를 ASIDE-001보다 우선한다. chat2는 구 MVP이며 기존 접근·아카이브·크레딧 관찰을 현행에 적용하지 않는다. ANT-001 및 CLAUDE-004b 소스 보완은 계속한다.
+
+## 2026-09-30 대표 결정 및 최신 보완 검토
+
+[최신 결정과 인계 BEN-008](migration/BEN-008_공개범위_아카이브_배포결정.md)을 우선한다. 업무로그·아카이브 직원 전용, 운영시스템 내부 아카이브 통일, ZIP 수동 배포 유지. PR #9 fe471a6은 82건 중 79 통과/3 환경 권한 오류, PR #11 f9a8335는 48건 통과이나 실제 동기화·브라우저 검증 보완으로 병합 보류 유지. COORD-008 / Ben / ben/COORD-008-owner-decisions / 기준 1ff3891 / 공동 규칙·대표 결정·보완 인계 / 문서 검증.
+
+## 현재 실행 지시 — BEN-009 (2026-09-30)
+
+과거 상태 기록보다 [BEN-009 에이전트별 다음 작업](tasks/BEN-009_에이전트별_다음작업.md)을 우선한다. PR #9는 b70e305로 병합 완료(벤 83건 통과). PR #11 db509c7은 벤 20+28건 및 schema_blocked 재현 통과, 실제 브라우저 업무 흐름 3종 검증 대기다.
+
+| ID | 담당 | 브랜치 | 범위 | 완료 조건 | 현재 상태 |
+|---|---|---|---|---|---|
+| ANT-001 | 아난티 | antigravity/ANT-001-operations-integrity | 01·QA·본인 행 | 안전점검/POS, 취소/퇴장/전파, 마감 날짜 전환 실제 UI 검증 | PR #11 최종 보완 지시 |
+| CLAUDE-005 | 클로이 | claude/CLAUDE-005-price-promotion-readiness | 승격 준비 문서·본인 행 | 출처 SHA/품목/변경필드/검사 결과 정리 | 사전 점검 착수, 실제 승격은 #11 병합 후 별도 지시 |
+| GEO-003 | 지오 | aside/GEO-003-archive-parity | 통합 대조 문서·본인 행 | 현행→내부 기능/자료연결/직원보호 대조 | 읽기 점검 착수 |
+| COORD-009 | Ben | ben/COORD-009-next-assignments | 본 지시·작업표 | 범위·의존·완료 기준 명시 | 대표 실행 요청에 따라 배정 |
+
+신규 브랜치 담당은 착수 기준 origin/master SHA를 본인 보고서에 기록한다. 세 담당 모두 완료 후 PR 최종 SHA와 결정 요청을 보고하며 벤이 대표 질문을 담당한다.
