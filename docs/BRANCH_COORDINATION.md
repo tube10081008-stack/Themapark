@@ -124,3 +124,17 @@ COORD-007 / Ben / ben/COORD-007-live-targets / 기준 ed5a2ce / 운영 대상 �
 ## BEN-010 최신 판단
 
 [완료 검토·접근권한·버스지원](migration/BEN-010_완료검토_접근권한_버스지원.md)을 따른다. CLAUDE-005 문서 통합 완료, GEO-003은 벤이 작업표 충돌을 조정해 통합. ANT-001 d94411d는 시나리오1 진단 인계이며 세 흐름 완료 아님. 원본 Drive도 직원 전용/삭제는 관리자만 확정. 버스 지원은 자체 판촉비로 추진하되 금액·규모 미확정.
+
+## BEN-011 전체 병행 실행 (2026-10-01)
+
+[현재 실행 지시](tasks/BEN-011_전체작업_병행실행.md)를 우선한다. 기준 master 162f99b.
+
+| ID | 담당 | 브랜치 | 범위 | 완료 조건/선행 | 상태 |
+|---|---|---|---|---|---|
+| ANT-003a | 아난티 | antigravity/ANT-003a-staff-archive-design | 설계 문서 | 권한/원본보호/기능/전환 검증 설계 | 지금 문서 착수 가능, ANT-001 우선 |
+| ANT-003b | 아난티 | antigravity/ANT-003b-staff-archive | 01/04/GAS/테스트/제안DB | 설계 검토 및 #11 통합 후 구현 | 선행 대기 |
+| CLAUDE-006 | 클로이 | claude/CLAUDE-006-price-notice-coverage | 05 검사·테스트·문서 | G1/G2 보강, 기존 검사 유지 | 즉시 착수 |
+| CLAUDE-007 | 클로이 | 착수 시 명시 | 05 계약·테스트 | #11 및 검사 보강 통합 후 승격 | 선행 대기 |
+| GEO-004 | 지오 | aside/GEO-004-access-release-readiness | 읽기 확인·준비 문서 | 전환 영향/ZIP 검증 준비 | 즉시 착수 |
+| BEN-012 | 벤 | 분석 산출물 준비 | 버스지원 시나리오 | 비용/예산 가정 및 대표 최종 결정 | 입력 질문 전달 |
+| COORD-011 | 벤 | ben/COORD-011-parallel-delivery | 본 지시·작업표 | 범위와 의존 순서 기록 | 배정 |
