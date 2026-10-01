@@ -133,7 +133,7 @@ COORD-007 / Ben / ben/COORD-007-live-targets / 기준 ed5a2ce / 운영 대상 �
 |---|---|---|---|---|---|
 | ANT-003a | 아난티 | antigravity/ANT-003a-staff-archive-design | 설계 문서 | 권한/원본보호/기능/전환 검증 설계 | 지금 문서 착수 가능, ANT-001 우선 |
 | ANT-003b | 아난티 | antigravity/ANT-003b-staff-archive | 01/04/GAS/테스트/제안DB | 설계 검토 및 #11 통합 후 구현 | 선행 대기 |
-| CLAUDE-006 | 클로이 | claude/CLAUDE-006-price-notice-coverage | 05 검사·테스트·문서 | G1/G2 보강, 기존 검사 유지 | 즉시 착수 |
+| CLAUDE-006 | 클로이 | claude/CLAUDE-006-price-notice-coverage (착수 master `ded2f1c`) | 05 검사·테스트·문서 | G1/G2 보강, 기존 검사 유지 | 구현 완료 — G1·G1b·G2, 테스트 110건 통과, 실제 파일 차단 사유 보고(master 8건·#11 `d94411d` 버스비 문구 5건) / 벤 검토 대기 |
 | CLAUDE-007 | 클로이 | 착수 시 명시 | 05 계약·테스트 | #11 및 검사 보강 통합 후 승격 | 선행 대기 |
 | GEO-004 | 지오 | aside/GEO-004-access-release-readiness | 읽기 확인·준비 문서 | 전환 영향/ZIP 검증 준비 | 즉시 착수 |
 | BEN-012 | 벤 | 분석 산출물 준비 | 버스지원 시나리오 | 비용/예산 가정 및 대표 최종 결정 | 입력 질문 전달 |
