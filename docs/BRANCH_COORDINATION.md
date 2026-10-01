@@ -138,3 +138,7 @@ COORD-007 / Ben / ben/COORD-007-live-targets / 기준 ed5a2ce / 운영 대상 �
 | GEO-004 | 지오 | aside/GEO-004-access-release-readiness | 읽기 확인·준비 문서 | 전환 영향/ZIP 검증 준비 | 즉시 착수 |
 | BEN-012 | 벤 | 분석 산출물 준비 | 버스지원 시나리오 | 비용/예산 가정 및 대표 최종 결정 | 입력 질문 전달 |
 | COORD-011 | 벤 | ben/COORD-011-parallel-delivery | 본 지시·작업표 | 범위와 의존 순서 기록 | 배정 |
+
+## BEN-013 다음 병행 작업 (2026-10-02)
+
+실행 기준: [BEN-013](tasks/BEN-013_직원접근설계와_배포보강.md). CLAUDE-008(01/04 패키징 전담), ANT-003a(인증 설계), GEO-005(합성 시험표) 병행. 운영 공유/배포 보류 및 기존 PR 검토는 유지.
