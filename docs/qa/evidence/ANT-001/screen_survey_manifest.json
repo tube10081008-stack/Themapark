@@ -41,7 +41,7 @@
     "cdnScripts": 3,
     "localStyles": 1,
     "cdnStyles": 0,
-    "bytes": 48225
+    "bytes": 48246
   },
   {
     "file": "pages/consent-desk.html",
@@ -63,7 +63,7 @@
     "cdnScripts": 4,
     "localStyles": 1,
     "cdnStyles": 3,
-    "bytes": 210472
+    "bytes": 210617
   },
   {
     "file": "pages/gate.html",
@@ -74,7 +74,7 @@
     "cdnScripts": 4,
     "localStyles": 0,
     "cdnStyles": 0,
-    "bytes": 48434
+    "bytes": 48508
   },
   {
     "file": "pages/safety-check.html",

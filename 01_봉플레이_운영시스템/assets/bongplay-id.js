@@ -778,6 +778,11 @@
         list_price: Number(item.list_price || item.price || 0)
       };
 
+      if (prod && (prod.deprecated || prod.is_active === false)) {
+        console.warn(`[createOrder] Deprecated product blocked: ${prod.id}`);
+        return;
+      }
+
       const qty = Math.max(1, Number(item.quantity) || 1);
       const listPrice = Number(item.list_price || prod.list_price || 0);
       const discount = Number(item.discount_amount) || 0;

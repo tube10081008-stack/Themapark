@@ -1,0 +1,29 @@
+================================================================================
+BEN-009 / BEN-011 END-TO-END BROWSER WORKFLOW VERIFICATION EVIDENCE (ANT-001)
+Engine: C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
+Execution Date: 2026-10-01T01:49:44.073Z
+Total Elapsed: 21182ms
+================================================================================
+
+| 단계 | 검증 항목 | 판정 | 실측 상세 |
+| :--- | :--- | :---: | :--- |
+| 단계 0: Smoke Test | 단계 0: Smoke Test | PASS | 브라우저 연결 → about:blank 탐색 → 유한 정상 종료 검증 완료 |
+| 시나리오 1: 인터록 차단 | 시나리오 1: 인터록 차단 | PASS | 당일 최신 fail 점검 시 결제 시도 차단 및 원장 0건 유지 |
+| 시나리오 1: 점검일지 합격 저장 | 시나리오 1: 점검일지 합격 저장 | PASS | safety-check.html 실제 점검일지 전 항목 pass 및 서명 저장 확인 |
+| 시나리오 1: POS 발권 및 연타 가드 | 시나리오 1: POS 발권 및 연타 가드 | PASS | 인터록 해제 후 정상 발권 및 5회 연타 시 정확히 1건만 원장 생성 |
+| 시나리오 2: 게이트 입장 | 시나리오 2: 게이트 입장 | PASS | 실제 입장 버튼 클릭으로 체류 인원 2명 반영 확인 |
+| 시나리오 2: 취소 시 아웃박스 보존 및 체류 유지 | 시나리오 2: 취소 시 아웃박스 보존 및 체류 유지 | PASS | 400 에러 시 큐 보존(pending: 1) 및 실제 퇴장 전까지 체류 2명 유지 |
+| 시나리오 2: 스키마 복구 및 퇴장 처리 | 시나리오 2: 스키마 복구 및 퇴장 처리 | PASS | flushOutbox로 큐 해소(pending: 0) 및 퇴장 버튼 클릭으로 체류 0명 반영 |
+| 시나리오 2: 독립 단말 B 동기화 | 시나리오 2: 독립 단말 B 동기화 | PASS | 격리된 별도 브라우저 단말 B가 pullAll()로 서버 취소 상태(cancelled) 정상 수신 |
+| 시나리오 3: A일 확정 잠금 | 시나리오 3: A일 확정 잠금 | PASS | A일 확정 기록 버튼 disabled=true, 지출 45,000원 및 메모 잠금 확인 |
+| 시나리오 3: 빈 B일 시재 격리 | 시나리오 3: 빈 B일 시재 격리 | PASS | B일 이동 시 A일 지출·메모 누수 없이 0원 초기화 및 초안 입력 확인 |
+| 시나리오 3: 초안 복원 및 저장 | 시나리오 3: 초안 복원 및 저장 | PASS | A일 복귀 시 B일 데이터 미혼입, B일 재진입 시 초안 복원 및 실제 마감 저장 완료 |
+
+Screenshot Artifacts Generated:
+- docs/qa/evidence/ANT-001/screenshots/scenario1_pos_success.png
+- docs/qa/evidence/ANT-001/screenshots/scenario2_gate_inside.png
+- docs/qa/evidence/ANT-001/screenshots/scenario2_gate_cancelled_inside.png
+- docs/qa/evidence/ANT-001/screenshots/scenario2_gate_exit_done.png
+- docs/qa/evidence/ANT-001/screenshots/scenario3_closing_dateA_locked.png
+- docs/qa/evidence/ANT-001/screenshots/scenario3_closing_dateB_draft.png
+- docs/qa/evidence/ANT-001/screenshots/scenario3_closing_dateB_saved.png

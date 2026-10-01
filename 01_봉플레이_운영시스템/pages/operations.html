@@ -600,11 +600,11 @@
             </div>
           </div>
 
-          <!-- Category 3: 단체 / 어린이집 (7,000원) -->
+          <!-- Category 3: 단체 / 어린이집 (16,800원) -->
           <div class="bg-slate-950/70 p-3 rounded-xl border border-slate-800 flex items-center justify-between">
             <div>
-              <div class="font-extrabold text-xs sm:text-sm text-white">어린이집/유치원 단체 (7,000원)</div>
-              <div class="text-[11px] text-slate-500">평일 단체 유치 (버스 대절 방문)</div>
+              <div class="font-extrabold text-xs sm:text-sm text-white">어린이집/유치원 단체 (16,800원)</div>
+              <div class="text-[11px] text-slate-500">평일 단체 유치 (사전 예약)</div>
             </div>
             <div class="flex items-center gap-1.5">
               <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-slate-800 text-white font-bold text-base" data-target="cntGroup" data-val="-10">-10</button>
@@ -2850,6 +2850,11 @@
       const prod = BongplayID.PRODUCTS[productId];
       const isCoaster = prod && BongplayID.isCoasterProduct(prod);
       const coasterLock = BongplayID.getCoasterWeatherLock();
+
+      if (delta > 0 && prod && (prod.deprecated || prod.is_active === false)) {
+        alert('폐지된 품목은 신규 판매할 수 없습니다.');
+        return;
+      }
 
       if (delta > 0 && isCoaster && coasterLock.locked) {
         alert(`⚠️ [기상안전 인터록] 실버 짚코스터 탑승권을 선택할 수 없습니다.\n사유: ${coasterLock.reason}`);

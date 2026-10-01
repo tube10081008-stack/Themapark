@@ -296,7 +296,7 @@
 
       // Filter today's records
       const todayRecords = consents.filter(c => {
-        const ymd = (c.created_date || c.createdDate || (c.arrival_at || '').slice(0, 10));
+        const ymd = (c.created_date || c.createdDate || (c.created_at || '').slice(0, 10) || (c.arrival_at || '').slice(0, 10));
         return ymd === todayYmd;
       });
 
@@ -501,7 +501,7 @@
       if (isDigitsOnly && digits.length >= 4) {
         const todayYmd = BongplaySync.toLocalDateStr(new Date());
         return consents.filter(c => {
-          const ymd = (c.created_date || c.createdDate || (c.arrival_at || '').slice(0, 10));
+          const ymd = (c.created_date || c.createdDate || (c.created_at || '').slice(0, 10) || (c.arrival_at || '').slice(0, 10));
           const phone = (c.guardianPhone || c.guardian_phone || '').replace(/[^0-9]/g, '');
           return ymd === todayYmd && phone.length >= 4 && phone.endsWith(digits);
         });
