@@ -117,9 +117,19 @@ function Test-Allowed([string]$Rel) {
     return $false
 }
 
-function Invoke-Git([string]$Root, [string[]]$GitArgs) {
-    $out = & git -c core.quotepath=false -C $Root @GitArgs 2>$null
-    if ($LASTEXITCODE -ne 0) {
+function Invoke-Git([string]$Root, [string[]]$GitArgs, [string]$FailMessage = '') {
+    # Windows PowerShell 5.1 은 Stop 상태에서 git 의 stderr 경고(CRLF 안내 등)를
+    # 2>$null 로 버려도 종료 오류로 바꾼다. 실행 중에만 Continue 로 두고 종료 코드로 판정한다.
+    $prevPref = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $out = & git -c core.quotepath=false -C $Root @GitArgs 2>$null
+        $code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $prevPref
+    }
+    if ($code -ne 0) {
+        if ($FailMessage) { Stop-Build $FailMessage }
         Stop-Build "git $($GitArgs[0]) 실행 실패 (git 저장소 안에서 실행해야 합니다)"
     }
     return $out
@@ -385,8 +395,7 @@ try {
         $prevOutEnc = $null
     }
     # 프로젝트 폴더의 저장소 내 위치(접두 경로)를 구한다
-    $prefixOut = & git -C $ProjectRoot rev-parse --show-prefix 2>$null
-    if ($LASTEXITCODE -ne 0) { Stop-Build "git 저장소 안의 프로젝트 폴더에서 실행해야 합니다: $ProjectRoot" }
+    $prefixOut = Invoke-Git $ProjectRoot @('rev-parse', '--show-prefix') "git 저장소 안의 프로젝트 폴더에서 실행해야 합니다: $ProjectRoot"
     $ProjectPrefix = (@($prefixOut) -join '').Trim()
     New-DeployZip
     $code = 0

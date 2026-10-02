@@ -39,7 +39,17 @@
 
 ## 4. 합성 회귀시험
 
-`python -m unittest discover -s tests/packaging -v` (PowerShell 경로는 `PWSH` 환경변수 또는 PATH 의 `pwsh`/`powershell`).
+`python -m unittest discover -s tests/packaging -v`
+
+- 셸 선택: 환경변수 `PWSH` 에 하나 이상 지정(`;`(Windows)/`:` 구분). 없으면 Windows 는 PATH 의 `powershell.exe`(5.1)와 `pwsh`(7) 를 **모두** 찾아 셸마다 시험 묶음을 따로 만든다 (`Project01Tests_ps51`, `Project01Tests_pwsh` …). 실행 시 첫 줄에 셸 경로와 `PSVersion PSEdition` 을 출력한다.
+- 임시 폴더: `BONGPLAY_TEST_WORKDIR` 로 바꿀 수 있다. git 객체 파일은 읽기 전용이라 Windows 에서 `TemporaryDirectory` 정리가 WinError 5 로 실패할 수 있어(벤 환경 보고), 읽기 전용 속성을 풀고 지우는 정리로 바꿨다. 시험 판정 로직은 바꾸지 않았다.
+- Windows 5.1 실행 예:
+  ```powershell
+  $env:PWSH = "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe;$((Get-Command pwsh).Source)"
+  $env:BONGPLAY_TEST_WORKDIR = "$env:USERPROFILE\c008_work"   # 쓰기 가능한 폴더
+  New-Item -ItemType Directory -Force $env:BONGPLAY_TEST_WORKDIR | Out-Null
+  python -m unittest discover -s tests/packaging -v
+  ```
 
 | 시험 | 01 | 04 |
 |---|---|---|
@@ -52,25 +62,39 @@
 | 템플릿 자리표시자 설정 → 실패 | ✅ | — |
 | service_role JWT / 개인 키 본문 / Anthropic 키 → 실패 | ✅ / ✅ | ✅ (함수 소스) |
 | 추적 링크(파일·폴더)·공개 설정 링크로 프로젝트 밖 참조 → 실패 | ✅ | — (공통 본체) |
+| 추적 폴더를 프로젝트 밖으로 옮기고 정션(Windows)/심볼릭 링크로 대체, `-AllowDirty` → 링크 검사에서 실패 | ✅ (Linux 심볼릭 링크) | — (공통 본체) |
 | dirty(수정·새 파일) → 실패, `-AllowDirty` → `dirty: true` | ✅ | ✅ |
 | git 무시 파일(`pages/firebase-config.js`) 미포함 | ✅ | — |
 | 재실행 시 ZIP SHA 동일, 산출물이 dirty 로 잡히지 않음 | ✅ | — (공통 본체) |
 | git 저장소 밖 실행 → 실패 | ✅ | — |
 
-실행 결과(Linux, PowerShell 7.4.6 휴대판, Python 3.11): **19개 통과**. 같은 시험을 기존 스크립트에 돌리면 19개 모두 실패(실패 17, 오류 2) — 시험이 보강 내용을 실제로 검사함을 확인.
+실행 결과 (1차 `fd41991`): Linux, PowerShell 7.4.6, 19개 통과. 같은 시험을 기존 스크립트에 돌리면 19개가 모두 실패(실패 17, 오류 2)했다. 시험이 보강 내용을 실제로 검사한다는 뜻이다.
+
+실행 결과 (2차, 벤 검토 반영): Linux, PowerShell 7.4.6 Core, Python 3.11에서 **20개 통과, 건너뜀 0**. 링크 검사를 끈 변형 스크립트로 돌리면 링크 시험 4개가 실패해서, 링크 시험이 실제로 동작함을 확인했다.
+
+### 플랫폼별 실행·건너뜀 구분
+
+| 시험 | Linux pwsh 7 (클로이 실행) | Windows 5.1 / 7 (미실행, 예상 동작) |
+|---|---|---|
+| 일반 시험 16개 | 실행·통과 | 실행 |
+| 파일 심볼릭 링크 2개 (`tracked_symlink`, `public_config_symlink`) | 실행·통과 | 개발자 모드·관리자 권한이 없으면 **건너뜀**(사유 출력) |
+| 추적된 폴더 심볼릭 링크 (`symlinked_directory`) | 실행·통과 | **건너뜀**: Windows git 의 폴더 링크 추적 방식이 달라서. 정션 시험이 대신 검사 |
+| 추적 폴더 → 정션 대체 (`tracked_directory_replaced_by_link`) | 실행·통과 (심볼릭 링크로) | 실행 (`mklink /J`, 관리자 권한 불필요). 정션 생성이 실패하면 건너뜀 |
 
 추가 확인(커밋하지 않음): 임시 복제본에 SENTINEL `assets/config.js` 를 두고 실제 01/04 트리로 실행 → 01 은 46개 파일 + 표식, 04 는 4개 파일 + 표식. 기존 스크립트 대비 빠진 파일은 01 `assets/config.template.js`·`assets/images/README.txt`, 04 `README.md`·`format_spreadsheet.gs` 뿐(모두 화면에서 참조하지 않음).
 
 ## 5. 미실행·제약
 
-- **Windows PowerShell 5.1 실기 실행 안 함**(이 환경에 Windows 없음). 5.1 대응으로 두 스크립트를 UTF-8 BOM 으로 저장(한글 문자열·`_보관` 규칙이 5.1 에서 깨지지 않게), PS 3+ 문법만 사용. Windows 에서 `.\build_deploy_zip.ps1` 1회 실행 확인 필요.
-- Windows 심볼릭 링크·정션 시험은 권한 문제로 건너뜀(Linux 에서만 실행). 판정은 .NET `FileAttributes.ReparsePoint` 라 정션도 같은 경로로 잡힘.
-- 실제 `assets/config.js`·실제 키로는 시험하지 않음(지시대로).
-- 배포·Netlify 설정 변경 안 함.
+- **Windows PowerShell 5.1 / Windows pwsh 실행: 미실행.** 클로이 환경(Linux 컨테이너)에는 Windows가 없다. 위 명령으로 Windows 에서 한 번 실행해야 한다. 벤의 1차 재실행은 임시 폴더 정리(WinError 5)에서 막혔다. 이는 제품 실패가 아닌 시험 도구 문제로 분류하며, Windows 검증 완료로 보지 않는다.
+- **5.1 정적 점검 후 보강 1건**: 5.1 에서는 `$ErrorActionPreference='Stop'` 상태일 때 git 의 stderr 출력(예: CRLF 경고)이 `2>$null` 로도 종료 오류가 된다. 그래서 git 호출 중에만 `Continue` 로 두고 종료 코드로 판정하도록 바꿨다 (`Invoke-Git`). 벤 환경 로그를 근거로 한 변경이 아니라 5.1 동작에 맞춘 대응이며, 실제 5.1 실행 확인은 남아 있다.
+- 두 스크립트는 UTF-8 BOM으로 저장했고 PS 3+ 문법만 사용했다.
+- Windows 정션 시험은 시험 코드에만 있고 실행하지 못했다.
+- 실제 `assets/config.js`·실제 키로는 시험하지 않았다 (지시대로).
+- 배포·Netlify 설정 변경은 하지 않았다. 운영 배포는 금지다.
 
-## 6. 통합 시 참고·결정 요청
+## 6. 벤 결정 (PR #28 검토, 2026-10-02) 반영
 
-1. 보고서 파일(`*.verify.json`)은 루트 `.gitignore` 에 없어 작업 폴더에 미추적 파일로 보임(스크립트의 dirty 판정에서는 제외됨). 루트 `.gitignore` 에 `*.verify.json` 추가 여부 — 이 PR 범위 밖이라 벤 결정.
-2. 04 ZIP 에서 `README.md`·`format_spreadsheet.gs` 가 빠짐(기존에는 포함). 게시 폴더(`public`) 밖이라 웹에 노출되지는 않았지만 배포물에서 제외하는 것이 맞는지 확인.
-3. 표식이 게시 폴더에 들어가 `/deploy-manifest.json` 으로 공개 조회됨(commit SHA·파일 해시만). 공개를 원치 않으면 경로 변경 필요.
-4. `-AllowDirty` 산출물은 운영 배포에 쓰지 않는 것을 규칙으로 둘지.
+1. 04 배포물에서 `README.md`·`format_spreadsheet.gs` 제외: **유지**.
+2. 공개 표식(commit SHA·파일 해시)을 `/deploy-manifest.json` 으로 공개: **유지**.
+3. `-AllowDirty` 산출물: **운영 배포 금지**. 표식·보고서의 `dirty: true` 로 구별한다.
+4. 검증 보고서: 승인된 범위 확장에 따라 루트 `.gitignore` 에 **생성 파일의 정확한 경로 2개만** 추가했다 (`01_봉플레이_운영시스템/bongplay_deploy.verify.json`, `04_봉뜨락_업무로그_AI/worklog_deploy.verify.json`). `*.verify.json` 처럼 전역으로 제외하지 않았다. 다른 위치의 `*.verify.json` 은 계속 미추적 파일로 보이는 것을 확인했다.

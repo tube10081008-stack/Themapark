@@ -5,8 +5,12 @@
 비밀값은 모두 SENTINEL 가짜 값이다.
 
 실행: python -m unittest discover -s tests/packaging -v
-PowerShell 위치: 환경변수 PWSH, 없으면 PATH 의 pwsh / powershell.
+PowerShell: 환경변수 PWSH 에 하나 이상(os.pathsep 로 구분) 지정. 없으면 PATH 에서
+  Windows 는 powershell.exe(5.1)와 pwsh(7) 를 모두, 그 밖에는 pwsh 를 찾는다.
+  찾은 셸마다 같은 시험 묶음을 따로 만든다 (예: Project01Tests_ps51, Project01Tests_pwsh).
 임시 폴더 위치: 환경변수 BONGPLAY_TEST_WORKDIR (없으면 시스템 임시 폴더).
+  git 객체 파일은 읽기 전용이라 Windows 에서 기본 정리가 WinError 5 로 실패할 수 있어
+  읽기 전용 속성을 풀고 지운다.
 """
 
 from __future__ import annotations
@@ -17,7 +21,9 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -30,18 +36,63 @@ SCRIPT_04 = REPO_ROOT / "04_봉뜨락_업무로그_AI" / "build_deploy_zip.ps1"
 SENTINEL = "SENTINEL-FAKE-SECRET-DO-NOT-SHIP"
 
 
-def _find_pwsh() -> str | None:
+def _shell_label(path: str) -> str:
+    name = Path(path).name.lower()
+    return "ps51" if name.startswith("powershell") else "pwsh"
+
+
+def _find_shells() -> list[tuple[str, str]]:
     env = os.environ.get("PWSH")
     if env:
-        return env
-    for name in ("pwsh", "powershell"):
-        found = shutil.which(name)
-        if found:
-            return found
-    return None
+        paths = [p for p in env.split(os.pathsep) if p]
+    else:
+        names = ("powershell", "pwsh") if os.name == "nt" else ("pwsh",)
+        paths = [found for found in (shutil.which(n) for n in names) if found]
+    shells: list[tuple[str, str]] = []
+    for path in paths:
+        label = _shell_label(path)
+        while label in {l for l, _ in shells}:
+            label += "_"
+        shells.append((label, path))
+    return shells
 
 
-PWSH = _find_pwsh()
+SHELLS = _find_shells()
+
+
+def _force_rmtree(path: Path) -> None:
+    def _onerror(func, target, _exc):
+        try:
+            os.chmod(target, stat.S_IWRITE)
+            func(target)
+        except OSError:
+            pass
+
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=_onerror)
+    else:
+        shutil.rmtree(path, onerror=_onerror)
+
+
+def make_dir_link(link: Path, target: Path, case: unittest.TestCase) -> str:
+    """폴더 링크 생성. Windows 는 관리자 권한이 필요 없는 정션, 그 밖에는 심볼릭 링크."""
+    if os.name == "nt":
+        res = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], capture_output=True)
+        if res.returncode != 0:
+            case.skipTest("정션 생성 실패로 건너뜀: " + res.stderr.decode("mbcs", "replace").strip())
+        return "junction"
+    try:
+        os.symlink(target, link, target_is_directory=True)
+    except OSError as exc:
+        case.skipTest(f"폴더 심볼릭 링크 생성 불가로 건너뜀: {exc}")
+    return "symlink"
+
+
+def make_file_link(link: Path, target: Path, case: unittest.TestCase) -> None:
+    try:
+        os.symlink(target, link)
+    except OSError as exc:  # Windows 개발자 모드·관리자 권한이 없으면 실패
+        case.skipTest(f"파일 심볼릭 링크 생성 권한이 없어 건너뜀: {exc}")
 
 
 def _b64url(obj: dict) -> str:
@@ -146,8 +197,10 @@ BLOCKED_04 = {
 }
 
 
-@unittest.skipIf(PWSH is None, "PowerShell(pwsh) 이 없어 패키징 시험을 실행하지 못함 — 환경변수 PWSH 로 경로 지정")
-class PackagingTestBase(unittest.TestCase):
+class PackagingCases:
+    """셸별 시험 묶음의 공통 본체. 아래에서 셸마다 unittest.TestCase 와 결합한다."""
+
+    pwsh = ""
     project_dir = ""
     script = SCRIPT_01
     zip_names: tuple = ()
@@ -156,8 +209,8 @@ class PackagingTestBase(unittest.TestCase):
 
     def setUp(self) -> None:
         base = os.environ.get("BONGPLAY_TEST_WORKDIR") or None
-        self._tmp = tempfile.TemporaryDirectory(prefix="c008_", dir=base)
-        self.tmp = Path(self._tmp.name)
+        self.tmp = Path(tempfile.mkdtemp(prefix="c008_", dir=base))
+        self.addCleanup(_force_rmtree, self.tmp)
         self.repo = self.tmp / "repo"
         self.proj = self.repo / self.project_dir
         self.proj.mkdir(parents=True)
@@ -165,9 +218,7 @@ class PackagingTestBase(unittest.TestCase):
         self.git("config", "user.name", "synthetic")
         self.git("config", "user.email", "synthetic@example.invalid")
         self.git("config", "commit.gpgsign", "false")
-
-    def tearDown(self) -> None:
-        self._tmp.cleanup()
+        self.git("config", "core.autocrlf", "false")
 
     # ---- 도구 ----
     def git(self, *args: str) -> str:
@@ -195,7 +246,7 @@ class PackagingTestBase(unittest.TestCase):
         if not target.exists():
             raise AssertionError("스크립트 복사가 커밋 전에 필요함")
         return subprocess.run(
-            [PWSH, "-NoProfile", "-NonInteractive", "-File", str(target), *extra],
+            [self.pwsh, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(target), *extra],
             cwd=str(self.proj), capture_output=True, timeout=120,
         )
 
@@ -266,7 +317,7 @@ class PackagingTestBase(unittest.TestCase):
             self.assertNotIn("\\", name)
 
 
-class Project01Tests(PackagingTestBase):
+class Project01Cases(PackagingCases):
     project_dir = "01_합성_운영시스템"
     script = SCRIPT_01
     zip_names = ("bongplay_deploy.zip",)
@@ -362,43 +413,52 @@ class Project01Tests(PackagingTestBase):
         self.assert_ok(self.run_script())
         self.assertNotIn("pages/firebase-config.js", self.read_zip())
 
-    @unittest.skipIf(os.name == "nt", "심볼릭 링크 생성 권한이 필요한 시험")
     def test_tracked_symlink_to_outside_fails(self):
         outside = self.tmp / "outside_secret.js"
         outside.write_text(f"var k='{SENTINEL}';\n", encoding="utf-8")
         self.write("assets/config.js", good_config())
-        os.symlink(outside, self.proj / "assets" / "linked.js")
+        make_file_link(self.proj / "assets" / "linked.js", outside, self)
         self.commit()
         self.assert_fail(self.run_script(), "링크")
 
-    @unittest.skipIf(os.name == "nt", "심볼릭 링크 생성 권한이 필요한 시험")
     def test_public_config_symlink_to_outside_fails(self):
         outside = self.tmp / "outside_config.js"
         outside.write_text(good_config(), encoding="utf-8")
-        os.symlink(outside, self.proj / "assets" / "config.js")
+        make_file_link(self.proj / "assets" / "config.js", outside, self)
         self.assert_fail(self.run_script(), "링크")
 
-    @unittest.skipIf(os.name == "nt", "심볼릭 링크 생성 권한이 필요한 시험")
     def test_symlinked_directory_fails(self):
+        if os.name == "nt":
+            self.skipTest("git 이 Windows 에서 폴더 링크를 추적하는 방식이 달라 건너뜀 — 정션 시험이 대신 검사")
         outside = self.tmp / "outside_dir"
         outside.mkdir()
         (outside / "a.html").write_text(f"<p>{SENTINEL}</p>\n", encoding="utf-8")
         self.write("assets/config.js", good_config())
-        os.symlink(outside, self.proj / "pages" / "linked", target_is_directory=True)
+        make_dir_link(self.proj / "pages" / "linked", outside, self)
         self.commit()
         self.assert_fail(self.run_script(), "링크")
+
+    def test_tracked_directory_replaced_by_link_fails(self):
+        # 추적 폴더(forms)를 프로젝트 밖으로 옮기고 그 자리에 정션/심볼릭 링크를 둔다.
+        # -AllowDirty 로 dirty 판정을 넘겨도 링크 검사에서 실패해야 한다.
+        self.write("assets/config.js", good_config())
+        outside = self.tmp / "outside_forms"
+        shutil.move(str(self.proj / "forms"), str(outside))
+        (outside / "index.html").write_text(f"<p>{SENTINEL}</p>\n", encoding="utf-8")
+        make_dir_link(self.proj / "forms", outside, self)
+        self.assert_fail(self.run_script("-AllowDirty"), "링크")
 
     def test_outside_git_repo_fails(self):
         plain = self.tmp / "plain"
         plain.mkdir()
         shutil.copyfile(self.script, plain / "build_deploy_zip.ps1")
-        res = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-File", str(plain / "build_deploy_zip.ps1")],
+        res = subprocess.run([self.pwsh, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(plain / "build_deploy_zip.ps1")],
                              cwd=str(plain), capture_output=True, timeout=120)
         self.assertNotEqual(res.returncode, 0)
         self.assertFalse((plain / "bongplay_deploy.zip").exists())
 
 
-class Project04Tests(PackagingTestBase):
+class Project04Cases(PackagingCases):
     project_dir = "04_합성_업무로그"
     script = SCRIPT_04
     zip_names = ("worklog_deploy.zip", "bongchat_deploy.zip")
@@ -443,6 +503,42 @@ class Project04Tests(PackagingTestBase):
     def test_dirty_fails(self):
         self.write("public/index.html", "<p>changed</p>\n")
         self.assert_fail(self.run_script(), "커밋되지 않은 변경")
+
+
+def _shell_version(path: str) -> str:
+    try:
+        res = subprocess.run(
+            [path, "-NoProfile", "-NonInteractive", "-Command",
+             "'{0} {1}' -f $PSVersionTable.PSVersion, $PSVersionTable.PSEdition"],
+            capture_output=True, timeout=60,
+        )
+        return res.stdout.decode("utf-8", "replace").strip() or "unknown"
+    except OSError as exc:
+        return f"실행 불가: {exc}"
+
+
+def _make_suite_classes() -> None:
+    if not SHELLS:
+        @unittest.skip("PowerShell 이 없어 패키징 시험을 실행하지 못함 — 환경변수 PWSH 로 경로 지정")
+        class PackagingNoShell(unittest.TestCase):
+            def test_shell_missing(self):
+                pass
+
+        globals()["PackagingNoShell"] = PackagingNoShell
+        return
+    for label, path in SHELLS:
+        version = _shell_version(path)
+        for cases in (Project01Cases, Project04Cases):
+            name = cases.__name__.replace("Cases", "Tests") + "_" + label
+            cls = type(name, (cases, unittest.TestCase), {
+                "pwsh": path,
+                "__doc__": f"{cases.__name__} on {label} ({version})",
+            })
+            globals()[name] = cls
+        print(f"[packaging] {label}: {path} -> PowerShell {version}", file=sys.stderr)
+
+
+_make_suite_classes()
 
 
 if __name__ == "__main__":
