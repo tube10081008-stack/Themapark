@@ -4,6 +4,9 @@
 bongplay_deploy.zip
 replayce_deploy.zip
 worklog_deploy.zip
+# 배포 ZIP 검증 보고서 (CLAUDE-008, 생성 파일 정확한 경로만)
+01_봉플레이_운영시스템/bongplay_deploy.verify.json
+04_봉뜨락_업무로그_AI/worklog_deploy.verify.json
 
 # 대용량 미디어 및 보관소
 _보관/
