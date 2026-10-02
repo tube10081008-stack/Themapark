@@ -20,6 +20,7 @@ import getpass
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -197,6 +198,236 @@ BLOCKED_04 = {
 }
 
 
+# ---------------------------------------------------------------------------
+# 공개 표식 누출 검사
+# 계정명은 부분 문자열이 아니라 "독립된 값/토큰" 으로만 판정한다.
+# (예: OS 사용자 bongp 와 정상 이름 bongplay 의 부분 중복은 허용)
+# 로컬 절대 경로·환경값은 값 유형별로 검사하고, 표식 schema 와 고정값은 그대로 강제한다.
+# ---------------------------------------------------------------------------
+
+MANIFEST_KEYS = {"format", "project", "commit", "dirty", "public_config", "files"}
+FILE_KEYS = {"path", "sha256", "bytes"}
+PUBLIC_CONFIG_KEYS = {"path", "sha256", "bytes", "tracked_in_git"}
+ENV_KEYS_NAME = ("USER", "USERNAME", "LOGNAME", "COMPUTERNAME", "HOSTNAME", "USERDOMAIN")
+ENV_KEYS_PATH = ("HOME", "USERPROFILE", "TEMP", "TMP", "TMPDIR", "APPDATA", "LOCALAPPDATA",
+                 "HOMEPATH", "BONGPLAY_TEST_WORKDIR")
+_TOKEN_SPLIT = re.compile(r"[^0-9A-Za-z가-힣]+")
+_ABS_PATH = re.compile(r"^(?:[A-Za-z]:[\\/]|[\\/]|~)")
+
+
+def _norm_path(value: str) -> str:
+    return value.replace("\\", "/").rstrip("/").lower()
+
+
+def local_identity(extra_paths: tuple = ()) -> tuple[set[str], set[str]]:
+    """(계정·호스트 이름 집합, 로컬 절대 경로 집합) — 시험 실행 환경에서 수집."""
+    names: set[str] = set()
+    try:
+        names.add(getpass.getuser())
+    except Exception:  # noqa: BLE001 - 일부 환경은 사용자명을 얻지 못함
+        pass
+    for key in ENV_KEYS_NAME:
+        names.add(os.environ.get(key, ""))
+    paths = {os.environ.get(key, "") for key in ENV_KEYS_PATH}
+    paths.update(str(p) for p in extra_paths)
+    names = {n.lower() for n in names if len(n) >= 2}
+    paths = {_norm_path(p) for p in paths if len(p) >= 3}
+    return names, paths
+
+
+def _iter_strings(node, where="$"):
+    if isinstance(node, dict):
+        for k, v in node.items():
+            yield f"{where}.{k}(key)", str(k)
+            yield from _iter_strings(v, f"{where}.{k}")
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            yield from _iter_strings(v, f"{where}[{i}]")
+    elif isinstance(node, str):
+        yield where, node
+
+
+def manifest_violations(manifest, *, project: str, expected_paths: set[str],
+                        names: set[str], local_paths: set[str]) -> list[str]:
+    """공개 표식의 schema·값 유형·누출 위반 목록. 빈 목록이면 통과."""
+    out: list[str] = []
+    if not isinstance(manifest, dict):
+        return ["표식이 객체가 아님"]
+    if set(manifest) != MANIFEST_KEYS:
+        out.append(f"최상위 키 불일치: {sorted(set(manifest) ^ MANIFEST_KEYS)}")
+    if manifest.get("format") != "replayce-deploy-manifest/1":
+        out.append("format 값 불일치")
+    if manifest.get("project") != project:
+        out.append("project 값 불일치")
+    if not (isinstance(manifest.get("commit"), str) and re.fullmatch(r"[0-9a-f]{40}", manifest["commit"])):
+        out.append("commit 형식 불일치")
+    if not isinstance(manifest.get("dirty"), bool):
+        out.append("dirty 유형 불일치")
+    for group, keys in (("files", FILE_KEYS), ("public_config", PUBLIC_CONFIG_KEYS)):
+        items = manifest.get(group)
+        if not isinstance(items, list):
+            out.append(f"{group} 유형 불일치")
+            continue
+        for i, rec in enumerate(items):
+            if not isinstance(rec, dict) or set(rec) != keys:
+                out.append(f"{group}[{i}] 키 불일치")
+                continue
+            path = rec["path"]
+            if not isinstance(path, str) or _ABS_PATH.match(path) or "\\" in path or ".." in path.split("/"):
+                out.append(f"{group}[{i}].path 가 상대 POSIX 경로가 아님")
+            elif path not in expected_paths:
+                out.append(f"{group}[{i}].path 가 예상 파일 목록 밖: {path}")
+            if not (isinstance(rec["sha256"], str) and re.fullmatch(r"[0-9a-f]{64}", rec["sha256"])):
+                out.append(f"{group}[{i}].sha256 형식 불일치")
+            if not (type(rec["bytes"]) is int and rec["bytes"] >= 0):
+                out.append(f"{group}[{i}].bytes 유형 불일치")
+            if group == "public_config" and not isinstance(rec["tracked_in_git"], bool):
+                out.append(f"{group}[{i}].tracked_in_git 유형 불일치")
+    # 값 유형별 누출 검사 (모든 문자열 값과 키).
+    # 위에서 정확히 고정·대조된 값(스키마 키, format/project 고정값, 예상 파일 경로, 해시)은
+    # 시험 픽스처가 정한 정상 이름이므로 계정명과 겹쳐도 허용한다. 그 밖의 값은 모두 검사한다.
+    trusted = set(MANIFEST_KEYS | FILE_KEYS | PUBLIC_CONFIG_KEYS)
+    trusted |= {"replayce-deploy-manifest/1", project} | set(expected_paths)
+    for where, value in _iter_strings(manifest):
+        if SENTINEL in value:
+            out.append(f"{where}: SENTINEL 비밀값 포함")
+        if value in trusted or re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", value):
+            continue
+        low = value.lower()
+        tokens = {t.lower() for t in _TOKEN_SPLIT.split(value) if t}
+        for name in names:
+            # 구분자 없는 이름은 독립 토큰 일치, 구분자가 든 이름(DESKTOP-AB1 등)은 원문 포함으로 판정
+            if (name in tokens) if _TOKEN_SPLIT.search(name) is None else (name in low):
+                out.append(f"{where}: 계정·호스트 이름이 독립 값으로 포함됨")
+                break
+        if _ABS_PATH.match(value):
+            out.append(f"{where}: 절대 경로 형식 값")
+        norm = _norm_path(value)
+        for lp in local_paths:
+            if lp and lp in norm:
+                out.append(f"{where}: 로컬 경로·환경값 포함")
+                break
+    return out
+
+
+class ManifestLeakCheckTests(unittest.TestCase):
+    """누출 검사기 자체의 양성·음성 회귀 (PowerShell 불필요)."""
+
+    NAMES = {"bongp"}
+    PATHS = {_norm_path(r"C:\Users\bongp"), _norm_path(r"C:\Users\bongp\c008_test_workdir"),
+             _norm_path("/home/bongp"), _norm_path("/tmp/c008_abcd")}
+    EXPECTED = {"assets/bongplay-site.js", "assets/config.js", "index.html"}
+
+    def base(self) -> dict:
+        h = "a" * 64
+        return {
+            "format": "replayce-deploy-manifest/1",
+            "project": "01_bongplay_ops",
+            "commit": "0123456789abcdef0123456789abcdef01234567",
+            "dirty": False,
+            "public_config": [{"path": "assets/config.js", "sha256": h, "bytes": 10, "tracked_in_git": False}],
+            "files": [
+                {"path": "assets/bongplay-site.js", "sha256": h, "bytes": 1},
+                {"path": "assets/config.js", "sha256": h, "bytes": 10},
+                {"path": "index.html", "sha256": h, "bytes": 2},
+            ],
+        }
+
+    def check(self, manifest) -> list[str]:
+        return manifest_violations(manifest, project="01_bongplay_ops", expected_paths=self.EXPECTED,
+                                   names=self.NAMES, local_paths=self.PATHS)
+
+    # 음성: 정상 이름과 사용자명의 부분 중복은 통과
+    def test_partial_overlap_with_username_passes(self):
+        self.assertEqual(self.check(self.base()), [])
+
+    def test_partial_overlap_case_variants_pass(self):
+        m = self.base()
+        self.assertEqual(manifest_violations(m, project="01_bongplay_ops", expected_paths=self.EXPECTED,
+                                             names={"BONGP".lower(), "bongpla"}, local_paths=self.PATHS), [])
+
+    def test_username_equal_to_fixture_token_passes(self):
+        # 사용자명이 정상 파일명의 한 토큰과 같아도(site / bongplay-site.js) 고정 대조된 경로는 허용
+        names = {"site", "index"}
+        v = manifest_violations(self.base(), project="01_bongplay_ops", expected_paths=self.EXPECTED,
+                                names=names, local_paths={"/root", "/home/site"})
+        self.assertEqual(v, [])
+
+    def test_hostname_with_separator_in_value_fails(self):
+        m = self.base()
+        m["files"][0]["path"] = "assets/desktop-ab12-build.js"
+        v = manifest_violations(m, project="01_bongplay_ops", expected_paths=self.EXPECTED,
+                                names={"desktop-ab12"}, local_paths=set())
+        self.assertTrue(any("계정" in x for x in v), v)
+
+    # 양성: 실제 사용자명·경로·환경값이 들어가면 실패
+    def test_username_in_new_field_fails(self):
+        m = self.base()
+        m["built_by"] = "bongp"
+        v = self.check(m)
+        self.assertTrue(any("최상위 키" in x for x in v), v)
+        self.assertTrue(any("계정" in x for x in v), v)
+
+    def test_username_replacing_project_fails(self):
+        m = self.base()
+        m["project"] = "bongp"
+        self.assertTrue(any("project" in x for x in self.check(m)))
+
+    def test_username_as_token_in_path_fails(self):
+        m = self.base()
+        m["files"].append({"path": "bongp/notes.html", "sha256": "b" * 64, "bytes": 3})
+        v = self.check(m)
+        self.assertTrue(any("계정" in x for x in v), v)
+        self.assertTrue(any("예상 파일 목록 밖" in x for x in v), v)
+
+    def test_username_in_file_record_extra_key_fails(self):
+        m = self.base()
+        m["files"][0]["owner"] = "BONGP"
+        v = self.check(m)
+        self.assertTrue(any("키 불일치" in x for x in v), v)
+
+    def test_windows_absolute_path_fails(self):
+        m = self.base()
+        m["files"][0]["path"] = r"C:\Users\bongp\c008_test_workdir\assets\bongplay-site.js"
+        v = self.check(m)
+        self.assertTrue(any("상대 POSIX" in x for x in v), v)
+        self.assertTrue(any("로컬 경로" in x for x in v), v)
+        self.assertTrue(any("계정" in x for x in v), v)
+
+    def test_posix_absolute_path_fails(self):
+        m = self.base()
+        m["public_config"][0]["path"] = "/home/bongp/repo/assets/config.js"
+        v = self.check(m)
+        self.assertTrue(any("상대 POSIX" in x for x in v), v)
+        self.assertTrue(any("로컬 경로" in x for x in v), v)
+
+    def test_env_path_value_in_string_fails(self):
+        m = self.base()
+        m["format"] = "replayce-deploy-manifest/1 /tmp/c008_abcd"
+        v = self.check(m)
+        self.assertTrue(any("format" in x for x in v), v)
+        self.assertTrue(any("로컬 경로" in x for x in v), v)
+
+    def test_wrong_value_types_fail(self):
+        m = self.base()
+        m["dirty"] = "false"
+        m["files"][0]["bytes"] = "1"
+        m["public_config"][0]["tracked_in_git"] = 0
+        v = self.check(m)
+        self.assertEqual(len(v), 3, v)
+
+    def test_sentinel_value_fails(self):
+        m = self.base()
+        m["files"][0]["sha256"] = SENTINEL
+        v = self.check(m)
+        self.assertTrue(any("SENTINEL" in x for x in v), v)
+
+    def test_local_identity_collects_without_substring_rules(self):
+        names, paths = local_identity(("/tmp/x_y_z",))
+        self.assertIn("/tmp/x_y_z", paths)
+        self.assertTrue(all(len(n) >= 2 for n in names))
+
+
 class PackagingCases:
     """셸별 시험 묶음의 공통 본체. 아래에서 셸마다 unittest.TestCase 와 결합한다."""
 
@@ -294,12 +525,14 @@ class PackagingCases:
             self.assertEqual(rec["bytes"], len(entries[path]), path)
         self.assertEqual([f["path"] for f in manifest["files"]], sorted(listed))
 
-        # 계정명·로컬 절대 경로·환경변수가 공개 표식에 없어야 함
-        text = manifest_raw.decode("utf-8")
-        for bad in {str(self.tmp), str(self.repo), getpass.getuser(), os.environ.get("HOME", "/nonexistent-home")}:
-            if bad and len(bad) > 2:
-                self.assertNotIn(bad, text)
-        self.assertNotIn(SENTINEL, text)
+        # 계정명·로컬 절대 경로·환경값: 고정 schema + 값 유형별 검사 (부분 문자열 판정 아님)
+        names, local_paths = local_identity((self.tmp, self.repo, self.proj, self.tmp.resolve()))
+        violations = manifest_violations(
+            manifest, project=self.project_id, expected_paths=set(self.expected_paths),
+            names=names, local_paths=local_paths,
+        )
+        self.assertEqual(violations, [], violations)
+        self.assertNotIn(SENTINEL, manifest_raw.decode("utf-8"))
 
         # ZIP 해시는 ZIP 밖 보고서에만 (순환 없음)
         self.assertEqual(rep["commit"], head)
@@ -323,6 +556,8 @@ class Project01Cases(PackagingCases):
     zip_names = ("bongplay_deploy.zip",)
     report_name = "bongplay_deploy.verify.json"
     manifest_path = "deploy-manifest.json"
+    project_id = "01_bongplay_ops"
+    expected_paths = frozenset(NORMAL_01) | {"assets/config.js"}
 
     def setUp(self) -> None:
         super().setUp()
@@ -464,6 +699,8 @@ class Project04Cases(PackagingCases):
     zip_names = ("worklog_deploy.zip", "bongchat_deploy.zip")
     report_name = "worklog_deploy.verify.json"
     manifest_path = "public/deploy-manifest.json"
+    project_id = "04_bongchat_worklog"
+    expected_paths = frozenset(NORMAL_04)
 
     def setUp(self) -> None:
         super().setUp()

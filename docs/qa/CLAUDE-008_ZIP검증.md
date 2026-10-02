@@ -83,6 +83,24 @@
 
 추가 확인(커밋하지 않음): 임시 복제본에 SENTINEL `assets/config.js` 를 두고 실제 01/04 트리로 실행 → 01 은 46개 파일 + 표식, 04 는 4개 파일 + 표식. 기존 스크립트 대비 빠진 파일은 01 `assets/config.template.js`·`assets/images/README.txt`, 04 `README.md`·`format_spreadsheet.gs` 뿐(모두 화면에서 참조하지 않음).
 
+### 3차 (아난티 Windows 독립 검증 후 오탐 수정, 2026-10-02)
+
+- 아난티 보고 (`784263f`, Windows 11, PS 5.1.26100 / 7.6.4): 40개 중 통과 30, 건너뜀 6, 실패 4. 실패 4건은 모두 `Project01Tests_*` 의 `test_provenance_manifest_and_report`·`test_dirty_untracked_file_fails_and_allow_dirty_records` 였다. 원인은 시험 하네스의 `getpass.getuser()` 부분 문자열 검사로, OS 사용자명 `bongp` 가 정상 이름 `bongplay`(`01_bongplay_ops`, `assets/bongplay-site.js`)에 걸린 오탐이다. 패키징 스크립트는 바꾸지 않았다.
+- 수정 범위는 시험 파일의 누출 검사만이다 (`manifest_violations`, `local_identity`). 검사를 지우거나 사용자명 전체를 예외로 두지 않았다.
+  - **고정 schema 유지**: 최상위·`files`·`public_config` 키 집합이 정확히 일치해야 한다. `format`·`project` 는 고정값이어야 한다.
+  - **값 유형 검사 유지**: commit 40자 hex, sha256 64자 hex, bytes 는 정수, dirty/tracked_in_git 은 bool 이어야 한다. path 는 상대 POSIX 경로여야 하고(드라이브 문자·선행 `/`·`\`·`..` 금지) 시험 픽스처가 정한 예상 파일 목록 안에 있어야 한다.
+  - **계정·호스트 이름**: 부분 문자열이 아니라 독립 토큰 일치로 판정한다. 구분자가 든 이름(`DESKTOP-AB12` 등)은 원문 포함으로 판정한다. 수집 대상은 `getuser()`, `USER`/`USERNAME`/`LOGNAME`/`COMPUTERNAME`/`HOSTNAME`/`USERDOMAIN` 이다.
+  - **로컬 절대 경로·환경값**: `HOME`/`USERPROFILE`/`TEMP`/`TMP`/`TMPDIR`/`APPDATA`/`LOCALAPPDATA`/`HOMEPATH`/`BONGPLAY_TEST_WORKDIR` 와 시험 임시 경로가 값에 들어 있으면 실패한다. 경로 구분자는 정규화해서 비교한다.
+  - 위에서 정확히 대조된 값(스키마 키, 고정 format/project, 예상 파일 경로, 해시)만 계정·경로 검사에서 뺀다. 그 밖의 값과 키는 모두 검사한다.
+- **양성·음성 회귀 14개 추가** (`ManifestLeakCheckTests`, PowerShell 불필요)
+  - 음성(통과해야 함) 3개: `bongp` vs `bongplay`, 대소문자 변형, 사용자명이 정상 파일명 토큰과 같은 경우(`site` vs `bongplay-site.js`, HOME=`/root` vs 상대 경로)
+  - 양성(실패해야 함) 10개: 새 필드에 사용자명, project 를 사용자명으로 교체, 경로에 사용자명 토큰, 파일 기록에 추가 키, Windows 절대 경로, POSIX 절대 경로, 환경 경로값, 구분자 든 호스트명, 값 유형 오류 3종, SENTINEL
+  - 수집 함수 점검 1개
+- 결과 (Linux, PowerShell 7.4.6 Core, Python 3.11):
+  - 기본 환경: **34개 통과** (패키징 20 + 검사기 14), 건너뜀 0.
+  - **`USER=bongp LOGNAME=bongp` 재현**: 이전 하네스(`784263f`)에서는 아난티와 같은 2건이 실패했고, 새 하네스에서는 34개 통과했다.
+  - **누출 변형 스크립트 3종**(새 필드 `built_by="bongp"`, 파일 path 에 로컬 절대 경로, project 에 `[Environment]::UserName`): 모두 provenance 시험에서 실패했다. 끝난 뒤 원본 스크립트로 되돌렸다.
+
 ## 5. 미실행·제약
 
 - **Windows PowerShell 5.1 / Windows pwsh 실행: 미실행.** 클로이 환경(Linux 컨테이너)에는 Windows가 없다. 위 명령으로 Windows 에서 한 번 실행해야 한다. 벤의 1차 재실행은 임시 폴더 정리(WinError 5)에서 막혔다. 이는 제품 실패가 아닌 시험 도구 문제로 분류하며, Windows 검증 완료로 보지 않는다.
