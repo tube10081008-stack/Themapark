@@ -131,7 +131,7 @@ COORD-007 / Ben / ben/COORD-007-live-targets / 기준 ed5a2ce / 운영 대상 �
 
 | ID | 담당 | 브랜치 | 범위 | 완료 조건/선행 | 상태 |
 |---|---|---|---|---|---|
-| ANT-003a | 아난티 | antigravity/ANT-003a-staff-archive-design | 설계 문서 | 권한/원본보호/기능/전환 검증 설계 | 지금 문서 착수 가능, ANT-001 우선 |
+| ANT-003a | 아난티 | antigravity/ANT-003a-staff-archive-design | docs/design/ANT-003_직원접근_내부아카이브.md, 본인 행 | 권한표·요청흐름·04 API/GAS 무인증 차단·프록시 스트리밍·공유시크릿·비용검토·결정요청(D1~D3) 설계 완결 | 설계 완료 / 벤 검토 대기 |
 | ANT-003b | 아난티 | antigravity/ANT-003b-staff-archive | 01/04/GAS/테스트/제안DB | 설계 검토 및 #11 통합 후 구현 | 선행 대기 |
 | CLAUDE-006 | 클로이 | claude/CLAUDE-006-price-notice-coverage | 05 검사·테스트·문서 | G1/G2 보강, 기존 검사 유지 | 즉시 착수 |
 | CLAUDE-007 | 클로이 | 착수 시 명시 | 05 계약·테스트 | #11 및 검사 보강 통합 후 승격 | 선행 대기 |
