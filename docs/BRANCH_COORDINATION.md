@@ -135,12 +135,12 @@ COORD-007 / Ben / ben/COORD-007-live-targets / 기준 ed5a2ce / 운영 대상 �
 | ANT-003b | 아난티 | antigravity/ANT-003b-staff-archive | 01/04/GAS/테스트/제안DB | 설계 검토 및 #11 통합 후 구현 | 선행 대기 |
 | CLAUDE-006 | 클로이 | claude/CLAUDE-006-price-notice-coverage | 05 검사·테스트·문서 | G1/G2 보강, 기존 검사 유지 | 즉시 착수 |
 | CLAUDE-007 | 클로이 | 착수 시 명시 | 05 계약·테스트 | #11 및 검사 보강 통합 후 승격 | 선행 대기 |
-| GEO-004 | 지오 | aside/GEO-004-access-release-readiness | 읽기 확인·준비 문서 | 전환 영향/ZIP 검증 준비 | 즉시 착수 |
+| GEO-004 | 지오 | aside/GEO-004-access-release-readiness (기준 `ded2f1c`) | 읽기 확인·준비 문서·승인된 시험 자산 | 전환 영향/ZIP 검증 준비 | PR #25 제출 / 벤 결정(10-01) 반영: 시험 Drive 폴더·시트·빈 GAS 준비(비공개, 미배포), 원본 시트 공유 해제 대기, 역할별 시험은 직원 공유 대상·ANT-003a 대기 |
 | BEN-012 | 벤 | 분석 산출물 준비 | 버스지원 시나리오 | 비용/예산 가정 및 대표 최종 결정 | 입력 질문 전달 |
 | COORD-011 | 벤 | ben/COORD-011-parallel-delivery | 본 지시·작업표 | 범위와 의존 순서 기록 | 배정 |
 
 ## BEN-013 다음 병행 작업 (2026-10-02)
 
 실행 기준: [BEN-013](tasks/BEN-013_직원접근설계와_배포보강.md). CLAUDE-008(01/04 패키징 전담), ANT-003a(인증 설계), GEO-005(합성 시험표) 병행. 운영 공유/배포 보류 및 기존 PR 검토는 유지.
-
+- GEO-005 / 지오 / aside/GEO-005-access-test-matrix (기준 `edb6f62`) / `docs/qa/GEO-005_직원접근_시험표.md`, 본 행, 승인된 비공개 시험 자산 / 합성 이미지 3개·분류/검색/미리보기·역할별 예상결과 시험표, 실제 결과 빈칸 / PR #27 제출, 벤 검토 반영: 비공개 허용루트(A/B/C)·형제 범위밖 폴더·대조 파일 준비, 실행은 ANT-003a 수정본·시험 계정·시험 GAS 대기
 - CLAUDE-008 | 클로이 | claude/CLAUDE-008-zip-provenance | 01/04 build_deploy_zip.ps1, tests/packaging/, docs/qa/CLAUDE-008_ZIP검증.md | 허용 목록·출처 표식·ZIP 밖 검증 보고서, 벤 검토 반영(보고서 정확 경로 .gitignore, 5.1 git 호출 보강, 셸별·정션 시험), 아난티 Windows 보고의 계정명 오탐 수정(고정 schema·값 유형 검사 유지, 양성·음성 회귀) Linux 34개 통과 | 아난티 Windows 5.1/7 재실행 대기
