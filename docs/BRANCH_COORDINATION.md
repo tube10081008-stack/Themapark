@@ -131,7 +131,7 @@ COORD-007 / Ben / ben/COORD-007-live-targets / 기준 ed5a2ce / 운영 대상 �
 
 | ID | 담당 | 브랜치 | 범위 | 완료 조건/선행 | 상태 |
 |---|---|---|---|---|---|
-| ANT-003a | 아난티 | antigravity/ANT-003a-staff-archive-design | docs/design/ANT-003_직원접근_내부아카이브.md, 본인 행 | PR #26 벤 검토 8개 항목 반영(도메인 정정, 개인인증·철회, GAS 텍스트 한계·드라이브 API, 쿠키·리라이트 통합, 루트검사 고도화, 점검모드 복구) 및 문서 PR 제출 | PR 제출 완료 / 벤 재검토 대기 |
+| ANT-003a | 아난티 | antigravity/ANT-003a-staff-archive-design | docs/design/ANT-003_직원접근_내부아카이브.md, 본인 행 | PR #26 벤 검토 8개 항목 반영(도메인 정정, 개인인증·철회, GAS 텍스트 한계·드라이브 API, 쿠키·리라이트 통합, 루트검사 고도화, 점검모드 복구) 및 문서 PR 제출 | PR #29 제출 완료 / 벤 재검토 대기 |
 | ANT-003b | 아난티 | antigravity/ANT-003b-staff-archive | 01/04/GAS/테스트/제안DB | 설계 검토 및 #11 통합 후 구현 | 선행 대기 |
 | CLAUDE-006 | 클로이 | claude/CLAUDE-006-price-notice-coverage | 05 검사·테스트·문서 | G1/G2 보강, 기존 검사 유지 | 즉시 착수 |
 | CLAUDE-007 | 클로이 | 착수 시 명시 | 05 계약·테스트 | #11 및 검사 보강 통합 후 승격 | 선행 대기 |
