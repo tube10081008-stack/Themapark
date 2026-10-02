@@ -58,7 +58,7 @@
 | COORD-001 | Ben | `ben/repository-coordination` | `8acbb77` | `AGENTS.md`, 본 문서, PR 템플릿 | 계보·보존 계획·협업 규칙 작성 및 검증, 인증 후 PR | PR #1 병합 완료 |
 | CLAUDE-001 | Claude | `claude/CLAUDE-001-branch-asset-inventory` | `068e704` | `docs/migration/CLAUDE-001_클로드브랜치_자산목록.md`, 본 작업표 1행 | 기존 Claude 브랜치 고유 자산 목록·이관 권고 작성 (파일 이동 없음) | PR #2 병합 완료 |
 | CLAUDE-002 | Claude | `claude/CLAUDE-002-analysis-docs` | `3830fad` | `docs/분석/` 신규 2개, 본 작업표 1행 | JEV 분석·지식시스템 v2 설계를 원문 그대로 이관하고 원본 SHA·전제·적용 상태 머리말 추가, 인용·경로 대조 | 벤 검토 통과 / 이력 보존 통합 |
-| GEO-001 | 지오 | `aside/GEO-001-worklog-audit` | `bb0fcec3af437cbb8f171c7cf182874387ce0e57` | `docs/migration/GEO-001_업무로그_비교및실사용검증.md`, 본 행 | 코드 비교 및 배포·시트 연결 검증, 미실행 구분, master 대상 PR | PR #10 병합 완료 aeede4f / 경량 추가 확인 |
+| GEO-001 | 지오 | `aside/GEO-001-worklog-audit` | `bb0fcec3af437cbb8f171c7cf182874387ce0e57` | `docs/migration/GEO-001_업무로그_비교및실사용검증.md`, 본 행 | 코드 비교 및 배포·시트 연결 검증, 미실행 구분, master 대상 PR | PR #10 병합 완료 aeede4f / 경량 추가 확인 완료(chat2): 격리 세션 생성 불가로 무인증 렌더링 미검증, 테스트 배포·시트 없음. 현행 적용은 GEO-002 |
 | ANT-001 | 아난티 | `antigravity/ANT-001-operations-integrity` | `6769559` 검토 | 01 운영 UI·공통 JS·테스트·검증 보고서·본 행 | 전체 화면·핵심 흐름 검증, 재현된 P0/P1 수정, 면적 의미 분리, 회귀 테스트와 PR | PR #11 병합 보류 / R1~R4·행동검증 보완 |
 | CLAUDE-003 | Claude | `claude/CLAUDE-003-legacy-business-docs` | `3830fad` | `03_봉뜨락_도면및행정자료/_참고_초기기획_20260830/` 신규 5개(원본 4 + README), 본 작업표 1행 | 운영계획서·손익 그리드·채용 제안서 2종을 원본 그대로(blob 동일) 보존, README에 원본 SHA·구버전·현행 판단 미사용 명시. 제안서 2종은 대표 결정(2026-09-29)으로 보관 전용 | 벤 검토 통과 / 이력 보존 통합 |
 | CLAUDE-004 | Claude | `claude/CLAUDE-004-agents-design` | `3830fad` | `05_봉플레이_AI에이전트/DESIGN.md` 신규, 본 작업표 1행 | 6종 이관 1차 설계: 기준정보 JSON 계약·입력 스냅샷·숨은 쓰기 경로·테스트 계획·PR 순서 (코드 이동 없음) | 설계 벤 검토 통과 / 이력 보존 통합 |
@@ -101,7 +101,7 @@ COORD-006 / Ben / ben/COORD-006-review-handoffs / 기준 aeede4f / 검토 기록
 
 COORD-007 / Ben / ben/COORD-007-live-targets / 기준 ed5a2ce / 운영 대상 정정 및 지오 우선 작업 배정.
 
-- GEO-002 / 지오 / aside/GEO-002-live-deployment-audit / 기준 SHA 착수 시 기록 / 현행 두 서비스 읽기 검증·문서 / 도메인별 배포 식별 및 관찰 범위 정정 PR / 배정, 전달 대기.
+- GEO-002 / 지오 / aside/GEO-002-live-deployment-audit / 기준 1ff3891b9926e96a5b98fcf4178492078620d438 / 현행 두 서비스 읽기 검증·문서 / 도메인별 배포 식별 및 관찰 범위 정정 PR / 검증 보고서 docs/qa/GEO-002_현행배포_검증.md 제출, 벤 검토 대기.
 - [GEO-002 지시](tasks/GEO-002_현행배포_대상정정.md)를 ASIDE-001보다 우선한다. chat2는 구 MVP이며 기존 접근·아카이브·크레딧 관찰을 현행에 적용하지 않는다. ANT-001 및 CLAUDE-004b 소스 보완은 계속한다.
 
 ## 2026-09-30 대표 결정 및 최신 보완 검토
