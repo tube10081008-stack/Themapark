@@ -142,3 +142,5 @@ COORD-007 / Ben / ben/COORD-007-live-targets / 기준 ed5a2ce / 운영 대상 �
 ## BEN-013 다음 병행 작업 (2026-10-02)
 
 실행 기준: [BEN-013](tasks/BEN-013_직원접근설계와_배포보강.md). CLAUDE-008(01/04 패키징 전담), ANT-003a(인증 설계), GEO-005(합성 시험표) 병행. 운영 공유/배포 보류 및 기존 PR 검토는 유지.
+
+- CLAUDE-008 | 클로이 | claude/CLAUDE-008-zip-provenance | 01/04 build_deploy_zip.ps1, tests/packaging/, docs/qa/CLAUDE-008_ZIP검증.md | 허용 목록·출처 표식·ZIP 밖 검증 보고서, 합성 시험 19개 통과 (Windows PS 5.1 실기 미실행) | PR 제출, 벤 검토 대기
