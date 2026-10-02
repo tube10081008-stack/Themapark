@@ -600,11 +600,11 @@
             </div>
           </div>
 
-          <!-- Category 3: 단체 / 어린이집 (7,000원) -->
+          <!-- Category 3: 단체 / 어린이집 (16,800원) -->
           <div class="bg-slate-950/70 p-3 rounded-xl border border-slate-800 flex items-center justify-between">
             <div>
-              <div class="font-extrabold text-xs sm:text-sm text-white">어린이집/유치원 단체 (7,000원)</div>
-              <div class="text-[11px] text-slate-500">평일 단체 유치 (버스 대절 방문)</div>
+              <div class="font-extrabold text-xs sm:text-sm text-white">어린이집/유치원 단체 (16,800원)</div>
+              <div class="text-[11px] text-slate-500">평일 단체 유치 (사전 예약)</div>
             </div>
             <div class="flex items-center gap-1.5">
               <button type="button" class="touch-btn btn-inc w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-slate-800 text-white font-bold text-base" data-target="cntGroup" data-val="-10">-10</button>
@@ -2851,6 +2851,11 @@
       const isCoaster = prod && BongplayID.isCoasterProduct(prod);
       const coasterLock = BongplayID.getCoasterWeatherLock();
 
+      if (delta > 0 && prod && (prod.deprecated || prod.is_active === false)) {
+        alert('폐지된 품목은 신규 판매할 수 없습니다.');
+        return;
+      }
+
       if (delta > 0 && isCoaster && coasterLock.locked) {
         alert(`⚠️ [기상안전 인터록] 실버 짚코스터 탑승권을 선택할 수 없습니다.\n사유: ${coasterLock.reason}`);
         return;
@@ -2967,8 +2972,12 @@
       }
     }
 
+    let isSubmittingPosOrder = false;
     function submitPosOrder() {
-      const pricing = posPricing();
+      if (isSubmittingPosOrder) return;
+      isSubmittingPosOrder = true;
+      try {
+        const pricing = posPricing();
       const items = pricing.items;
       const extraRevenueTotal = items
         .filter(it => it.product_category !== 'ticket')
@@ -3046,7 +3055,10 @@
       } else {
         alert('BongplayID 모듈이 로드되지 않았습니다.');
       }
+    } finally {
+      isSubmittingPosOrder = false;
     }
+  }
 
     // =================================================================
     // P0-3, P0-4, P0-5 FIELD AI OPS & TELEMETRY CONTROLLER
@@ -3953,27 +3965,92 @@
     });
 
     let isSafetyInspectionPassed = false;
-    async function checkSafetyInterlock() {
-      const banner = document.getElementById('safetyInterlockBanner');
-      const todayStr = BongplaySync ? BongplaySync.toLocalDateStr(new Date()) : new Date().toISOString().slice(0, 10);
+    async function checkSafetyInterlock(auditsOverride = null) {
+      const banner = (typeof document !== 'undefined') ? document.getElementById('safetyInterlockBanner') : null;
+      const todayStr = (window.BongplaySync && typeof BongplaySync.toLocalDateStr === 'function')
+        ? BongplaySync.toLocalDateStr(new Date())
+        : new Date().toISOString().slice(0, 10);
       try {
-        const rawAudits = localStorage.getItem('bongplay_safety_audit_logs');
-        let audits = rawAudits ? JSON.parse(rawAudits) : [];
-        if (!audits.length && window.BongplaySync) {
-          const res = await BongplaySync.select('safety_audits', `?audit_date=eq.${todayStr}&select=*`);
-          if (res.ok && res.data) audits = res.data;
+        let audits = auditsOverride;
+        if (!audits) {
+          const rawAudits = (typeof localStorage !== 'undefined') ? localStorage.getItem('bongplay_safety_audit_logs') : null;
+          audits = rawAudits ? JSON.parse(rawAudits) : [];
+          if ((!Array.isArray(audits) || !audits.length) && window.BongplaySync && typeof BongplaySync.select === 'function') {
+            const res = await BongplaySync.select('safety_audits', `?audit_date=eq.${todayStr}&select=*`);
+            if (res && res.ok && Array.isArray(res.data)) audits = res.data;
+          }
         }
+        if (!Array.isArray(audits)) audits = [];
 
-        const todayAudit = audits.find(a => (a.audit_date === todayStr) || (a.date || '').slice(0, 10) === todayStr);
-        if (todayAudit && todayAudit.decision === 'pass') {
-          isSafetyInspectionPassed = true;
-          if (banner) banner.classList.add('hidden');
-        } else {
+        // 1. 당일 점검 기록만 필터링 (과거 점검 배제)
+        const todayAudits = audits.filter(a => {
+          if (!a) return false;
+          const d = (a.audit_date || a.date || a.audit_at || '').slice(0, 10);
+          return d === todayStr;
+        });
+
+        if (todayAudits.length === 0) {
           isSafetyInspectionPassed = false;
           if (banner) banner.classList.remove('hidden');
+          return { ok: false, reason: 'NO_TODAY_AUDIT', passed: false };
         }
+
+        // 2. 점검 시각 기준 내림차순(최신순) 정렬하여 최신 상태 판별 (순서 역전 무관)
+        const parseAuditTime = (a) => {
+          const t = new Date(a.audit_at || a.timestamp || a.date || 0).getTime();
+          if (!isNaN(t) && t > 0) return t;
+          if (typeof a.id === 'number') return a.id;
+          if (typeof a.id === 'string' && /^\d+$/.test(a.id)) return parseInt(a.id, 10);
+          return 0;
+        };
+        todayAudits.sort((a, b) => parseAuditTime(b) - parseAuditTime(a));
+
+        // 3. 시설별(facility_id) 최신 점검 상태 집계 및 전체 시설 최종 점검 확인
+        const latestByFacility = {};
+        for (const a of todayAudits) {
+          const fac = a.facility_id || 'all_facilities';
+          if (!latestByFacility[fac]) {
+            latestByFacility[fac] = a;
+          }
+        }
+
+        let allPassed = true;
+        let unresolvedFailFacility = null;
+        for (const fac of Object.keys(latestByFacility)) {
+          const aud = latestByFacility[fac];
+          const dec = String(aud.decision || aud.result || aud.overall_status || '').toLowerCase().trim();
+          if (dec !== 'pass' && dec !== 'passed') {
+            allPassed = false;
+            unresolvedFailFacility = fac;
+            break;
+          }
+        }
+
+        // 전체 최신 점검 결과가 부적합이면 차단
+        const latestOverall = todayAudits[0];
+        const latestOverallDec = String(latestOverall.decision || latestOverall.result || latestOverall.overall_status || '').toLowerCase().trim();
+        if (latestOverallDec !== 'pass' && latestOverallDec !== 'passed') {
+          allPassed = false;
+          unresolvedFailFacility = unresolvedFailFacility || latestOverall.facility_id || 'overall';
+        }
+
+        isSafetyInspectionPassed = allPassed;
+        if (banner) {
+          if (allPassed) banner.classList.add('hidden');
+          else banner.classList.remove('hidden');
+        }
+        return {
+          ok: allPassed,
+          passed: allPassed,
+          count: todayAudits.length,
+          latest: latestOverall,
+          failedFacility: unresolvedFailFacility
+        };
       } catch (e) {
         console.warn('checkSafetyInterlock error:', e);
+        isSafetyInspectionPassed = false;
+        if (banner) banner.classList.remove('hidden');
+        return { ok: false, passed: false, error: e };
       }
     }
 

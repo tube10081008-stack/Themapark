@@ -277,7 +277,7 @@
       weekday_type: 'all',
       discount_rule_id: 'none',
       version: '2026.v1',
-      description: '실내 924㎡ 놀이동 + 야외 네트어드벤처 2시간 정규 법정 고시가'
+      description: '놀이동(연면적 924㎡ / 실내 놀이공간 657.8㎡) + 야외 네트어드벤처 2시간 정규 고시가'
     },
     PROD_CHILD_BASIC_PROMO: {
       product_id: 'PROD_CHILD_BASIC_PROMO',
@@ -285,13 +285,15 @@
       product_category: 'ticket_child',
       price: 14000,
       effective_from: '2026-01-01',
-      effective_to: '2026-12-31',
+      effective_to: '2026-09-29',
+      is_active: false,
+      deprecated: true,
       customer_type: 'child',
       season_type: 'regular',
       weekday_type: 'weekday',
       discount_rule_id: 'promo_open_1000',
       version: '2026.v1',
-      description: '평일 오픈 기념 1,000원 할인 프로모션가'
+      description: '평일 오픈 기념 1,000원 할인 프로모션가 (2026-09-29 대표 결정으로 폐지, 과거 정산 호환 보존)'
     },
     PROD_CHILD_ALL_STD: {
       product_id: 'PROD_CHILD_ALL_STD',
@@ -355,13 +357,15 @@
       product_category: 'ticket_group',
       price: 7000,
       effective_from: '2026-01-01',
-      effective_to: null,
+      effective_to: '2026-09-29',
+      is_active: false,
+      deprecated: true,
       customer_type: 'voucher',
       season_type: 'regular',
       weekday_type: 'weekday',
       discount_rule_id: 'bonghwa_voucher',
       version: '2026.v1',
-      description: '봉화군 및 인근 지자체 연계 보조금/바우처 지원 단체권'
+      description: '봉화군 및 인근 지자체 연계 보조금/바우처 지원 단체권 (2026-09-29 대표 결정으로 폐지, 과거 정산 호환 보존)'
     },
     PROD_ADDON_COASTER: {
       product_id: 'PROD_ADDON_COASTER',
@@ -413,7 +417,9 @@
       official_name: '놀이동 실내 어드벤처 & 트램펄린 (돔형)',
       facility_type: 'indoor_play',
       capacity: 80,
-      area_sqm: 924.00,
+      building_area_sqm: 924.00,  // 놀이동 건물 연면적 (건축물대장)
+      play_area_sqm: 657.785,     // 실내 놀이공간 면적 (시설명세 세부내역, 약 199평)
+      area_sqm: 924.00,           // 호환성 유지용 (놀이동 건물 연면적)
       operating_start: '10:00',
       operating_end: '18:00',
       safety_class: 'statutory_inspection_passed',
@@ -772,6 +778,11 @@
         list_price: Number(item.list_price || item.price || 0)
       };
 
+      if (prod && (prod.deprecated || prod.is_active === false)) {
+        console.warn(`[createOrder] Deprecated product blocked: ${prod.id}`);
+        return;
+      }
+
       const qty = Math.max(1, Number(item.quantity) || 1);
       const listPrice = Number(item.list_price || prod.list_price || 0);
       const discount = Number(item.discount_amount) || 0;
@@ -1044,6 +1055,27 @@
       }
     }
     saveList(STORAGE_KEYS.TICKETS, tickets);
+
+    // 4) 안전서약 원장 (safety_consents: 취소 시 게이트 무단입장 방지)
+    const consents = readList(STORAGE_KEYS.CONSENTS);
+    for (const c of consents) {
+      if (c.id === consentId || (c.visit_id && result.order_ids.some(oid => oid.includes(c.visit_id)))) {
+        c.status = 'cancelled';
+        c.is_issued = false;
+        c.isIssued = false;
+        c.cancelled_at = now;
+        c.cancel_reason = reason || '현장 발권취소';
+        if (global.BongplaySync) {
+          await global.BongplaySync.patch('safety_consents', c.id, {
+            status: 'cancelled',
+            is_issued: false,
+            cancelled_at: now,
+            cancel_reason: reason || '현장 발권취소'
+          });
+        }
+      }
+    }
+    saveList(STORAGE_KEYS.CONSENTS, consents);
 
     return Object.assign({ ok: true }, result);
   }

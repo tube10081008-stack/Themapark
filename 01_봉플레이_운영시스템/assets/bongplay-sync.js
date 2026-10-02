@@ -21,10 +21,39 @@
   var DB_NAME = 'BongplayLocalDB_v1';
   var DB_VERSION = 1;
 
+  function getStorage() {
+    if (typeof window !== 'undefined' && window.localStorage) return window.localStorage;
+    if (typeof global !== 'undefined' && global.localStorage) return global.localStorage;
+    if (typeof localStorage !== 'undefined') return localStorage;
+    return null;
+  }
+  function getSession() {
+    if (typeof window !== 'undefined' && window.sessionStorage) return window.sessionStorage;
+    if (typeof global !== 'undefined' && global.sessionStorage) return global.sessionStorage;
+    if (typeof sessionStorage !== 'undefined') return sessionStorage;
+    return null;
+  }
+  function isOnline() {
+    if (typeof window !== 'undefined' && window.navigator && typeof window.navigator.onLine === 'boolean') {
+      return window.navigator.onLine;
+    }
+    if (typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean') {
+      return navigator.onLine;
+    }
+    return true;
+  }
+  function getFetch() {
+    if (typeof window !== 'undefined' && typeof window.fetch === 'function') return window.fetch;
+    if (typeof global !== 'undefined' && typeof global.fetch === 'function') return global.fetch;
+    if (typeof fetch === 'function') return fetch;
+    return null;
+  }
+
   // 컬럼 캐시 (스키마에 존재하지 않는 컬럼을 기억하여 자동 제외)
   var invalidColumnCache = {};
   try {
-    var rawCache = sessionStorage.getItem('bongplay_invalid_columns');
+    var sess = getSession();
+    var rawCache = sess ? sess.getItem('bongplay_invalid_columns') : null;
     if (rawCache) invalidColumnCache = JSON.parse(rawCache);
   } catch (e) {}
 
@@ -72,12 +101,16 @@
   // localStorage 폴백 함수군
   function getLsOutbox() {
     try {
-      var raw = localStorage.getItem(LS_OUTBOX_KEY);
+      var s = getStorage();
+      var raw = s ? s.getItem(LS_OUTBOX_KEY) : null;
       return raw ? JSON.parse(raw) : [];
     } catch (e) { return []; }
   }
   function saveLsOutbox(arr) {
-    try { localStorage.setItem(LS_OUTBOX_KEY, JSON.stringify(arr)); } catch (e) {}
+    try {
+      var s = getStorage();
+      if (s) s.setItem(LS_OUTBOX_KEY, JSON.stringify(arr));
+    } catch (e) {}
   }
 
   // 아웃박스 적재 (Enqueue)
@@ -168,24 +201,28 @@
 
   /* ---------- 기기 식별 ---------- */
   function getDeviceId() {
-    var id = localStorage.getItem(DEVICE_KEY);
+    var s = getStorage();
+    var id = s ? s.getItem(DEVICE_KEY) : null;
     if (!id) {
       id = 'dev_' + Math.random().toString(36).slice(2, 8);
-      localStorage.setItem(DEVICE_KEY, id);
+      if (s) s.setItem(DEVICE_KEY, id);
     }
     return id;
   }
   function getDeviceLabel() {
-    return localStorage.getItem('bongplay_device_label') || '현장단말';
+    var s = getStorage();
+    return (s ? s.getItem('bongplay_device_label') : null) || '현장단말';
   }
   function setDeviceLabel(label) {
-    localStorage.setItem('bongplay_device_label', label);
+    var s = getStorage();
+    if (s) s.setItem('bongplay_device_label', label);
   }
 
   /* ---------- 설정 ---------- */
   function getConfig() {
     try {
-      var raw = localStorage.getItem(CFG_KEY);
+      var s = getStorage();
+      var raw = s ? s.getItem(CFG_KEY) : null;
       if (raw) return JSON.parse(raw);
       if (global.BONGPLAY_CONFIG && global.BONGPLAY_CONFIG.SUPABASE_URL) {
         return {
@@ -197,11 +234,14 @@
     } catch (e) { return null; }
   }
   function setConfig(url, anonKey) {
-    if (!url || !anonKey) { localStorage.removeItem(CFG_KEY); return false; }
-    localStorage.setItem(CFG_KEY, JSON.stringify({
-      url: url.replace(/\/+$/, ''),
-      key: anonKey.trim()
-    }));
+    var s = getStorage();
+    if (!url || !anonKey) { if (s) s.removeItem(CFG_KEY); return false; }
+    if (s) {
+      s.setItem(CFG_KEY, JSON.stringify({
+        url: url.replace(/\/+$/, ''),
+        key: anonKey.trim()
+      }));
+    }
     initRealtime();
     return true;
   }
@@ -223,7 +263,7 @@
   function getStatus() {
     return {
       configured: isConfigured(),
-      online: navigator.onLine,
+      online: isOnline(),
       pending: currentPendingCount,
       syncing: isFlushing
     };
@@ -267,7 +307,10 @@
   }
 
   /* ---------- 이벤트 버스 & 실시간 알림 ---------- */
-  var crossChannel = (typeof BroadcastChannel !== 'undefined') ? new BroadcastChannel('bongplay_system_bus') : null;
+  var crossChannel = (typeof window !== 'undefined' && typeof window.document !== 'undefined' && typeof BroadcastChannel !== 'undefined') ? new BroadcastChannel('bongplay_system_bus') : null;
+  if (crossChannel && typeof crossChannel.unref === 'function') {
+    try { crossChannel.unref(); } catch (e) {}
+  }
   var dataChangeListeners = [];
 
   function onDataChange(fn) {
@@ -339,19 +382,67 @@
 
       if (cacheKey && idVal) {
         var raw = localStorage.getItem(cacheKey);
-        var list = raw ? JSON.parse(raw) : [];
-        if (Array.isArray(list)) {
-          var idx = list.findIndex(function (it) { return it[pkField] === idVal || it.id === idVal; });
+        var parsed = null;
+        try { parsed = raw ? JSON.parse(raw) : null; } catch (e) { parsed = null; }
+
+        if (Array.isArray(parsed)) {
+          var idx = parsed.findIndex(function (it) { return it[pkField] === idVal || it.id === idVal; });
           if (idx >= 0) {
-            list[idx] = Object.assign({}, list[idx], row);
+            parsed[idx] = Object.assign({}, parsed[idx], row);
           } else {
-            list.unshift(row);
+            parsed.unshift(row);
           }
-          localStorage.setItem(cacheKey, JSON.stringify(list));
+          localStorage.setItem(cacheKey, JSON.stringify(parsed));
+        } else if (table === 'closing_records') {
+          var updatedClose = (parsed && typeof parsed === 'object') ? Object.assign({}, parsed, row) : row;
+          localStorage.setItem(cacheKey, JSON.stringify(updatedClose));
         }
+      }
+
+      if (table === 'closing_records') {
+        var histRaw = localStorage.getItem('bongplay_closing_records_history');
+        var histList = [];
+        try { histList = histRaw ? JSON.parse(histRaw) : []; } catch (e) { histList = []; }
+        if (!Array.isArray(histList)) histList = [];
+        var hIdx = histList.findIndex(function (it) { return it.date === row.date || it.id === row.id; });
+        if (hIdx >= 0) {
+          histList[hIdx] = Object.assign({}, histList[hIdx], row);
+        } else {
+          histList.unshift(row);
+        }
+        localStorage.setItem('bongplay_closing_records_history', JSON.stringify(histList));
       }
     } catch (e) {
       console.warn('updateLocalCache error:', e);
+    }
+  }
+
+  /* ---------- 캐시 조회 API (R2: 일일 마감 이력 및 오프라인 로컬 데이터 조회) ---------- */
+  function getCached(table) {
+    try {
+      var storage = (typeof window !== 'undefined' && window.localStorage) ? window.localStorage : ((typeof localStorage !== 'undefined') ? localStorage : null);
+      if (!storage) return null;
+      if (table === 'closing_records') {
+        var histRaw = storage.getItem('bongplay_closing_records_history');
+        var histList = histRaw ? JSON.parse(histRaw) : null;
+        if (Array.isArray(histList) && histList.length > 0) return histList;
+        var singleRaw = storage.getItem('bongplay_closing_board_data');
+        return singleRaw ? JSON.parse(singleRaw) : null;
+      }
+      var keyMap = {
+        safety_consents: 'bongplay_safety_consents',
+        ticket_ledger: 'bongplay_ticket_ledger',
+        safety_audits: 'bongplay_safety_audit_logs',
+        sales_records: 'bongtteurak_actual_records_v4'
+      };
+      var k = keyMap[table];
+      if (k) {
+        var r = storage.getItem(k);
+        return r ? JSON.parse(r) : null;
+      }
+      return null;
+    } catch (e) {
+      return null;
     }
   }
 
@@ -360,7 +451,7 @@
     if (typeof window === 'undefined') return false;
     if (window.BONGPLAY_GUEST_MODE === true) return true;
     var path = (window.location && window.location.pathname) ? window.location.pathname.toLowerCase() : '';
-    return path.endsWith('consent.html') || path.endsWith('survey.html');
+    return path.endsWith('consent.html') || path.endsWith('survey.html') || path.endsWith('booking.html');
   }
 
   /* ---------- Supabase 조회 (SELECT) ---------- */
@@ -371,22 +462,24 @@
     }
 
     var cfg = getConfig();
-    if (!cfg || !navigator.onLine) {
+    if (!cfg || !isOnline()) {
       // 오프라인 시 로컬 캐시에서 서빙 시도
       var cacheKey = (table === 'safety_consents') ? (isGuestMode() ? '' : 'bongplay_safety_consents') :
                      (table === 'ticket_ledger') ? 'bongplay_ticket_ledger' :
                      (table === 'safety_audits') ? 'bongplay_safety_audit_logs' : '';
       if (cacheKey) {
         try {
-          var localData = JSON.parse(localStorage.getItem(cacheKey) || '[]');
+          var s = getStorage() || localStorage;
+          var localData = JSON.parse((s ? s.getItem(cacheKey) : null) || '[]');
           return { ok: true, data: localData, from_local_cache: true };
         } catch (e) {}
       }
       return { ok: false, data: null, reason: 'offline_or_unconfigured' };
     }
     try {
+      var fetchFn = getFetch() || fetch;
       var url = cfg.url + '/rest/v1/' + table + (query || '?select=*');
-      var res = await fetch(url, {
+      var res = await fetchFn(url, {
         headers: {
           'apikey': cfg.key,
           'Authorization': 'Bearer ' + cfg.key,
@@ -398,7 +491,7 @@
         console.warn('Supabase select error on', table, res.status, errTxt);
         return { ok: false, data: null, reason: 'http_' + res.status, detail: errTxt };
       }
-      var json = await res.json();
+      var json = (typeof res.json === 'function') ? await res.json() : JSON.parse(await res.text());
       return { ok: true, data: json };
     } catch (e) {
       return { ok: false, data: null, reason: 'network', detail: String(e) };
@@ -408,12 +501,14 @@
   /* ---------- Supabase RPC 호출 (Remote Procedure Call) ---------- */
   async function rpc(fnName, params) {
     var cfg = getConfig();
-    if (!cfg || !navigator.onLine) {
+    if (!cfg || !isOnline()) {
       return { ok: false, reason: 'offline_or_unconfigured' };
     }
+    var _fetch = getFetch();
+    if (!_fetch) return { ok: false, reason: 'no_fetch' };
     try {
       var url = cfg.url + '/rest/v1/rpc/' + fnName;
-      var res = await fetch(url, {
+      var res = await _fetch(url, {
         method: 'POST',
         headers: {
           'apikey': cfg.key,
@@ -462,7 +557,8 @@
     updateLocalCache(table, payload);
 
     // 2. 오프라인 또는 설정 누락 시 즉시 아웃박스에 영구 보존
-    if (!cfg || !navigator.onLine) {
+    var _fetch = getFetch();
+    if (!cfg || !isOnline() || !_fetch) {
       var outId = payload[pkField] || ('out_' + Date.now());
       await enqueueOutbox({
         id: outId,
@@ -481,7 +577,7 @@
     var maxRetries = Object.keys(payload).length + 2;
     for (var attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        var res = await fetch(cfg.url + '/rest/v1/' + table, {
+        var res = await _fetch(cfg.url + '/rest/v1/' + table, {
           method: 'POST',
           headers: {
             'apikey': cfg.key,
@@ -507,7 +603,20 @@
           if (!invalidColumnCache[table]) invalidColumnCache[table] = [];
           if (invalidColumnCache[table].indexOf(missingCol) === -1) {
             invalidColumnCache[table].push(missingCol);
-            try { sessionStorage.setItem('bongplay_invalid_columns', JSON.stringify(invalidColumnCache)); } catch (e) {}
+            try { var sess = getSession() || sessionStorage; if (sess) sess.setItem('bongplay_invalid_columns', JSON.stringify(invalidColumnCache)); } catch (e) {}
+          }
+          var criticalCols = ['status', 'cancelled_at', 'cancel_reason', 'closing_status'];
+          if (criticalCols.indexOf(missingCol) !== -1) {
+            var outId = payload[pkField] || ('out_' + Date.now());
+            await enqueueOutbox({
+              id: outId,
+              table: table,
+              action: 'upsert',
+              payload: payload,
+              created_at: new Date().toISOString()
+            });
+            broadcast({ type: 'SCHEMA_BLOCKED', table: table, row: payload, missing_column: missingCol });
+            return { ok: false, schema_blocked: true, queued: true, missing_column: missingCol, row: payload };
           }
           delete payload[missingCol];
           continue;
@@ -519,7 +628,7 @@
           try {
             var patchData = Object.assign({}, payload);
             delete patchData[pkField];
-            var resPatch = await fetch(cfg.url + '/rest/v1/' + table + '?' + pkField + '=eq.' + encodeURIComponent(pkVal), {
+            var resPatch = await _fetch(cfg.url + '/rest/v1/' + table + '?' + pkField + '=eq.' + encodeURIComponent(pkVal), {
               method: 'PATCH',
               headers: {
                 'apikey': cfg.key,
@@ -588,27 +697,53 @@
     var cfg = getConfig();
     idCol = idCol || (table === 'ticket_ledger' ? 'ticket_id' : 'id');
 
+    // 호출자의 patchData 객체를 직접 수정(변조)하지 않음
     var patchPayload = Object.assign({}, patchData);
     patchPayload[idCol] = idVal;
     updateLocalCache(table, patchPayload);
 
-    if (!cfg || !navigator.onLine) {
+    var sendData = Object.assign({}, patchData);
+
+    // 이미 알려진 누락 컬럼이 패치 대상에 포함된 경우:
+    // 필수 상태/계약 필드는 버리지 않고 아웃박스에 영구 보존하며 schema_blocked로 대기
+    var criticalCols = ['status', 'cancelled_at', 'cancel_reason', 'closing_status'];
+    if (invalidColumnCache[table]) {
+      var hasBlockedCritical = invalidColumnCache[table].some(function (c) {
+        return criticalCols.indexOf(c) !== -1 && sendData[c] !== undefined;
+      });
+      if (hasBlockedCritical) {
+        await enqueueOutbox({
+          id: 'patch_' + idVal,
+          idVal: idVal,
+          idCol: idCol,
+          table: table,
+          action: 'patch',
+          payload: sendData,
+          created_at: new Date().toISOString()
+        });
+        broadcast({ type: 'SCHEMA_BLOCKED', table: table, id: idVal, data: patchPayload, offline: true });
+        return { ok: false, schema_blocked: true, queued: true };
+      }
+    }
+
+    var _fetch = getFetch();
+    if (!cfg || !isOnline() || !_fetch) {
       await enqueueOutbox({
         id: 'patch_' + idVal,
         idVal: idVal,
         idCol: idCol,
         table: table,
         action: 'patch',
-        payload: patchData,
+        payload: sendData,
         created_at: new Date().toISOString()
       });
-      broadcast({ type: 'UPDATE_SUCCESS', table: table, id: idVal, data: patchData, offline: true });
+      broadcast({ type: 'UPDATE_SUCCESS', table: table, id: idVal, data: patchPayload, offline: true });
       return { ok: true, queued: true };
     }
 
     try {
       var url = cfg.url + '/rest/v1/' + table + '?' + idCol + '=eq.' + encodeURIComponent(idVal);
-      var res = await fetch(url, {
+      var res = await _fetch(url, {
         method: 'PATCH',
         headers: {
           'apikey': cfg.key,
@@ -616,21 +751,47 @@
           'Content-Type': 'application/json',
           'Prefer': 'return=representation'
         },
-        body: JSON.stringify(patchData)
+        body: JSON.stringify(sendData)
       });
       if (res.ok) {
-        broadcast({ type: 'UPDATE_SUCCESS', table: table, id: idVal, data: patchData });
+        broadcast({ type: 'UPDATE_SUCCESS', table: table, id: idVal, data: patchPayload });
         return { ok: true };
       }
       var errTxt = await res.text();
       console.warn('Supabase patch error:', res.status, errTxt);
+
+      // 서버 DB 스키마 컬럼 부재(미적용 SQL 제안 상태) 감지 시:
+      // status, cancelled_at 등 필수 필드를 임의로 drop하고 성공 처리하면 안 됨!
+      var colMatch = errTxt.match(/Could not find the '([^']+)' column/);
+      if (colMatch && colMatch[1]) {
+        var missingCol = colMatch[1];
+        if (!invalidColumnCache[table]) invalidColumnCache[table] = [];
+        if (invalidColumnCache[table].indexOf(missingCol) === -1) {
+          invalidColumnCache[table].push(missingCol);
+          try { var sess = getSession() || sessionStorage; if (sess) sess.setItem('bongplay_invalid_columns', JSON.stringify(invalidColumnCache)); } catch (e) {}
+        }
+
+        // 원본 payload를 아웃박스에 보존하고 schema_blocked로 명시적 보류 처리 (성공 방송 방지)
+        await enqueueOutbox({
+          id: 'patch_' + idVal,
+          idVal: idVal,
+          idCol: idCol,
+          table: table,
+          action: 'patch',
+          payload: sendData,
+          created_at: new Date().toISOString()
+        });
+        broadcast({ type: 'SCHEMA_BLOCKED', table: table, id: idVal, data: patchPayload, missing_column: missingCol, offline: true });
+        return { ok: false, schema_blocked: true, queued: true, missing_column: missingCol };
+      }
+
       await enqueueOutbox({
         id: 'patch_' + idVal,
         idVal: idVal,
         idCol: idCol,
         table: table,
         action: 'patch',
-        payload: patchData,
+        payload: sendData,
         created_at: new Date().toISOString()
       });
       return { ok: true, queued: true };
@@ -641,7 +802,7 @@
         idCol: idCol,
         table: table,
         action: 'patch',
-        payload: patchData,
+        payload: sendData,
         created_at: new Date().toISOString()
       });
       return { ok: true, queued: true };
@@ -670,7 +831,8 @@
 
     broadcast({ type: 'DELETE_SUCCESS', table: table, id: idVal });
 
-    if (!cfg || !navigator.onLine) {
+    var _fetch = getFetch();
+    if (!cfg || !isOnline() || !_fetch) {
       await enqueueOutbox({
         id: 'del_' + idVal,
         idVal: idVal,
@@ -684,7 +846,7 @@
 
     try {
       var url = cfg.url + '/rest/v1/' + table + '?' + idCol + '=eq.' + encodeURIComponent(idVal);
-      var res = await fetch(url, {
+      var res = await _fetch(url, {
         method: 'DELETE',
         headers: {
           'apikey': cfg.key,
@@ -724,7 +886,7 @@
      2. 선입선출(FIFO) 아웃박스 자동 동기화 (Flush Engine)
      ============================================================ */
   async function flushOutbox() {
-    if (isFlushing || !navigator.onLine) {
+    if (isFlushing || !isOnline()) {
       return { processed: 0, pending: await refreshPendingCount() };
     }
     var cfg = getConfig();
@@ -735,13 +897,14 @@
 
     var items = await getOutboxItems();
     var processed = 0;
+    var fetchFn = getFetch() || fetch;
 
     for (var i = 0; i < items.length; i++) {
       var item = items[i];
       try {
         var success = false;
         if (item.action === 'upsert') {
-          var res = await fetch(cfg.url + '/rest/v1/' + item.table, {
+          var res = await fetchFn(cfg.url + '/rest/v1/' + item.table, {
             method: 'POST',
             headers: {
               'apikey': cfg.key,
@@ -760,7 +923,7 @@
             if (pkVal) {
               var pData = Object.assign({}, item.payload);
               delete pData[pkField];
-              var resPatch = await fetch(cfg.url + '/rest/v1/' + item.table + '?' + pkField + '=eq.' + encodeURIComponent(pkVal), {
+              var resPatch = await fetchFn(cfg.url + '/rest/v1/' + item.table + '?' + pkField + '=eq.' + encodeURIComponent(pkVal), {
                 method: 'PATCH',
                 headers: {
                   'apikey': cfg.key,
@@ -776,23 +939,33 @@
             var errTxt = await res.text();
             var colMatch = errTxt.match(/Could not find the '([^']+)' column/);
             if (colMatch && colMatch[1]) {
-              delete item.payload[colMatch[1]];
-              var resRetry = await fetch(cfg.url + '/rest/v1/' + item.table, {
-                method: 'POST',
-                headers: {
-                  'apikey': cfg.key,
-                  'Authorization': 'Bearer ' + cfg.key,
-                  'Content-Type': 'application/json',
-                  'Prefer': 'resolution=merge-duplicates,return=minimal'
-                },
-                body: JSON.stringify(item.payload)
-              });
-              if (resRetry.ok) success = true;
+              var missingColU = colMatch[1];
+              var criticalColsU = ['status', 'cancelled_at', 'cancel_reason', 'closing_status'];
+              if (criticalColsU.indexOf(missingColU) !== -1) {
+                // 필수 상태 컬럼 누락: 아웃박스에서 삭제하지 않고 대기 유지
+                success = false;
+              } else {
+                delete item.payload[missingColU];
+                var resRetry = await fetchFn(cfg.url + '/rest/v1/' + item.table, {
+                  method: 'POST',
+                  headers: {
+                    'apikey': cfg.key,
+                    'Authorization': 'Bearer ' + cfg.key,
+                    'Content-Type': 'application/json',
+                    'Prefer': 'resolution=merge-duplicates,return=minimal'
+                  },
+                  body: JSON.stringify(item.payload)
+                });
+                if (resRetry.ok) success = true;
+              }
             }
           }
         } else if (item.action === 'patch') {
           var pk = item.idCol || (item.table === 'ticket_ledger' ? 'ticket_id' : 'id');
-          var resP = await fetch(cfg.url + '/rest/v1/' + item.table + '?' + pk + '=eq.' + encodeURIComponent(item.idVal), {
+          var patchSend = Object.assign({}, item.payload);
+          delete patchSend[pk];
+
+          var resP = await fetchFn(cfg.url + '/rest/v1/' + item.table + '?' + pk + '=eq.' + encodeURIComponent(item.idVal), {
             method: 'PATCH',
             headers: {
               'apikey': cfg.key,
@@ -800,12 +973,27 @@
               'Content-Type': 'application/json',
               'Prefer': 'return=representation'
             },
-            body: JSON.stringify(item.payload)
+            body: JSON.stringify(patchSend)
           });
-          if (resP.ok) success = true;
+          if (resP.ok) {
+            success = true;
+          } else if (resP.status >= 400 && resP.status < 500) {
+            var errTxtP = await resP.text();
+            var matchP = errTxtP.match(/Could not find the '([^']+)' column/);
+            if (matchP && matchP[1]) {
+              var missingColP = matchP[1];
+              if (!invalidColumnCache[item.table]) invalidColumnCache[item.table] = [];
+              if (invalidColumnCache[item.table].indexOf(missingColP) === -1) {
+                invalidColumnCache[item.table].push(missingColP);
+                try { var sess = getSession() || sessionStorage; if (sess) sess.setItem('bongplay_invalid_columns', JSON.stringify(invalidColumnCache)); } catch (e) {}
+              }
+              // 스키마 미적용 상태: 필수 필드를 삭제하거나 큐를 해소하지 않고 대기 보류
+              success = false;
+            }
+          }
         } else if (item.action === 'delete') {
           var pkD = item.idCol || (item.table === 'ticket_ledger' ? 'ticket_id' : 'id');
-          var resD = await fetch(cfg.url + '/rest/v1/' + item.table + '?' + pkD + '=eq.' + encodeURIComponent(item.idVal), {
+          var resD = await fetchFn(cfg.url + '/rest/v1/' + item.table + '?' + pkD + '=eq.' + encodeURIComponent(item.idVal), {
             method: 'DELETE',
             headers: {
               'apikey': cfg.key,
@@ -853,7 +1041,7 @@
     if (isGuestMode()) return { ok: true, reason: 'guest_mode_skip_pii' };
 
     var cfg = getConfig();
-    if (!cfg || !navigator.onLine) return { ok: false, reason: 'offline_or_unconfigured' };
+    if (!cfg || !isOnline()) return { ok: false, reason: 'offline_or_unconfigured' };
 
     var results = { safety_audits: 0, safety_consents: 0, sales_records: 0, closing_records: 0, ticket_ledger: 0 };
     try {
@@ -923,6 +1111,9 @@
             ticket_ids: row.ticket_ids,
             signatureData: row.signature_data,
             consentMarketing: row.consent_marketing,
+            status: row.status || 'active',
+            cancelled_at: row.cancelled_at || null,
+            cancel_reason: row.cancel_reason || null,
             legal_hold_until: row.legal_hold_until || null,
             pii_masked_at: row.pii_masked_at || null
           };
@@ -930,26 +1121,28 @@
         // 서버 응답에 없는 로컬 기록(어제 이전 접수분, 미전송분)을 덮어써 지우지 않도록 병합한다.
         // 기기에 남기는 개인정보는 요일 탭 조회 범위인 최근 7일로 제한한다.
         try {
+          var store = getStorage() || localStorage;
           var cloudIds = {};
           cloudConsents.forEach(function (c) { cloudIds[c.id] = true; });
           var keepFrom = toLocalDateStr(new Date(Date.now() - 7 * 86400000));
-          var localConsents = JSON.parse(localStorage.getItem('bongplay_safety_consents') || '[]');
+          var localConsents = JSON.parse((store ? store.getItem('bongplay_safety_consents') : null) || '[]');
           localConsents.forEach(function (c) {
             var d = c.created_date || c.createdDate || (c.arrival_at || '').slice(0, 10);
             if (c && c.id && !cloudIds[c.id] && d && d >= keepFrom) cloudConsents.push(c);
           });
+          cloudConsents.sort(function (a, b) {
+            return new Date(b.arrival_at || b.created_date || 0) - new Date(a.arrival_at || a.created_date || 0);
+          });
+          if (store) store.setItem('bongplay_safety_consents', JSON.stringify(cloudConsents));
         } catch (mergeErr) {}
-        cloudConsents.sort(function (a, b) {
-          return new Date(b.arrival_at || b.created_date || 0) - new Date(a.arrival_at || a.created_date || 0);
-        });
-        localStorage.setItem('bongplay_safety_consents', JSON.stringify(cloudConsents));
         results.safety_consents = cloudConsents.length;
       }
 
       // 3. ticket_ledger
       var rTickets = await select('ticket_ledger', '?select=*&order=issued_at.desc&limit=400');
       if (rTickets.ok && Array.isArray(rTickets.data)) {
-        localStorage.setItem('bongplay_ticket_ledger', JSON.stringify(rTickets.data));
+        var storeL = getStorage() || localStorage;
+        if (storeL) storeL.setItem('bongplay_ticket_ledger', JSON.stringify(rTickets.data));
         results.ticket_ledger = rTickets.data.length;
       }
 
@@ -1052,6 +1245,7 @@
       // 5. closing_records
       var rClosing = await select('closing_records', '?select=*&order=date.desc&limit=30');
       if (rClosing.ok && Array.isArray(rClosing.data)) {
+        localStorage.setItem('bongplay_closing_records_history', JSON.stringify(rClosing.data));
         var todayStr2 = toLocalDateStr(new Date());
         var todayClose = rClosing.data.find(function (c) { return c.date === todayStr2; });
         if (todayClose) {
@@ -1112,8 +1306,10 @@
   async function testConnection() {
     var cfg = getConfig();
     if (!cfg) return { ok: false, msg: 'Supabase URL/Key 설정이 없습니다.' };
+    var _fetch = getFetch();
+    if (!_fetch || !isOnline()) return { ok: false, msg: '네트워크 연결 불가 (오프라인 상태)' };
     try {
-      var res = await fetch(cfg.url + '/rest/v1/sales_records?select=id&limit=1', {
+      var res = await _fetch(cfg.url + '/rest/v1/sales_records?select=id&limit=1', {
         headers: { 'apikey': cfg.key, 'Authorization': 'Bearer ' + cfg.key }
       });
       if (res.ok) return { ok: true, msg: '연결 성공 (Supabase 클라우드 온라인)' };
@@ -1150,12 +1346,12 @@
   }
 
   /* ---------- 라이프사이클 이벤트 & 백그라운드 동기화 ---------- */
-  if (typeof window !== 'undefined') {
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
     window.addEventListener('DOMContentLoaded', function () {
       openIndexedDb().then(function () {
         refreshPendingCount().then(function () {
           notifyStatus();
-          if (navigator.onLine) {
+          if (isOnline()) {
             flushOutbox();
             if (!isGuestMode()) {
               pullAll();
@@ -1180,7 +1376,7 @@
     });
 
     window.addEventListener('focus', function () {
-      if (navigator.onLine && isConfigured()) {
+      if (isOnline() && isConfigured()) {
         flushOutbox();
         if (!isGuestMode()) {
           pullAll();
@@ -1188,12 +1384,14 @@
       }
     });
 
-    // 10초마다 아웃박스 동기화 확인
-    setInterval(function () {
-      if (navigator.onLine && isConfigured() && !isFlushing) {
-        flushOutbox();
-      }
-    }, 10000);
+    // 10초마다 아웃박스 동기화 확인 (브라우저 DOM 환경)
+    if (typeof window.document !== 'undefined') {
+      setInterval(function () {
+        if (isOnline() && isConfigured() && !isFlushing) {
+          flushOutbox();
+        }
+      }, 10000);
+    }
   }
 
   // 전역 API 노출
@@ -1211,6 +1409,7 @@
     remove: remove,
     delete: remove,
     pullAll: pullAll,
+    getCached: getCached,
     getQueue: getQueue,
     clearQueue: clearQueue,
     flushQueue: flushQueue,

@@ -459,6 +459,7 @@
     }
 
     let currentCategoryFilter = '';
+    let userSelectedCategory = null;
     let mediaList = [];
     let selectedFiles = [];
 
@@ -525,11 +526,21 @@
     document.addEventListener('DOMContentLoaded', () => {
       lucide.createIcons();
       initAuthorInput();
+      initCategorySelect();
       rebuildCategories();
       renderCategoryUI();
       initDriveStatus();
       loadMediaList();
     });
+
+    function initCategorySelect() {
+      const sel = document.getElementById('uploadCategory');
+      if (sel) {
+        sel.addEventListener('change', () => {
+          userSelectedCategory = sel.value;
+        });
+      }
+    }
 
     function initAuthorInput() {
       const el = document.getElementById('uploadAuthor');
@@ -618,24 +629,24 @@
     function renderCategoryUI() {
       const sel = document.getElementById('uploadCategory');
       if (sel) {
-        const previousVal = sel.value;
+        const previousVal = userSelectedCategory || sel.value;
         sel.innerHTML = ARCHIVE_CATEGORIES.map(c => `<option value="${c.id}">${c.label}</option>`).join('');
         // 사용자가 이미 선택해둔 값이 새 옵션에도 있으면 그대로 유지!
         if (previousVal && [...sel.options].some(o => o.value === previousVal)) {
           sel.value = previousVal;
-        } else if (currentCategoryFilter && [...sel.options].some(o => o.value === currentCategoryFilter)) {
-          // 또는 현재 보고 있는 폴더 탭이 있으면 해당 폴더로 자동 선택
+        } else if (!userSelectedCategory && currentCategoryFilter && [...sel.options].some(o => o.value === currentCategoryFilter)) {
+          // 사용자가 직접 변경한 적 없을 때만 현재 폴더 탭으로 동기화
           sel.value = currentCategoryFilter;
         }
       }
       const nav = document.getElementById('categoryNav');
       if (nav) {
         nav.innerHTML = `
-        <button onclick="setCategoryFilter('')" data-cat="" class="shrink-0 whitespace-nowrap flex items-center justify-between gap-2 px-3 py-2 rounded-xl transition text-xs font-medium">
+        <button onclick="setCategoryFilter('', true)" data-cat="" class="shrink-0 whitespace-nowrap flex items-center justify-between gap-2 px-3 py-2 rounded-xl transition text-xs font-medium">
           <span class="flex items-center gap-1.5"><i data-lucide="folder" class="w-3.5 h-3.5"></i><span>전체</span></span>
           <span data-count="" class="font-mono text-[10px] sm:text-[11px] px-1.5 py-0.5 rounded-full bg-slate-800/80">0</span>
         </button>` + ARCHIVE_CATEGORIES.map(c => `
-        <button onclick="setCategoryFilter('${c.id}')" data-cat="${c.id}" class="shrink-0 whitespace-nowrap flex items-center justify-between gap-2 px-3 py-2 rounded-xl transition text-xs font-medium">
+        <button onclick="setCategoryFilter('${c.id}', true)" data-cat="${c.id}" class="shrink-0 whitespace-nowrap flex items-center justify-between gap-2 px-3 py-2 rounded-xl transition text-xs font-medium">
           <span class="flex items-center gap-1.5 truncate"><i data-lucide="${c.icon}" class="w-3.5 h-3.5 ${c.color}"></i><span class="truncate">${c.label}</span></span>
           <span class="flex items-center gap-1 shrink-0">
             <span data-count="${c.id}" class="font-mono text-[10px] sm:text-[11px] px-1.5 py-0.5 rounded-full bg-slate-800/80">0</span>
@@ -645,7 +656,7 @@
         <button onclick="addArchiveFolder()" class="shrink-0 whitespace-nowrap flex items-center gap-1.5 px-3 py-2 rounded-xl border border-dashed border-slate-700 text-slate-400 hover:text-white hover:border-indigo-500 transition text-xs">
           <i data-lucide="folder-plus" class="w-3.5 h-3.5"></i><span>+ 새 폴더</span>
         </button>`;
-        setCategoryFilter(currentCategoryFilter);
+        setCategoryFilter(currentCategoryFilter, false);
         if (window.lucide) lucide.createIcons();
       }
     }
@@ -659,13 +670,15 @@
       });
     }
 
-    function setCategoryFilter(cat) {
+    function setCategoryFilter(cat, fromUserClick) {
       currentCategoryFilter = cat;
 
-      // 폴더 탭을 클릭하면 업로드 모달의 카테고리도 해당 폴더로 자동 동기화
-      const sel = document.getElementById('uploadCategory');
-      if (sel && cat && [...sel.options].some(o => o.value === cat)) {
-        sel.value = cat;
+      // 사용자가 탭을 직접 클릭했을 때만 업로드 모달의 카테고리 동기화 (단, 드롭다운 직접 지정 시 보존)
+      if (fromUserClick && !userSelectedCategory) {
+        const sel = document.getElementById('uploadCategory');
+        if (sel && cat && [...sel.options].some(o => o.value === cat)) {
+          sel.value = cat;
+        }
       }
 
       document.querySelectorAll('#categoryNav [data-cat]').forEach(el => {
@@ -884,6 +897,7 @@
         progressBox.classList.add('hidden');
         clearSelectedFiles();
         document.getElementById('uploadMemo').value = '';
+        userSelectedCategory = null;
         renderCategoryCounts();
         renderGallery();
       }, 800);

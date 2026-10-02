@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ============================================================
  * 리틀포레스트 봉플레이 - Bongplay ID Core Module (id-core)
  * ============================================================
@@ -11,6 +11,7 @@
   'use strict';
 
   const BongplayID = global.BongplayID || (global.BongplayID = {});
+  global.BongplayIDCore = BongplayID;
   const SITE_ID = 'bongplay_bonghwa';
   const SALT = 'bongplay_causal_salt_2026_';
 
@@ -23,6 +24,8 @@
     }
     return (hash >>> 0).toString(16).padStart(8, '0');
   }
+
+  const fnv1aHex = fnv1a;
 
   function normalizePhone(phone) {
     return String(phone || '').replace(/[^0-9]/g, '');
@@ -70,6 +73,28 @@
     const cleanVisit = (visitId || '').replace(/^vst_/, '');
     const seq = String(index || 1).padStart(2, '0');
     return 'tkt_' + cleanVisit + '_' + seq;
+  }
+
+  function generateOrderItemId(orderId, index) {
+    const cleanOrder = (orderId || '').replace(/^ord_/, '');
+    const seq = String(index || 1).padStart(2, '0');
+    return 'item_' + cleanOrder + '_' + seq;
+  }
+
+  function generateFacilityEventId() {
+    return 'fev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+  }
+
+  function generateTelemetryId() {
+    return 'tel_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+  }
+
+  function generateActionId() {
+    return 'act_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+  }
+
+  function generateAssetMeasurementId() {
+    return 'asm_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
   }
 
   function detectCampaignId() {
@@ -177,7 +202,7 @@
       weekday_type: 'all',
       discount_rule_id: 'none',
       version: '2026.v1',
-      description: '실내 924㎡ 놀이동 + 야외 네트어드벤처 2시간 정규 법정 고시가'
+      description: '놀이동(연면적 924㎡ / 실내 놀이공간 657.8㎡) + 야외 네트어드벤처 2시간 정규 고시가'
     },
     PROD_CHILD_BASIC_PROMO: {
       product_id: 'PROD_CHILD_BASIC_PROMO',
@@ -185,13 +210,15 @@
       product_category: 'ticket_child',
       price: 14000,
       effective_from: '2026-01-01',
-      effective_to: '2026-12-31',
+      effective_to: '2026-09-29',
+      is_active: false,
+      deprecated: true,
       customer_type: 'child',
       season_type: 'regular',
       weekday_type: 'weekday',
       discount_rule_id: 'promo_open_1000',
       version: '2026.v1',
-      description: '평일 오픈 기념 1,000원 할인 프로모션가'
+      description: '평일 오픈 기념 1,000원 할인 프로모션가 (2026-09-29 대표 결정으로 폐지, 과거 정산 호환 보존)'
     },
     PROD_CHILD_ALL_STD: {
       product_id: 'PROD_CHILD_ALL_STD',
@@ -255,13 +282,15 @@
       product_category: 'ticket_group',
       price: 7000,
       effective_from: '2026-01-01',
-      effective_to: null,
+      effective_to: '2026-09-29',
+      is_active: false,
+      deprecated: true,
       customer_type: 'voucher',
       season_type: 'regular',
       weekday_type: 'weekday',
       discount_rule_id: 'bonghwa_voucher',
       version: '2026.v1',
-      description: '봉화군 및 인근 지자체 연계 보조금/바우처 지원 단체권'
+      description: '봉화군 및 인근 지자체 연계 보조금/바우처 지원 단체권 (2026-09-29 대표 결정으로 폐지, 과거 정산 호환 보존)'
     },
     PROD_ADDON_COASTER: {
       product_id: 'PROD_ADDON_COASTER',
@@ -313,7 +342,9 @@
       official_name: '놀이동 실내 어드벤처 & 트램펄린 (돔형)',
       facility_type: 'indoor_play',
       capacity: 80,
-      area_sqm: 924.00,
+      building_area_sqm: 924.00,  // 놀이동 건물 연면적 (건축물대장)
+      play_area_sqm: 657.785,     // 실내 놀이공간 면적 (시설명세 세부내역, 약 199평)
+      area_sqm: 924.00,           // 호환성 유지용 (놀이동 건물 연면적)
       operating_start: '10:00',
       operating_end: '18:00',
       safety_class: 'statutory_inspection_passed',
@@ -940,7 +971,12 @@
   }
 
 
+  const MASTER_ASSETS = ASSETS;
+  const MASTER_STAFF = STAFF;
+  const MASTER_PRICING_RULES = {};
+
   Object.assign(BongplayID, {
+    fnv1a,
     fnv1aHex,
     normalizePhone,
     SITE_ID,
@@ -967,23 +1003,23 @@
     markVisitEntry,
     markVisitExit,
     createOrder,
-    getOrderItems,
+    checkIsRepeatHousehold,
     recordFacilityEvent,
-    getCampaignLedger,
-    createCampaignRecord,
+    getStoredConsents,
+    updateStoredConsent,
     detectCampaignId,
     updateBookingFunnel,
-    getBookingFunnelStages,
-    getHouseholdCrmProfile,
-    recordCustomerSurvey,
-    getNpsSummary,
-    startStaffShift,
+    saveMarketingCampaigns,
+    recordMarketingCampaign,
+    getCampaignAttribution,
+    getMarketingCampaigns,
+    /*
     endStaffShift,
     assignStaffToZone,
     recordStaffTaskDuration,
     getStaffTaskDurationLogs,
     getStaffShifts,
-    getMarketingCampaigns
+    */
   });
 
   if (typeof module !== 'undefined' && module.exports) {
