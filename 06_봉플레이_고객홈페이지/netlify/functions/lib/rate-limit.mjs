@@ -1,6 +1,6 @@
 /**
  * rate-limit.mjs
- * 
+ *
  * JEV 상담 호출 제한 및 분산 과금 방어 모듈 (ANT-004 / R2 보완)
  * - 다중 서버리스 인스턴스 환경에서 상태 불일치를 방지하기 위한 Upstash Redis REST 파이프라인(INCR + EXPIRE) 연동
  * - Fail-Closed 원칙: JEV_ENABLED === 'true'일 때 분산 저장소 미설정, 응답 이상, 통신 장애 시 외부 유료 JEV 호출 원천 차단 (외부 유료 API 호출 0건 유지)
@@ -161,7 +161,7 @@ export const defaultMemoryStore = new MemoryRateLimitStore();
 
 /**
  * 신뢰할 수 있는 클라이언트 식별자 추출 (플랫폼 보증 경계 준수)
- * 
+ *
  * [보안 설계 및 플랫폼 계약 근거]:
  * - Netlify Functions 런타임은 edge routing 계층에서 검증된 클라이언트 IP를 `context.ip`로 주입함.
  * - HTTP 헤더 중에서는 Netlify proxy가 주입하는 `x-nf-client-connection-ip`만 플랫폼이 보증함.
@@ -196,7 +196,7 @@ export function extractClientIp(request, context = {}, options = {}) {
 
 /**
  * 레이트 리미트 및 Fail-Closed 과금 방어 검사
- * @param {Request} request 
+ * @param {Request} request
  * @param {Object} options
  * @returns {Promise<{
  *   allowed: boolean,

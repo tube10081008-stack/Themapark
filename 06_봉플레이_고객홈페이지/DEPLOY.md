@@ -36,7 +36,7 @@
 | `RATE_LIMIT_DAILY_TOTAL` | 선택 | `500` | 전체 인스턴스 일일 허용 총 요청 수 (0 또는 음수 설정 시 전면 차단) |
 
 > [!IMPORTANT] Fail-Closed 외부 호출 차단 규칙
-> `CONSULT_ENABLED === 'true'` 또는 `JEV_ENABLED === 'true'`일 때 `RATE_LIMIT_STORE_URL`이 설정되지 않았거나 통신 장애가 발생하면, 서버는 외부 유료 API 호출을 즉시 차단(`Fail-Closed`, 호출 0건 유지)하고 로컬 확정 규칙 모드로 안전하게 폴백합니다.
+> `CONSULT_ENABLED === 'true'` 또는 `JEV_ENABLED === 'true'`일 때 `RATE_LIMIT_STORE_URL`이 설정되지 않았거나 통신 장애가 발생하면, 서버는 외부 유료 API 호출을 차단합니다. 저장소 미설정 시 기본 안내로 전환하며, 외부 호출 활성 상태에서 저장소 통신/응답 오류가 발생하면 HTTP 429로 요청을 차단합니다.
 
 ---
 
