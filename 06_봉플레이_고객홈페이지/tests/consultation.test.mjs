@@ -1,0 +1,15 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {consult,criteria} from '../netlify/functions/lib/consultation.mjs';
+import handler from '../netlify/functions/consult.mjs';
+const env={JEV_ENABLED:'true',JEV_MODEL:'synthetic-model',TYPESAFE_API_KEY:'SENTINEL'};
+const answer=(intent,confidence=.9)=>({answers:{intent:{type:'choice',choice:intent,confidence,probabilities:Object.fromEntries(Object.keys(criteria).map(k=>[k,k===intent?1:0]))}}});
+test('no key: deterministic guidance and unconfirmed hours',async()=>{assert.match((await consult('요금')).answer,/15,000/);assert.match((await consult('운영시간')).answer,/확정 후/);});
+test('personal info and sensitive requests never reach provider',async()=>{for(const text of ['010-1234-5678 예약','a@example.com','환불 요청','아이가 다쳤어요']){let calls=0;const r=await consult(text,{env,fetcher:()=>{calls++;throw Error();}});assert.equal(calls,0);assert.equal(r.intent,'human');}});
+test('JEV request and fixed source answer, never provider prose',async()=>{const r=await consult('얼마나 내야 하나요',{env,fetcher:async(url,init)=>{assert.equal(url,'https://api.typesafe.ai/v1/systemone');const payload=JSON.parse(init.body);assert.equal(payload.model,'synthetic-model');assert.equal(payload.questions.intent.type,'choice');return new Response(JSON.stringify({...answer('price'),text:'무료 입장'}));}});assert.equal(r.mode,'jev');assert.match(r.answer,/15,000/);assert.doesNotMatch(r.answer,/무료/);});
+test('low confidence and invalid enum fail closed',async()=>{for(const data of [answer('price',.1),{answers:{intent:{choice:'free'}}},answer('bogus')]){const r=await consult('문의',{env,fetcher:async()=>new Response(JSON.stringify(data))});assert.equal(r.intent,'other');}});
+test('provider failure has fallback without error leakage',async()=>{for(const fetcher of [async()=>{throw Error('SENTINEL');},async()=>new Response('oops',{status:429}),async()=>new Response('not json')]){const r=await consult('문의',{env,fetcher});assert.equal(r.mode,'fallback');assert.doesNotMatch(JSON.stringify(r),/SENTINEL/);}});
+test('booking never confirms a reservation',async()=>{assert.match((await consult('예약')).answer,/진행되지 않습니다/);});
+test('multiple topics in basic mode ask clarification',async()=>assert.equal((await consult('요금과 위치')).intent,'other'));
+test('input limits',async()=>{for(const v of ['',null,'x'.repeat(1201)])await assert.rejects(consult(v));});
+test('HTTP guards and no-store',async()=>{const url='https://example.test/.netlify/functions/consult';assert.equal((await handler(new Request(url))).status,405);assert.equal((await handler(new Request(url,{method:'POST',body:'x'}))).status,415);assert.equal((await handler(new Request(url,{method:'POST',headers:{'Content-Type':'application/json',Origin:'https://other.test'},body:'{}'}))).status,403);const r=await handler(new Request(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:'운영시간'})}));assert.equal(r.status,200);assert.equal(r.headers.get('cache-control'),'no-store');});

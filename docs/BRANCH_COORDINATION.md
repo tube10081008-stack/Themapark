@@ -147,3 +147,6 @@ COORD-007 / Ben / ben/COORD-007-live-targets / 기준 ed5a2ce / 운영 대상 �
 
 ## BEN-014 고객 홈페이지 편입
 벤 / ben/BEN-014-customer-homepage / 기준 c826316 / 06_봉플레이_고객홈페이지 및 배포 문서 / 원본 보존 복사·정적 검증·Netlify ZIP 준비 / 진행 중
+
+## BEN-015 JEV 고객 상담
+벤 / ben/BEN-015-jev-consultation / 기준 892a061 / 06 고객홈페이지 상담 UI·서버·합성시험 / JEV 의도선택+확정 안내, 실제 API·배포 별도 / 초안 구현·합성 테스트 9개 통과, 브라우저·분산 호출 제한·실제 연결 검증 전 Draft PR, 병합 보류
