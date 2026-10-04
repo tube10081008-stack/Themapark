@@ -1,5 +1,6 @@
 // JEV selects an intent; only reviewed local answers reach the visitor.
 import { renderAnswers, contactChannel, CUSTOMER_SOURCE } from './knowledge.mjs';
+import { decideConsultation } from './decision-engine.mjs';
 export const criteria = {
   price: '이용권 가격과 할인', hours: '운영일 또는 운영시간',
   location: '주소와 찾아오는 길', facilities: '시설 소개',
@@ -20,7 +21,8 @@ export function validateChoice(answer) {
   if(!p || Object.keys(p).length!==keys.length || !keys.every(k=>Number.isFinite(p[k])&&p[k]>=0&&p[k]<=1)) return false;
   return Number.isFinite(answer.confidence)&&answer.confidence>=0.65&&answer.confidence<=1 && Math.abs(keys.reduce((s,k)=>s+p[k],0)-1)<0.02 && p[answer.choice]>=0.75 && p[answer.choice]===Math.max(...Object.values(p));
 }
-export async function consult(message,{env={},fetcher=fetch}={}) {
+export async function consult(message,{env={},fetcher=fetch,externalAllowed=false}={}) {
+  if (env.CONSULT_PROVIDER) return decideConsultation(message,{env,fetcher,externalAllowed});
   if(typeof message!=='string'||!message.trim()||message.length>1200) throw new Error('INVALID_MESSAGE');
   const text=message.normalize('NFKC').trim();
   // These rules precede any model request. Do not transmit obvious personal data.
