@@ -1,4 +1,5 @@
 // JEV selects an intent; only reviewed local answers reach the visitor.
+import { renderAnswers, contactChannel } from './knowledge.mjs';
 export const criteria = {
   price: '이용권 가격과 할인', hours: '운영일 또는 운영시간',
   location: '주소와 찾아오는 길', facilities: '시설 소개',
@@ -6,19 +7,13 @@ export const criteria = {
   human: '환불, 민원, 안전 판단, 개인정보, 개별 예약 처리 또는 담당자 필요',
   other: '범위 밖 질문이나 여러 의도가 섞여 분류가 어려움'
 };
+// 고정 답변의 사실값은 knowledge.mjs 의 출처·상태 계약에서만 온다 (CLAUDE-009).
+// 대표 결정·05 confirmed 근거가 없는 값은 답변에 넣지 않고 문의 안내로 바꾼다.
 const source = '홈페이지 안내 · BEN-014 / 2026-10-04';
-export const answers = Object.freeze({
-  price: {text:'기본 이용권은 15,000원, 종합 이용권은 21,000원, 보호자 입장권은 5,000원입니다. 할인 중복과 개별 적용 여부는 방문 전에 문의해 주세요.', anchor:'#pricing'},
-  hours: {text:'운영시간과 운영일은 확정 후 안내드립니다. 오늘 입장 가능 여부나 잔여석을 실시간으로 확인하는 기능은 아직 없습니다.'},
-  location: {text:'리틀포레스트 봉플레이의 주소는 경상북도 봉화군 봉화읍 유록길 22입니다. 주차 가능 대수와 버스 진입 조건은 전화로 확인해 주세요.'},
-  facilities: {text:'실내 놀이공간과 야외 짚코스터·네트챌린지를 소개하고 있습니다. 연령·키 제한, 날씨에 따른 이용 가능 여부는 현장 안내를 확인해 주세요.'},
-  booking: {text:'현재 홈페이지는 방문 계획을 정한 뒤 전화로 문의하는 방식입니다. 이 상담에서 예약 접수·결제·확정은 진행되지 않습니다.'},
-  group: {text:'20인 이상 단체 종합권은 1인 16,800원으로 안내하고 있습니다. 방문일·인원·인솔자 조건은 담당자와 확인해 주세요. 버스비 지원은 계획 단계이며 금액·조건은 미확정입니다.'},
-  human: {text:'담당자 확인이 필요한 문의입니다. 아래 전화 문의를 이용해 주세요. 현재 상담 내용이 직원에게 자동 전달되거나 접수되지는 않습니다.'},
-  other: {text:'요금, 운영시간, 위치, 시설, 예약, 단체 중 궁금한 항목 하나를 선택하거나 조금 더 구체적으로 질문해 주세요.'}
-});
+export const answers = renderAnswers();
+const contact = Object.freeze(contactChannel() ?? { label: '전화 문의', href: '#location' });
 const patterns = {price:/요금|가격|얼마|할인|입장료/,hours:/운영|몇\s*시|휴무|여는|닫는/,location:/주소|위치|어디|주차|오는\s*길/,facilities:/시설|놀거리|짚코스터|네트챌린지/,booking:/예약|예매|결제/,group:/단체|유치원|어린이집|인솔|버스/};
-function reply(intent, mode, reason) {return {intent, mode, reason, answer:answers[intent].text, source, contact:{label:'전화 문의',href:'tel:01059314144'}, notice:'AI 자동 안내입니다. 직원의 실시간 답변이나 예약 확정이 아닙니다.'};}
+function reply(intent, mode, reason) {return {intent, mode, reason, answer:answers[intent].text, source, contact:{...contact}, notice:'AI 자동 안내입니다. 직원의 실시간 답변이나 예약 확정이 아닙니다.'};}
 export function validateChoice(answer) {
   if(!answer || answer.type!=='choice' || !Object.hasOwn(criteria,answer.choice)) return false;
   const p=answer.probabilities, keys=Object.keys(criteria);
