@@ -1,0 +1,94 @@
+▶ Headless Browser HTTP & Layout Verification Suite
+  ✔ [Mobile (390x844)] pages/booking.html 고객 예약 및 요금 15,000원 고지 실측 (8317.812ms)
+  ✔ [Mobile (390x844)] pages/gate.html 출입 게이트 및 실시간 정원 집계 실측 (9385.5086ms)
+  ✔ [Mobile (390x844)] pages/operations.html 현장 POS 매표 콘솔 및 동기화 뱃지 실측 (3794.3671ms)
+  ✔ [Mobile (390x844)] pages/closing.html 일일 마감 정산 보드 및 시재 실측 (3243.5063ms)
+  ✔ [Desktop (1440x900)] pages/booking.html 고객 예약 및 요금 15,000원 고지 실측 (3126.8547ms)
+  ✔ [Desktop (1440x900)] pages/gate.html 출입 게이트 및 실시간 정원 집계 실측 (3296.1964ms)
+  ✔ [Desktop (1440x900)] pages/operations.html 현장 POS 매표 콘솔 및 동기화 뱃지 실측 (5160.7291ms)
+  ✔ [Desktop (1440x900)] pages/closing.html 일일 마감 정산 보드 및 시재 실측 (8207.5231ms)
+✔ Headless Browser HTTP & Layout Verification Suite (44581.665ms)
+[Gate] 저장 동기화 실패 (오프라인/로컬 보존): Error: Supabase storage write error (simulated network or DB issue)
+    at Object.upsert (C:\Users\bongp\OneDrive\문서\new\01_봉플레이_운영시스템\tests\operations_integrity.test.js:381:17)
+    at executeGateAction (eval at <anonymous> (C:\Users\bongp\OneDrive\문서\new\01_봉플레이_운영시스템\tests\operations_integrity.test.js:407:31), <anonymous>:72:30)
+    at TestContext.<anonymous> (C:\Users\bongp\OneDrive\문서\new\01_봉플레이_운영시스템\tests\operations_integrity.test.js:439:11)
+    at async Test.run (node:internal/test_runner/test:1332:7)
+    at async TestContext.<anonymous> (C:\Users\bongp\OneDrive\문서\new\01_봉플레이_운영시스템\tests\operations_integrity.test.js:340:3)
+    at async Test.run (node:internal/test_runner/test:1332:7)
+    at async Test.processPendingSubtests (node:internal/test_runner/test:911:7)
+Supabase patch error: 400 Could not find the 'status' column of 'safety_consents' in the schema cache
+[createOrder] Deprecated product blocked: PROD_GROUP_VOUCHER in order BEN-TEST-VOUCHER
+[createOrder] Deprecated product blocked: PROD_GROUP_VOUCHER in order BEN-TEST-MIXED
+[createOrder] Deprecated product blocked: PROD_GROUP_VOUCHER in order BEN-SYNTHETIC
+[createOrder] Deprecated product blocked: PROD_CHILD_BASIC_PROMO in order ORD-PROMO-14000
+▶ 1. [BEN-002] 면적 표현 구분 및 기준정보 정합성 검증
+  ✔ 1-1. bongplay-site.js 면적 SSOT 정의 검증 (1.7071ms)
+  ✔ 1-2. bongplay-id.js & bongplay-id-core.js 시설 마스터 호환성 검증 (4.2819ms)
+  ✔ 1-3. booking.html 예약 페이지 면적 오안내 방지 검증 (0.6221ms)
+✔ 1. [BEN-002] 면적 표현 구분 및 기준정보 정합성 검증 (7.8827ms)
+✔ 2. [P1 결함] 봉아카이브 업로드 카테고리 초기화 버그 수정 검증 (2.1598ms)
+✔ 3. [P1 결함] 예약 화면 게스트 모드 격리 및 관리자 비밀번호 잠금 우회 검증 (1.4592ms)
+▶ 4. [R1 P1] 일일 안전점검 인터록 최신성 및 시설 범위 전수 검증 (실제 함수 추출 실행)
+  ✔ 4-1. 오늘 최신 fail, 이전 pass 순서 역전 시 차단 검증 (R1 핵심 재현) (0.6344ms)
+  ✔ 4-2. 다중 점검 시 불합격 후 재점검 합격(pass) 시 해제 검증 (0.1977ms)
+  ✔ 4-3. 과거 점검만 있고 금일 점검 부재 시 차단 검증 (0.1865ms)
+  ✔ 4-4. 시설별 범위 검증 (일부 시설 부적합 시 전체 차단) (0.1895ms)
+  ✔ 4-5. 조회 오류 / 손상 데이터 예외 안전 차단 검증 (0.0972ms)
+✔ 4. [R1 P1] 일일 안전점검 인터록 최신성 및 시설 범위 전수 검증 (실제 함수 추출 실행) (3.5212ms)
+▶ 5. [R2 & R3 P1] 마감 정산 getCached 계약 및 날짜 전환 시재 누수 차단 검증
+  ✔ 5-1. [R2] BongplaySync.getCached API 및 closing_records 히스토리 계약 검증 (1.9089ms)
+  ✔ 5-2. [R3] A일(확정/지출45000) → 빈 B일(미저장/0원) → A일 복원 전수 행동 검증 (0.7691ms)
+✔ 5. [R2 & R3 P1] 마감 정산 getCached 계약 및 날짜 전환 시재 누수 차단 검증 (6.2235ms)
+▶ 6. [R4 P1] 취소 이용권 체류 인원 유지 및 게이트 퇴장 처리 검증
+  ✔ 6-1. gate.html 취소 상태 분기 및 원내 체류 집계 코드 검증 (0.2007ms)
+  ✔ 6-2. [행동 검증] gate.html 실제 executeGateAction 라이프사이클 및 에러 처리 검증 (3.2861ms)
+✔ 6. [R4 P1] 취소 이용권 체류 인원 유지 및 게이트 퇴장 처리 검증 (4.404ms)
+✔ 7. [추가 조건 1] 안전서약 취소 PATCH 서버 계약 및 오프라인 큐/전파 전수 검증 (7.0233ms)
+✔ 8. [추가 조건 4] 기준정보 요금(15,000원), 명칭, 운영시간 고지 전수 검증 (1.951ms)
+▶ 9. [PR #11 회귀] 폐지 상품 신규 주문 전면 차단 및 정상 주문 보존 무결성 검증
+  ✔ 9-1. 옛 폐지ID 단독 주문 (PROD_GROUP_VOUCHER) -> 쓰기 0건 및 success: false 검증 (3.8038ms)
+  ✔ 9-2. 정상 + 폐지 혼합 주문 -> 전체 거부 및 쓰기 0건 (부분 저장 원천 차단) 검증 (1.9283ms)
+  ✔ 9-3. 명시적 payments 포함 폐지 주문 (벤 BEN-SYNTHETIC 재현) -> 쓰기 0건 검증 (1.2406ms)
+  ✔ 9-4. 정상 단체 16,800원 주문 (PROD_GROUP_ALL) -> 정상 통과 및 저장 검증 (2.4569ms)
+  ✔ 9-5. 짚코스터 단품 7,000원 주문 (ride_coaster_single) -> 정상 통과 및 보존 검증 (1.3224ms)
+  ✔ 9-6. 허용된 기타 상품 (custom_item) 주문 정상 보존 검증 (2.4135ms)
+  ✔ 9-7. 구 프로모션 폐지 품목 (PROD_CHILD_BASIC_PROMO, 14,000원) 차단 및 쓰기 0건 검증 (1.7241ms)
+  ✔ 9-8. UI 호출부 (operations.html, consent-desk.html) createOrder 실패 가드 코드 검증 (2.3085ms)
+✔ 9. [PR #11 회귀] 폐지 상품 신규 주문 전면 차단 및 정상 주문 보존 무결성 검증 (18.0624ms)
+▶ 전수 화면 조사: 27개 HTML 파일 무결성 및 링크 점검
+  ✔ 검증 [포털] index.html (2.1137ms)
+  ✔ 검증 [고객 접점] pages/consent.html (1.1251ms)
+  ✔ 검증 [고객 접점] pages/survey.html (0.925ms)
+  ✔ 검증 [고객 접점] pages/booking.html (2.7684ms)
+  ✔ 검증 [매표/안내] pages/consent-desk.html (1.2801ms)
+  ✔ 검증 [매표/안내] pages/operations.html (4.8211ms)
+  ✔ 검증 [게이트] pages/gate.html (3.1875ms)
+  ✔ 검증 [안전관리] pages/safety-check.html (3.1149ms)
+  ✔ 검증 [마감정산] pages/closing.html (1.995ms)
+  ✔ 검증 [경영관리] pages/management.html (1.4395ms)
+  ✔ 검증 [경영관리] pages/master.html (1.6213ms)
+  ✔ 검증 [미디어] pages/archive.html (1.1045ms)
+  ✔ 검증 [안전관리] pages/emergency.html (3.1938ms)
+  ✔ 검증 [분석시뮬] pages/simulator.html (1.2551ms)
+  ✔ 검증 [분석시뮬] pages/metaverse.html (0.8916ms)
+  ✔ 검증 [행정서식] forms/index.html (0.533ms)
+  ✔ 검증 [행정서식] forms/booking-confirm.html (1.3839ms)
+  ✔ 검증 [행정서식] forms/quotation.html (0.6304ms)
+  ✔ 검증 [행정서식] forms/invoice.html (0.5457ms)
+  ✔ 검증 [행정서식] forms/incident-report.html (2.4052ms)
+  ✔ 검증 [행정서식] forms/safety-training.html (1.6294ms)
+  ✔ 검증 [행정서식] forms/facility-change.html (1.4263ms)
+  ✔ 검증 [행정서식] forms/operation-report.html (1.2179ms)
+  ✔ 검증 [행정서식] forms/employment-contract.html (1.348ms)
+  ✔ 검증 [행정서식] forms/employment-cert.html (1.7598ms)
+  ✔ 검증 [행정서식] forms/payslip.html (0.7915ms)
+  ✔ 검증 [행정서식] forms/inspection-cert.html (0.4496ms)
+✔ 전수 화면 조사: 27개 HTML 파일 무결성 및 링크 점검 (50.4404ms)
+ℹ tests 66
+ℹ suites 0
+ℹ pass 66
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 44747.7725

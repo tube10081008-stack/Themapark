@@ -1154,6 +1154,11 @@
         payments: payments
       });
 
+      if (!order || order.success === false) {
+        alert(order && order.message ? `❌ 발권/주문 실패: ${order.message}` : '❌ 주문 원장 생성에 실패했습니다 (폐지 품목 또는 결제 오류).');
+        return;
+      }
+
       // 2) 발권 원장 (ticket_ledger) — 입장권 계열 1매씩, 단가 포함
       const ticketIds = Array.isArray(rec.ticket_ids) ? rec.ticket_ids.slice() : [];
       let seq = ticketIds.length;
