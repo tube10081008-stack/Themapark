@@ -1,11 +1,12 @@
 /**
  * rate-limit.mjs
  * 
- * JEV 상담 호출 제한 및 분산 과금 방어 모듈 (ANT-004 / R1 보완)
+ * JEV 상담 호출 제한 및 분산 과금 방어 모듈 (ANT-004 / R2 보완)
  * - 다중 서버리스 인스턴스 환경에서 상태 불일치를 방지하기 위한 Upstash Redis REST 파이프라인(INCR + EXPIRE) 연동
  * - Fail-Closed 원칙: JEV_ENABLED === 'true'일 때 분산 저장소 미설정, 응답 이상, 통신 장애 시 외부 유료 JEV 호출 원천 차단 (외부 유료 API 호출 0건 유지)
  * - 외부 라이브러리(npm) 의존성 제로 (Web Standards fetch & MemoryRateLimitStore)
- * - 주의: Redis REST 파이프라인은 일괄 배치 실행(batched commands)이며 ACID 트랜잭션이 아니므로 각 명령 결과 및 오류를 개별 엄격 검증함
+ * - Redis REST 파이프라인은 일괄 배치 실행(batched commands)이며 ACID 트랜잭션이 아니므로 각 명령 결과 및 오류를 개별 엄격 검증함
+ * - IP 신뢰 경계: Netlify platform context.ip 및 x-nf-client-connection-ip만 신뢰하며, 위변조 가능한 임의 클라이언트 헤더는 untrusted_client 공통 키로 차단
  */
 
 /**
@@ -20,6 +21,16 @@ export function parsePositiveLimit(val, defaultVal) {
   if (Number.isNaN(num) || !Number.isFinite(num)) return defaultVal;
   if (num <= 0) return 0;
   return Math.floor(num);
+}
+
+/**
+ * Redis EXPIRE 명령 성공 여부 엄격 검사
+ * - Redis 표준: 키 타임아웃 설정 성공 시 1 반환 (키 미존재 또는 실패 시 0)
+ * - 일부 REST 프록시: 성공 시 'OK' 반환 가능
+ * - 0, 음수(-1), 2 이상의 수, 기타 문자열, null, undefined는 엄격히 실패로 판정
+ */
+export function isValidExpireResult(val) {
+  return val === 1 || val === 'OK';
 }
 
 export class MemoryRateLimitStore {
@@ -102,7 +113,7 @@ export class DistributedRedisRateLimitStore {
       throw new Error(`STORE_RESPONSE_PARSE_ERROR: ${parseErr.message}`);
     }
 
-    // [R1 P1 엄격 검사]: 응답 구조 및 모든 개별 명령 오류 전수 검사
+    // [R1/R2 엄격 검사]: 응답 구조 및 모든 개별 명령 오류 전수 검사
     if (!Array.isArray(results) || results.length < 4) {
       throw new Error(`STORE_INCOMPLETE_PIPELINE_RESULTS: length=${results ? results.length : 'non-array'}`);
     }
@@ -123,9 +134,9 @@ export class DistributedRedisRateLimitStore {
       throw new Error(`STORE_INVALID_IP_COUNT: ${JSON.stringify(ipCount)}`);
     }
 
-    // Step 1: IP EXPIRE (1 또는 'OK')
+    // Step 1: IP EXPIRE (엄격 검증: 1 또는 'OK'만 허용, 0/-1/2/null/문자열 등은 실패)
     const ipExpire = results[1].result;
-    if (ipExpire !== 1 && ipExpire !== 'OK' && typeof ipExpire !== 'number') {
+    if (!isValidExpireResult(ipExpire)) {
       throw new Error(`STORE_INVALID_IP_EXPIRE: ${JSON.stringify(ipExpire)}`);
     }
 
@@ -135,9 +146,9 @@ export class DistributedRedisRateLimitStore {
       throw new Error(`STORE_INVALID_DAILY_COUNT: ${JSON.stringify(dailyCount)}`);
     }
 
-    // Step 3: 일일 EXPIRE (1 또는 'OK')
+    // Step 3: 일일 EXPIRE (엄격 검증: 1 또는 'OK'만 허용, 0/-1/2/null/문자열 등은 실패)
     const dailyExpire = results[3].result;
-    if (dailyExpire !== 1 && dailyExpire !== 'OK' && typeof dailyExpire !== 'number') {
+    if (!isValidExpireResult(dailyExpire)) {
       throw new Error(`STORE_INVALID_DAILY_EXPIRE: ${JSON.stringify(dailyExpire)}`);
     }
 
@@ -149,25 +160,38 @@ export class DistributedRedisRateLimitStore {
 export const defaultMemoryStore = new MemoryRateLimitStore();
 
 /**
- * 신뢰할 수 있는 클라이언트 IP 추출
- * - Netlify Edge Proxy가 보증하는 헤더를 최우선 신뢰하여 IP 스푸핑 방어
- * 1. x-nf-client-connection-ip (Netlify 엣지 연결 직접 확인 IP)
- * 2. client-ip (인증된 프록시 주입 IP)
- * 3. x-forwarded-for 첫 번째 IP (앞단 프록시 체인)
- * 4. 폴백: 127.0.0.1
+ * 신뢰할 수 있는 클라이언트 식별자 추출 (플랫폼 보증 경계 준수)
+ * 
+ * [보안 설계 및 플랫폼 계약 근거]:
+ * - Netlify Functions 런타임은 edge routing 계층에서 검증된 클라이언트 IP를 `context.ip`로 주입함.
+ * - HTTP 헤더 중에서는 Netlify proxy가 주입하는 `x-nf-client-connection-ip`만 플랫폼이 보증함.
+ * - 외부 클라이언트가 임의로 전송할 수 있는 `client-ip`, `x-forwarded-for` 등은 스푸핑(위변조)이 가능하므로
+ *   플랫폼 보증(context.ip 또는 x-nf-client-connection-ip)이 없는 경우 개별 IP로 신뢰하지 않고
+ *   공통 제한 키('untrusted_client')로 분류하여 IP 회전 공격(IP rotation bypass)을 원천 차단함.
+ * - 로컬/단위 테스트용 IP 주입은 `options.testIp`로 엄격히 분리하여 운영 경로와 격리함.
  */
-export function extractClientIp(request) {
-  if (!request || !request.headers) return '127.0.0.1';
-  const nf = request.headers.get('x-nf-client-connection-ip');
-  if (nf && nf.trim()) return nf.trim();
-  const cip = request.headers.get('client-ip');
-  if (cip && cip.trim()) return cip.trim();
-  const xff = request.headers.get('x-forwarded-for');
-  if (xff && xff.trim()) {
-    const firstIp = xff.split(',')[0].trim();
-    if (firstIp) return firstIp;
+export function extractClientIp(request, context = {}, options = {}) {
+  // 1. 단위/로컬 테스트 전용 명시 주입 IP (운영 경로와 격리)
+  if (options && typeof options.testIp === 'string' && options.testIp.trim()) {
+    return options.testIp.trim();
   }
-  return '127.0.0.1';
+
+  // 2. Netlify 런타임 플랫폼 보증 IP (context.ip - 위변조 불가)
+  if (context && typeof context.ip === 'string' && context.ip.trim()) {
+    return context.ip.trim();
+  }
+  if (context && context.clientContext && typeof context.clientContext.ip === 'string' && context.clientContext.ip.trim()) {
+    return context.clientContext.ip.trim();
+  }
+
+  // 3. Netlify 엣지 프록시 보증 헤더
+  const nfIp = request?.headers?.get('x-nf-client-connection-ip');
+  if (nfIp && nfIp.trim()) {
+    return nfIp.trim();
+  }
+
+  // 4. 플랫폼 보증 없는 임의 헤더(client-ip, x-forwarded-for 등)는 신뢰하지 않고 공통 키로 귀속
+  return 'untrusted_client';
 }
 
 /**
@@ -188,7 +212,7 @@ export function extractClientIp(request) {
 export async function checkRateLimit(request, options = {}) {
   const env = options.env || process.env || {};
   const now = options.now || Date.now();
-  const clientIp = extractClientIp(request);
+  const clientIp = extractClientIp(request, options.context, options);
 
   // 환경설정 한도 (0이면 전면 차단, 유효하지 않으면 기본값)
   const limitPerMinute = parsePositiveLimit(env.RATE_LIMIT_PER_MINUTE, 10);

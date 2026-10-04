@@ -30,8 +30,10 @@ export default async function handler(request, context = {}) {
   const env = context.env || process.env || {};
   const rateLimitOptions = {
     env,
+    context,
     store: context.store,
     isShared: context.isShared,
+    testIp: context.testIp,
     fetcher: context.fetcher || fetch
   };
 

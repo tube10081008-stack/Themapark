@@ -11,6 +11,7 @@ import handler from '../netlify/functions/consult.mjs';
 import {
   checkRateLimit,
   parsePositiveLimit,
+  isValidExpireResult,
   extractClientIp,
   MemoryRateLimitStore,
   DistributedRedisRateLimitStore
@@ -23,7 +24,7 @@ const PROJECT_DIR = path.resolve(__dirname, '..');
 // ---------------------------------------------------------------------------
 // 1. 서버리스 레이트 리미트 및 분산 과금 방어 단위/통합 테스트 (상한 5분)
 // ---------------------------------------------------------------------------
-test('1. 분산 레이트 리미트 & Fail-Closed 과금 방어 (ANT-004 / R1 보완)', { timeout: 300000 }, async (t) => {
+test('1. 분산 레이트 리미트 & Fail-Closed 과금 방어 (ANT-004 / R2 보완)', { timeout: 300000 }, async (t) => {
   await t.test('1-1. IP별 분당 상한(RATE_LIMIT_PER_MINUTE) 초과 시 429 반환 및 Retry-After 헤더 검증', { timeout: 60000 }, async () => {
     const store = new MemoryRateLimitStore();
     const env = { RATE_LIMIT_PER_MINUTE: '3', JEV_ENABLED: 'false' };
@@ -32,20 +33,20 @@ test('1. 분산 레이트 리미트 & Fail-Closed 과금 방어 (ANT-004 / R1 �
     for (let i = 1; i <= 3; i++) {
       const req = new Request(reqUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'client-ip': '192.168.1.100' },
+        headers: { 'Content-Type': 'application/json', 'x-nf-client-connection-ip': '192.168.1.100' },
         body: JSON.stringify({ message: '요금' })
       });
-      const res = await handler(req, { env, store });
+      const res = await handler(req, { env, store, ip: '192.168.1.100' });
       assert.equal(res.status, 200, `${i}회차 요청은 정상 통과`);
     }
 
     // 4회차: 한도 초과
     const reqExceeded = new Request(reqUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'client-ip': '192.168.1.100' },
+      headers: { 'Content-Type': 'application/json', 'x-nf-client-connection-ip': '192.168.1.100' },
       body: JSON.stringify({ message: '요금' })
     });
-    const resExceeded = await handler(reqExceeded, { env, store });
+    const resExceeded = await handler(reqExceeded, { env, store, ip: '192.168.1.100' });
     assert.equal(resExceeded.status, 429, '한도 초과 시 HTTP 429 반환');
     assert.equal(resExceeded.headers.get('retry-after'), '60');
     assert.equal(resExceeded.headers.get('cache-control'), 'no-store');
@@ -57,10 +58,10 @@ test('1. 분산 레이트 리미트 & Fail-Closed 과금 방어 (ANT-004 / R1 �
     // 다른 IP는 여전히 허용됨을 검증
     const reqOtherIp = new Request(reqUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'client-ip': '192.168.1.200' },
+      headers: { 'Content-Type': 'application/json', 'x-nf-client-connection-ip': '192.168.1.200' },
       body: JSON.stringify({ message: '운영시간' })
     });
-    const resOtherIp = await handler(reqOtherIp, { env, store });
+    const resOtherIp = await handler(reqOtherIp, { env, store, ip: '192.168.1.200' });
     assert.equal(resOtherIp.status, 200, '다른 IP는 독립적으로 정상 처리');
   });
 
@@ -72,20 +73,20 @@ test('1. 분산 레이트 리미트 & Fail-Closed 과금 방어 (ANT-004 / R1 �
     for (let i = 1; i <= 5; i++) {
       const req = new Request(reqUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'client-ip': `10.0.0.${i}` },
+        headers: { 'Content-Type': 'application/json', 'x-nf-client-connection-ip': `10.0.0.${i}` },
         body: JSON.stringify({ message: '위치' })
       });
-      const res = await handler(req, { env, store });
+      const res = await handler(req, { env, store, ip: `10.0.0.${i}` });
       assert.equal(res.status, 200);
     }
 
     // 6회차: 일일 총 한도 초과
     const reqExceeded = new Request(reqUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'client-ip': '10.0.0.99' },
+      headers: { 'Content-Type': 'application/json', 'x-nf-client-connection-ip': '10.0.0.99' },
       body: JSON.stringify({ message: '위치' })
     });
-    const resExceeded = await handler(reqExceeded, { env, store });
+    const resExceeded = await handler(reqExceeded, { env, store, ip: '10.0.0.99' });
     assert.equal(resExceeded.status, 429);
     const body = await resExceeded.json();
     assert.equal(body.code, 'DAILY_QUOTA_EXCEEDED');
@@ -162,7 +163,7 @@ test('1. 분산 레이트 리미트 & Fail-Closed 과금 방어 (ANT-004 / R1 �
     const mockFetcher = async (url, init) => {
       assert.equal(url, 'https://mock-redis.upstash.io/pipeline');
       capturedPipeline = JSON.parse(init.body);
-      return new Response(JSON.stringify([{ result: 2 }, { result: 'OK' }, { result: 15 }, { result: 'OK' }]), {
+      return new Response(JSON.stringify([{ result: 2 }, { result: 1 }, { result: 15 }, { result: 'OK' }]), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
       });
@@ -184,49 +185,81 @@ test('1. 분산 레이트 리미트 & Fail-Closed 과금 방어 (ANT-004 / R1 �
     assert.equal(capturedPipeline[3][0], 'EXPIRE');
   });
 
-  await t.test('1-6. [P1 Fail-Closed] Redis 응답이 빈 배열([])이거나 개별 명령에 error가 포함된 경우 엄격 차단 검증', { timeout: 60000 }, async () => {
-    // 벤이 지적한 재현 시나리오: [] 또는 [{error:'ERR'},{},{error:'ERR'}]
-    const malformedResponses = [
-      [],
-      [{ error: 'ERR' }, { result: 'OK' }, { error: 'ERR' }, { result: 'OK' }],
-      [{ result: 'not-a-number' }, { result: 'OK' }, { result: 1 }, { result: 'OK' }],
-      [{ result: -1 }, { result: 'OK' }, { result: 1 }, { result: 'OK' }],
-      [{ result: 1 }, { error: 'WRONGTYPE' }, { result: 1 }, { result: 'OK' }]
-    ];
+  await t.test('1-6. [P1 Fail-Closed & R2 EXPIRE 엄격 검증] 만료 성공(1, OK) 외 0/음수/2/문자/오류 시 외부 호출 0건 차단 검증', { timeout: 60000 }, async () => {
+    // 1. isValidExpireResult 헬퍼 자체 단위 검증
+    assert.equal(isValidExpireResult(1), true, '1은 유효한 성공');
+    assert.equal(isValidExpireResult('OK'), true, 'OK는 유효한 성공');
+    assert.equal(isValidExpireResult(0), false, '0은 키 미존재 실패');
+    assert.equal(isValidExpireResult(-1), false, '음수는 실패');
+    assert.equal(isValidExpireResult(2), false, '2는 비정상 결과로 실패');
+    assert.equal(isValidExpireResult('FAIL'), false, '기타 문자열 실패');
+    assert.equal(isValidExpireResult(null), false, 'null 실패');
+    assert.equal(isValidExpireResult(undefined), false, 'undefined 실패');
 
-    for (const malformed of malformedResponses) {
-      const mockFetcher = async () => new Response(JSON.stringify(malformed), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' }
+    // 2. 벤 R2 재현 케이스: 양의 카운터와 비정상 EXPIRE 결과 (0, -1, 2, 문자, null 등)
+    // 위치 1 (IP EXPIRE)과 위치 3 (Daily EXPIRE) 모두 전수 검증
+    const invalidExpireValues = [0, -1, 2, 'FAIL', null, undefined];
+
+    for (const badVal of invalidExpireValues) {
+      // (a) IP EXPIRE (index 1) 오류
+      const ipExpirePayload = [{ result: 1 }, { result: badVal }, { result: 1 }, { result: 1 }];
+      const store1 = new DistributedRedisRateLimitStore('https://mock-redis.upstash.io', 'MOCK_TOKEN', async () => {
+        return new Response(JSON.stringify(ipExpirePayload), { status: 200, headers: { 'Content-Type': 'application/json' } });
       });
 
-      const store = new DistributedRedisRateLimitStore('https://mock-redis.upstash.io', 'MOCK_TOKEN', mockFetcher);
       await assert.rejects(
-        () => store.hit('1.2.3.4'),
-        /STORE_/,
-        '비정상 응답 수신 시 반드시 예외를 던져 fail-closed 유도해야 함'
+        () => store1.hit('1.2.3.4'),
+        /STORE_INVALID_IP_EXPIRE/,
+        `IP EXPIRE=${JSON.stringify(badVal)} 일 때 반드시 예외를 던져야 함`
       );
 
-      // checkRateLimit 수준에서도 외부 호출이 0건으로 차단되는지 검증
+      // (b) Daily EXPIRE (index 3) 오류
+      const dailyExpirePayload = [{ result: 1 }, { result: 1 }, { result: 1 }, { result: badVal }];
+      const store2 = new DistributedRedisRateLimitStore('https://mock-redis.upstash.io', 'MOCK_TOKEN', async () => {
+        return new Response(JSON.stringify(dailyExpirePayload), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      });
+
+      await assert.rejects(
+        () => store2.hit('1.2.3.4'),
+        /STORE_INVALID_DAILY_EXPIRE/,
+        `Daily EXPIRE=${JSON.stringify(badVal)} 일 때 반드시 예외를 던져야 함`
+      );
+
+      // (c) 핸들러 통과 시 외부 호출 0건 및 HTTP 429 차단 검증
       let externalApiCalled = false;
       const env = { JEV_ENABLED: 'true', TYPESAFE_API_KEY: 'TEST_KEY' };
       const req = new Request('https://example.test/.netlify/functions/consult', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: '요금 문의' })
+        body: JSON.stringify({ message: '요금 안내' })
       });
 
       const res = await handler(req, {
         env,
-        store,
+        store: store1,
         fetcher: async () => {
           externalApiCalled = true;
-          throw new Error('EXTERNAL_API_CALLED');
+          throw new Error('EXTERNAL_API_SHOULD_NOT_BE_CALLED');
         }
       });
 
-      assert.equal(externalApiCalled, false, '파이프라인 응답 불량 시 외부 유료 호출 0건 보장');
-      assert.equal(res.status, 429, '저장소 오류 시 429 차단');
+      assert.equal(externalApiCalled, false, `EXPIRE=${badVal} 시 외부 유료 호출 0건 유지`);
+      assert.equal(res.status, 429, '저장소 실패 시 429 차단');
+      const body = await res.json();
+      assert.equal(body.code, 'STORE_FAILURE');
+    }
+
+    // 3. 빈 배열([]) 및 명령 개별 에러([error]) 검증
+    const commandErrors = [
+      [],
+      [{ error: 'ERR' }, { result: 1 }, { result: 1 }, { result: 1 }],
+      [{ result: 1 }, { result: 1 }, { error: 'OOM' }, { result: 1 }]
+    ];
+    for (const errPayload of commandErrors) {
+      const storeErr = new DistributedRedisRateLimitStore('https://mock-redis.upstash.io', 'MOCK_TOKEN', async () => {
+        return new Response(JSON.stringify(errPayload), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      });
+      await assert.rejects(() => storeErr.hit('1.2.3.4'), /STORE_/);
     }
   });
 
@@ -260,44 +293,81 @@ test('1. 분산 레이트 리미트 & Fail-Closed 과금 방어 (ANT-004 / R1 �
     assert.equal(zeroRes.status, 429);
   });
 
-  await t.test('1-8. [IP 식별 신뢰성] x-nf-client-connection-ip > client-ip > x-forwarded-for 헤더 우선순위 검증', { timeout: 60000 }, async () => {
-    // 1. x-nf-client-connection-ip 우선
-    const req1 = new Request('https://example.test', {
+  await t.test('1-8. [R2 IP 신뢰 경계 검증] Netlify context.ip 최우선 및 위변조 임의 헤더 차단(untrusted_client) 검증', { timeout: 60000 }, async () => {
+    // A. Netlify context.ip 플랫폼 보증 IP가 있는 경우: 위변조된 임의 헤더 무시하고 context.ip 사용
+    const spoofedReq = new Request('https://example.test', {
       headers: {
-        'x-nf-client-connection-ip': '203.0.113.10',
-        'client-ip': '198.51.100.20',
-        'x-forwarded-for': '192.0.2.30'
+        'client-ip': '1.1.1.1',
+        'x-forwarded-for': '2.2.2.2, 3.3.3.3'
       }
     });
-    assert.equal(extractClientIp(req1), '203.0.113.10', 'Netlify Edge 검증 IP 최우선 신뢰');
+    const verifiedIp = extractClientIp(spoofedReq, { ip: '203.0.113.199' });
+    assert.equal(verifiedIp, '203.0.113.199', 'Netlify context.ip가 있으면 임의 클라이언트 헤더 무시');
 
-    // 2. client-ip 차순위
-    const req2 = new Request('https://example.test', {
+    // B. context.clientContext.ip 플랫폼 보증 검증
+    const clientContextIp = extractClientIp(spoofedReq, { clientContext: { ip: '198.51.100.77' } });
+    assert.equal(clientContextIp, '198.51.100.77', 'context.clientContext.ip 플랫폼 보증 사용');
+
+    // C. Netlify 엣지 프록시 헤더 (x-nf-client-connection-ip) 검증
+    const nfReq = new Request('https://example.test', {
       headers: {
-        'client-ip': '198.51.100.20',
-        'x-forwarded-for': '192.0.2.30, 10.0.0.1'
+        'x-nf-client-connection-ip': '198.51.100.5',
+        'x-forwarded-for': '2.2.2.2'
       }
     });
-    assert.equal(extractClientIp(req2), '198.51.100.20', 'client-ip 차순위 신뢰');
+    const nfIp = extractClientIp(nfReq);
+    assert.equal(nfIp, '198.51.100.5', 'Netlify edge 프록시 헤더 신뢰');
 
-    // 3. x-forwarded-for 체인의 첫 번째 IP 추출
-    const req3 = new Request('https://example.test', {
+    // D. 플랫폼 보증 없는 임의 클라이언트 헤더만 있는 경우 -> untrusted_client 로 귀속
+    const untrustedReq = new Request('https://example.test', {
       headers: {
-        'x-forwarded-for': ' 192.0.2.30 , 10.0.0.1 '
+        'client-ip': '10.0.0.1',
+        'x-forwarded-for': '10.0.0.2'
       }
     });
-    assert.equal(extractClientIp(req3), '192.0.2.30', 'XFF 체인에서 첫 번째 클라이언트 IP 추출');
+    assert.equal(extractClientIp(untrustedReq), 'untrusted_client', '플랫폼 보증 없는 헤더는 untrusted_client로 귀속');
 
-    // 4. 헤더 부재 시 폴백
-    const req4 = new Request('https://example.test');
-    assert.equal(extractClientIp(req4), '127.0.0.1', '헤더 부재 시 로컬호스트 폴백');
+    // E. IP 회전 스푸핑 공격 방어 실측 (헤더를 조작하여 회전해도 untrusted_client로 공통 제한)
+    const store = new MemoryRateLimitStore();
+    const env = { RATE_LIMIT_PER_MINUTE: '3', JEV_ENABLED: 'false' };
+    const reqUrl = 'https://example.test/.netlify/functions/consult';
+
+    for (let i = 1; i <= 3; i++) {
+      const rotReq = new Request(reqUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-forwarded-for': `192.0.2.${i}` // 공격자가 매번 다른 IP를 스푸핑
+        },
+        body: JSON.stringify({ message: '테스트' })
+      });
+      // 플랫폼 context 없음
+      const res = await handler(rotReq, { env, store });
+      assert.equal(res.status, 200, `${i}회차 요청 통과`);
+    }
+
+    // 4회차: 공격자가 또 다른 IP(192.0.2.99)로 스푸핑해도 untrusted_client 한도 초과로 차단
+    const rotExceeded = new Request(reqUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-forwarded-for': '192.0.2.99'
+      },
+      body: JSON.stringify({ message: '테스트' })
+    });
+    const resExceeded = await handler(rotExceeded, { env, store });
+    assert.equal(resExceeded.status, 429, '임의 XFF 헤더 조작을 통한 분당 제한 우회 차단 성공');
+
+    // F. 로컬 테스트 명시 주입 IP (options.testIp) 격리 검증
+    const testInjected = extractClientIp(untrustedReq, {}, { testIp: '127.0.0.99' });
+    assert.equal(testInjected, '127.0.0.99', 'options.testIp 주입 시 테스트 IP 정상 반환');
   });
 });
 
 // ---------------------------------------------------------------------------
 // 2. 실제 헤드리스 브라우저 실측 (데스크톱 1440x900 & 모바일 390x844) (상한 5분)
 // ---------------------------------------------------------------------------
-test('2. 실제 브라우저 실측 (데스크톱 1440x900 & 모바일 390x844 실동작) (ANT-004 / R1 보완)', { timeout: 300000 }, async (t) => {
+test('2. 실제 브라우저 실측 (데스크톱 1440x900 & 모바일 390x844 실동작) (ANT-004 / R2 보완)', { timeout: 300000 }, async (t) => {
   const edgePath = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
   const chromePath = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
   const browserExe = fs.existsSync(chromePath) ? chromePath : (fs.existsSync(edgePath) ? edgePath : null);
@@ -375,7 +445,8 @@ test('2. 실제 브라우저 실측 (데스크톱 1440x900 & 모바일 390x844 �
 
         const webRes = await handler(webReq, {
           env: { JEV_ENABLED: 'false' },
-          store: new MemoryRateLimitStore()
+          store: new MemoryRateLimitStore(),
+          ip: '127.0.0.1'
         });
 
         res.writeHead(webRes.status, Object.fromEntries(webRes.headers.entries()));
@@ -586,7 +657,7 @@ test('2. 실제 브라우저 실측 (데스크톱 1440x900 & 모바일 390x844 �
 
       assert.match(logText, /나: 요금/, '사용자 질문 로그 렌더링 확인');
       assert.match(logText, /15,000원/, '기본 이용권 15,000원 고시가 안내 렌더링 확인');
-      assert.match(logText, /홈페이지 안내/, '출처 안내 표기 확인');
+      assert.match(logText, /봉플레이 공개 안내 기준|홈페이지 안내/, '출처 안내 표기 확인');
     });
 
     await t.test('2-3. [Desktop 1440x900] 연속 제출 방지 (Double Submit Guard) 실측', { timeout: 60000 }, async () => {
