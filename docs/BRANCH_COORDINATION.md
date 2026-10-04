@@ -144,3 +144,6 @@ COORD-007 / Ben / ben/COORD-007-live-targets / 기준 ed5a2ce / 운영 대상 �
 실행 기준: [BEN-013](tasks/BEN-013_직원접근설계와_배포보강.md). CLAUDE-008(01/04 패키징 전담), ANT-003a(인증 설계), GEO-005(합성 시험표) 병행. 운영 공유/배포 보류 및 기존 PR 검토는 유지.
 - GEO-005 / 지오 / aside/GEO-005-access-test-matrix (기준 `edb6f62`) / `docs/qa/GEO-005_직원접근_시험표.md`, 본 행, 승인된 비공개 시험 자산 / 합성 이미지 3개·분류/검색/미리보기·역할별 예상결과 시험표, 실제 결과 빈칸 / PR #27 제출, 벤 검토 반영: 비공개 허용루트(A/B/C)·형제 범위밖 폴더·대조 파일 준비, 실행은 ANT-003a 수정본·시험 계정·시험 GAS 대기
 - CLAUDE-008 | 클로이 | claude/CLAUDE-008-zip-provenance | 01/04 build_deploy_zip.ps1, tests/packaging/, docs/qa/CLAUDE-008_ZIP검증.md | 허용 목록·출처 표식·ZIP 밖 검증 보고서, 벤 검토 반영(보고서 정확 경로 .gitignore, 5.1 git 호출 보강, 셸별·정션 시험), 아난티 Windows 보고의 계정명 오탐 수정(고정 schema·값 유형 검사 유지, 양성·음성 회귀) Linux 34개 통과 | 아난티 Windows 5.1/7 재실행 대기
+
+## BEN-014 고객 홈페이지 편입
+벤 / ben/BEN-014-customer-homepage / 기준 c826316 / 06_봉플레이_고객홈페이지 및 배포 문서 / 원본 보존 복사·정적 검증·Netlify ZIP 준비 / 진행 중

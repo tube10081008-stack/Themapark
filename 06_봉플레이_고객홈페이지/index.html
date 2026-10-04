@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#194b3b">
+  <meta name="description" content="경북 봉화 리틀포레스트 봉플레이. 실내 놀이공간부터 야외 짚코스터와 네트챌린지까지, 우리 가족의 숲속 모험을 만나보세요.">
+  <title>봉플레이 — 작은 발걸음, 커다란 모험</title>
+  <link rel="icon" href="assets/images/bongplay-logo.webp" type="image/webp">
+  <link rel="preload" href="assets/fonts/BongplaySans.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="styles.css">
+  <script src="config.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">본문으로 바로가기</a>
+  <svg class="icon-defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+      <symbol id="i-up-right" viewBox="0 0 24 24"><path d="M6 18 18 6M6 6h12v12"/></symbol>
+      <symbol id="i-tree" viewBox="0 0 24 24"><path d="m12 2-7 9h4l-5 7h6v4h4v-4h6l-5-7h4z"/></symbol>
+      <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M7 3v4m10-4v4M3 11h18m-13 4h1m6 0h1"/></symbol>
+      <symbol id="i-ticket" viewBox="0 0 24 24"><path d="M4 5h16v5a2 2 0 0 0 0 4v5H4v-5a2 2 0 0 0 0-4zM15 5v3m0 3v2m0 3v3"/></symbol>
+      <symbol id="i-map" viewBox="0 0 24 24"><path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2zM9 3v16m6-14v16"/></symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24"><path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0Z"/><circle cx="12" cy="10" r="2.5"/></symbol>
+      <symbol id="i-phone" viewBox="0 0 24 24"><path d="m5 3 4 1 1 5-3 2a15 15 0 0 0 6 6l2-3 5 1 1 4c-1 3-5 3-9 1S4 12 3 8 2 4 5 3Z"/></symbol>
+      <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="7" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3m2-17a3 3 0 0 1 0 6m1 4a5 5 0 0 1 3 4v3"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="announcement"><span>경북 봉화에서 만나는 우리 가족의 작은 숲</span><svg class="icon" aria-hidden="true"><use href="#i-tree"/></svg></div>
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="#" class="brand" aria-label="봉플레이 홈"><img class="brand-logo" src="assets/images/bongplay-logo.webp" alt="BONG PLAY 레인보우 로고" width="88" height="88"><span>봉플레이<small>LITTLE FOREST · BONGPLAY</small></span></a>
+      <nav class="desktop-nav" aria-label="주 메뉴"><a href="#experiences">놀거리</a><a href="#visit">이용안내</a><a href="#groups">단체방문</a><a href="#location">오시는 길</a></nav>
+      <button class="button button-green header-booking" data-booking="family">방문 예약 <svg class="icon" aria-hidden="true"><use href="#i-up-right"/></svg></button>
+      <button class="menu-button" id="menu-toggle" aria-label="메뉴 열기" aria-expanded="false" aria-controls="mobile-menu"><span></span><span></span></button>
+    </div>
+    <nav class="mobile-menu" id="mobile-menu" aria-label="모바일 메뉴" hidden><a href="#experiences">놀거리 <span>01</span></a><a href="#visit">이용안내 <span>02</span></a><a href="#groups">단체방문 <span>03</span></a><a href="#location">오시는 길 <span>04</span></a></nav>
+  </header>
+
+  <main id="main">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-inner">
+        <div class="hero-copy">
+          <div class="eyebrow"><span class="tiny-flower">✳</span> A LITTLE FOREST, A BIG ADVENTURE</div>
+          <h1 id="hero-title">작은 발걸음,<br><span>커다란 모험.</span></h1>
+          <p class="hero-description">뛰고, 오르고, 마음껏 웃는 하루.<br>우리 아이의 다음 모험은 <strong>봉플레이</strong>에서 시작돼요.</p>
+          <div class="hero-actions"><button class="button button-orange" data-booking="family">우리 가족 방문 예약 <svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></button><a class="text-link" href="#experiences">먼저 둘러볼까요? <span>↓</span></a></div>
+          <div class="hero-location"><svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg> 경상북도 봉화 <span class="dot"></span> 실내 놀이 + 야외 모험</div>
+        </div>
+        <div class="hero-art">
+          <svg class="hero-sun" viewBox="0 0 120 120" aria-hidden="true"><g stroke="#e89637" stroke-width="3" stroke-linecap="round"><path d="M60 6v13m0 82v13M6 60h13m82 0h13M22 22l9 9m58 58 9 9M22 98l9-9m58-58 9-9"/></g><circle cx="60" cy="60" r="29" fill="#f3bc49"/><path d="M47 65q13 14 26 0" fill="none" stroke="#194b3b" stroke-width="3" stroke-linecap="round"/><circle cx="49" cy="53" r="2" fill="#194b3b"/><circle cx="71" cy="53" r="2" fill="#194b3b"/></svg>
+          <div class="photo-halo"></div>
+          <figure class="hero-photo"><img src="assets/images/indoor-wide.webp" alt="봉플레이의 넓은 실내 놀이공간. 중앙 놀이 구조물과 양쪽 네트 놀이시설" width="1448" height="1086" fetchpriority="high"><figcaption>우리 아이의 상상력이 자라는 넓은 놀이터</figcaption></figure>
+          <div class="adventure-sticker"><span>LET'S</span><strong>PLAY!</strong><svg class="icon" aria-hidden="true"><use href="#i-up-right"/></svg></div>
+          <div class="photo-note"><span class="note-star">✳</span> 실내에서도, 숲에서도!</div>
+          <svg class="hero-doodle" viewBox="0 0 190 80" aria-hidden="true"><path d="M8 20c32 54 53-27 83 5s57 18 83-6m-4-9 10 8-4 13" fill="none" stroke="#194b3b" stroke-width="3" stroke-linecap="round"/></svg>
+        </div>
+      </div>
+      <div class="hero-bottom"><span>일상은 잠깐, 모험은 가득.</span><span>SCROLL TO EXPLORE <span class="scroll-arrow">↓</span></span></div>
+    </section>
+
+    <div class="quick-links container" aria-label="빠른 안내">
+      <a href="#experiences"><span class="quick-icon green"><svg class="icon" aria-hidden="true"><use href="#i-tree"/></svg></span><span><strong>어떤 놀이가 있나요?</strong><small>우리 아이의 모험 찾기</small></span><svg class="icon link-chevron" aria-hidden="true"><use href="#i-chevron"/></svg></a>
+      <a href="#visit"><span class="quick-icon orange"><svg class="icon" aria-hidden="true"><use href="#i-ticket"/></svg></span><span><strong>방문 전 꼭 확인해요</strong><small>요금과 이용 안내</small></span><svg class="icon link-chevron" aria-hidden="true"><use href="#i-chevron"/></svg></a>
+      <a href="#location"><span class="quick-icon yellow"><svg class="icon" aria-hidden="true"><use href="#i-map"/></svg></span><span><strong>봉플레이로 가는 길</strong><small>주소와 지도 보기</small></span><svg class="icon link-chevron" aria-hidden="true"><use href="#i-chevron"/></svg></a>
+    </div>
+
+    <section class="experiences section container" id="experiences" aria-labelledby="experiences-title">
+      <div class="section-heading"><div><p class="eyebrow">FIND YOUR ADVENTURE</p><h2 id="experiences-title">오늘은 어떤 모험을 할까요?</h2></div><p>아이의 호기심만큼,<br>놀이의 세계도 넓어져요.</p></div>
+      <div class="experience-grid">
+        <button class="experience-card" data-experience="indoor" aria-haspopup="dialog"><div class="experience-image"><img src="assets/images/indoor-wide.webp" alt="넓게 펼쳐진 실내 놀이공간" width="1448" height="1086" loading="lazy"><span class="category-tag">INDOOR PLAY</span><span class="card-open"><svg class="icon" aria-hidden="true"><use href="#i-up-right"/></svg></span></div><div class="experience-info"><span class="experience-number">01</span><div><h3>실내 놀이공간</h3><p>날씨 걱정은 잠깐 내려놓고, 신나게!</p></div></div></button>
+        <button class="experience-card" data-experience="zip" aria-haspopup="dialog"><div class="experience-image"><img src="assets/images/zip-adventure.webp" alt="기존 짚코스터 시설을 바탕으로 AI로 보정한 홍보 이미지" width="1448" height="1086" loading="lazy"><span class="category-tag">FOREST ADVENTURE</span><span class="ai-image-badge">AI 홍보 이미지</span><span class="card-open"><svg class="icon" aria-hidden="true"><use href="#i-up-right"/></svg></span></div><div class="experience-info"><span class="experience-number">02</span><div><h3>짚코스터</h3><p>숲속을 가로지르는 짜릿한 모험.</p></div></div></button>
+        <button class="experience-card" data-experience="net" aria-haspopup="dialog"><div class="experience-image"><img src="assets/images/net-adventure.webp" alt="기존 네트챌린지 시설을 바탕으로 AI로 보정한 홍보 이미지" width="1448" height="1086" loading="lazy"><span class="category-tag">CLIMB & EXPLORE</span><span class="ai-image-badge">AI 홍보 이미지</span><span class="card-open"><svg class="icon" aria-hidden="true"><use href="#i-up-right"/></svg></span></div><div class="experience-info"><span class="experience-number">03</span><div><h3>네트챌린지</h3><p>한 걸음씩 오르며 커지는 자신감.</p></div></div></button>
+      </div>
+      <p class="image-caption">야외 이미지는 실제 시설 사진을 바탕으로 AI로 보정한 홍보 이미지입니다. 실제 모습과 이용 가능한 체험은 방문 전 확인해 주세요.</p>
+    </section>
+
+    <section class="visit-section" id="visit" aria-labelledby="visit-title"><div class="container section">
+      <div class="section-heading"><div><p class="eyebrow">A LITTLE PLANNING, A LOT OF FUN</p><h2 id="visit-title">즐거운 하루의 준비는 가볍게.</h2></div><p>방문 전에 알아두면<br>더 편안한 하루가 돼요.</p></div>
+      <div class="visit-grid"><div class="ticket-panel"><div class="ticket-header"><svg class="icon" aria-hidden="true"><use href="#i-ticket"/></svg><h3>이용 요금 안내</h3><span>KRW</span></div>
+        <div class="price-row price-primary"><div><span class="ticket-label">실내 놀이부터</span><strong>기본 이용권</strong><span>실내 + 네트챌린지 · 2시간</span></div><strong class="price">15,000<small>원</small></strong></div>
+        <div class="price-row price-primary price-complete"><div><span class="ticket-label">모험을 한 번에</span><strong>종합 이용권</strong><span>기본권 + 짚코스터 1회</span></div><strong class="price">21,000<small>원</small></strong></div>
+        <div class="price-row"><div><strong>보호자 입장권</strong><span>보호자 1인 기준</span></div><strong class="price">5,000<small>원</small></strong></div>
+        <div class="price-row"><div><strong>단체 종합이용권</strong><span>20인 이상 · 짚코스터 1회 포함</span></div><strong class="price">16,800<small>원</small></strong></div>
+        <div class="resident-notice"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><div>봉화군민 <strong>20% 우대 할인</strong><small>현장에서 신분증을 확인해 주세요.</small></div></div>
+        <p class="price-note">기본·종합·단체권은 어린이 1인 기준입니다. 단체권과 할인 적용 조건, 실제 운영일은 예약 안내 또는 방문 전 문의로 확인해 주세요.</p>
+        <button class="button button-green" data-booking="family">예약 안내 확인하기 <svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></button>
+      </div><div class="preparation-panel"><h3>방문 전, 이것만 챙겨요.</h3><div class="prep-item"><span>01</span><div><h4>운영일 먼저 확인</h4><p>운영시간은 확정 후 안내됩니다.<br>출발 전 예약 안내 또는 문의로 확인해 주세요.</p></div><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg></div><div class="prep-item"><span>02</span><div><h4>움직이기 편한 옷차림</h4><p>활동하기 편한 바지와 운동화를 권장해요.<br>체험별 준비물은 방문 전 확인해 주세요.</p></div><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></div><div class="prep-item"><span>03</span><div><h4>날씨와 체험 조건 확인</h4><p>야외 체험은 기상과 현장 상황에 따라 달라져요.<br>탑승 가능 여부는 현장 안내를 따라 주세요.</p></div><svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg></div></div></div>
+    </div></section>
+
+    <section class="section container" id="groups"><div class="group-banner"><div class="group-doodle" aria-hidden="true"><span>✳</span><svg class="icon"><use href="#i-users"/></svg><span>✳</span></div><div class="group-copy"><p class="eyebrow">BETTER TOGETHER</p><h2>함께라서 더 큰 모험.</h2><p>어린이집, 유치원, 학교 그리고 우리 반 친구들.<br>단체 방문 일정과 체험 구성을 함께 상담해요.</p></div><button class="button button-cream" data-booking="group">단체 방문 문의 <svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></button></div></section>
+
+    <section class="location-section container" id="location" aria-labelledby="location-title"><div class="location-copy"><p class="eyebrow">SEE YOU IN BONGHWA</p><h2 id="location-title">우리, 봉화에서 만나요.</h2><p class="address"><svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg>경상북도 봉화군 봉화읍 유록길 22</p><p class="location-description">지도에서 목적지를 확인하고,<br>가족과 함께 즐거운 모험을 찾아오세요.</p><div class="map-actions"><a class="button button-outline" href="https://map.naver.com/v5/search/%EA%B2%BD%EC%83%81%EB%B6%81%EB%8F%84%20%EB%B4%89%ED%99%94%EA%B5%B0%20%EB%B4%89%ED%99%94%EC%9D%8D%20%EC%9C%A0%EB%A1%9D%EA%B8%B8%2022" target="_blank" rel="noopener noreferrer">네이버 지도 <svg class="icon" aria-hidden="true"><use href="#i-up-right"/></svg></a><a class="button button-outline" href="https://map.kakao.com/link/search/%EA%B2%BD%EC%83%81%EB%B6%81%EB%8F%84%20%EB%B4%89%ED%99%94%EA%B5%B0%20%EB%B4%89%ED%99%94%EC%9D%8D%20%EC%9C%A0%EB%A1%9D%EA%B8%B8%2022" target="_blank" rel="noopener noreferrer">카카오맵 <svg class="icon" aria-hidden="true"><use href="#i-up-right"/></svg></a></div><button class="copy-address" id="copy-address">주소 복사하기 <span>＋</span></button></div><div class="location-art"><span class="map-label">BONGHWA, GYEONGBUK</span><svg viewBox="0 0 500 340" role="img" aria-label="봉화를 상징하는 숲 일러스트. 실제 길찾기는 지도 버튼을 이용해 주세요."><rect width="500" height="340" rx="24" fill="#e8eddb"/><path d="M-20 290Q100 70 220 220T550 140" fill="none" stroke="#fbfaf5" stroke-width="44"/><path d="M-20 290Q100 70 220 220T550 140" fill="none" stroke="#d6d6bf" stroke-width="2" stroke-dasharray="8 8"/><path d="m35 70 45-45 45 45H97l37 45H93v45H67v-45H24l35-45z" fill="#63826d"/><path d="m335 65 32-37 32 37h-20l29 34h-32v34h-18V99h-32l29-34z" fill="#9dad76"/><path d="m400 210 32-37 32 37h-20l29 34h-32v34h-18v-34h-32l29-34z" fill="#63826d"/><circle cx="440" cy="58" r="24" fill="#efcf69"/><circle cx="250" cy="190" r="55" fill="#194b3b"/><path d="m250 155-18 24h10l-14 18h15v21h14v-21h15l-14-18h10z" fill="#f6dd88"/><text x="250" y="273" text-anchor="middle" font-family="sans-serif" font-weight="bold" font-size="20" fill="#194b3b">여기서 모험이 시작돼요!</text></svg><span class="illustration-note">숲 일러스트 · 지도 버튼으로 정확한 경로를 확인해 주세요.</span></div></section>
+
+    <section class="faq-section section container" id="faq"><div class="section-heading"><div><p class="eyebrow">GOOD TO KNOW</p><h2>궁금한 점이 있나요?</h2></div><a class="text-link" data-phone href="tel:01059314144">직접 문의하기 <svg class="icon" aria-hidden="true"><use href="#i-phone"/></svg></a></div><div class="faq-list"><details><summary>비가 와도 이용할 수 있나요?<span>＋</span></summary><p>실내 놀이공간과 야외 체험의 운영 여부는 현장 상황에 따라 달라질 수 있습니다. 특히 야외 짚코스터와 네트챌린지는 날씨와 안전 상태를 확인하므로, 출발 전에 문의해 주세요.</p></details><details><summary>어린이가 모든 체험을 이용할 수 있나요?<span>＋</span></summary><p>체험별로 이용 조건이 다릅니다. 아이의 연령과 신체 조건에 맞는 체험인지 방문 전 문의하고, 현장 안전요원의 안내에 따라 이용해 주세요.</p></details><details><summary>단체 방문은 어떻게 예약하나요?<span>＋</span></summary><p>단체 방문 문의에서 희망 방문일과 인원을 먼저 정해 주세요. 예약 연결 또는 전화 상담으로 일정과 체험 구성을 확인할 수 있습니다. 문의만으로 예약이 확정되지는 않습니다.</p></details><details><summary>기본 이용권과 종합 이용권은 어떻게 다른가요?<span>＋</span></summary><p>기본 이용권은 15,000원으로 실내 놀이공간과 네트챌린지를 2시간 이용하는 구성입니다. 종합 이용권은 21,000원으로 기본 이용권에 짚코스터 1회가 포함됩니다. 체험 이용 조건과 실제 운영일은 방문 전에 확인해 주세요.</p></details><details><summary>운영시간은 어디서 확인하나요?<span>＋</span></summary><p>운영시간은 확정 후 안내됩니다. 운영일과 최신 판매 조건은 예약 안내 또는 전화 문의로 확인해 주세요.</p></details></div></section>
+
+    <section class="final-cta"><div class="container"><div><span class="tiny-flower">✳</span><h2>이번엔, 마음껏 놀자.</h2><p>우리 가족의 다음 이야기가 시작되는 곳.</p></div><button class="button button-green" data-booking="family">봉플레이 방문 준비하기 <svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></button></div></section>
+  </main>
+
+  <footer class="site-footer container"><div class="footer-top"><a href="#" class="brand"><img class="brand-logo" src="assets/images/bongplay-logo.webp" alt="BONG PLAY 레인보우 로고" width="88" height="88"><span>봉플레이<small>LITTLE FOREST · BONGPLAY</small></span></a><span>작은 숲에서 만나는, 커다란 하루.</span></div><div class="footer-bottom"><p>리틀포레스트 봉플레이 · 운영 리플레이스(RE:PLAYCE)<br>경상북도 봉화군 봉화읍 유록길 22</p><a data-phone href="tel:01059314144">방문 문의 <strong>010-5931-4144</strong></a><span>© <span id="copyright-year">2026</span> BONGPLAY</span></div></footer>
+
+  <div class="mobile-booking-bar"><a data-phone href="tel:01059314144" aria-label="봉플레이에 전화 문의"><svg class="icon" aria-hidden="true"><use href="#i-phone"/></svg><span>전화 문의</span></a><button class="button button-orange" data-booking="family">방문 예약하기 <svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></button></div>
+  <div class="toast" role="status" id="toast" hidden></div>
+
+  <dialog class="booking-dialog" id="booking-dialog" aria-labelledby="booking-title"><div class="dialog-handle" aria-hidden="true"></div><div class="dialog-header"><div><p class="eyebrow">PLAN YOUR LITTLE ADVENTURE</p><h2 id="booking-title">우리의 모험을 준비해요.</h2></div><button class="icon-button" data-close="booking-dialog" aria-label="예약 안내 닫기"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+    <form id="booking-form"><div class="booking-kind" role="group" aria-label="방문 유형"><button type="button" data-kind="family" aria-pressed="true">가족 방문</button><button type="button" data-kind="group" aria-pressed="false">단체 방문</button></div>
+      <div class="calendar-heading"><h3 id="calendar-title"></h3><div><button class="icon-button calendar-prev" type="button" id="previous-month" aria-label="이전 달"><svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></button><button class="icon-button" type="button" id="next-month" aria-label="다음 달"><svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></button></div></div>
+      <div class="calendar-weekdays" aria-hidden="true"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div><div class="calendar-days" id="calendar-days" role="group" aria-label="희망 방문일 선택"></div><p class="calendar-note">희망 방문일을 골라 주세요. 실제 운영일과 잔여석은 예약처에서 확인해요.</p>
+      <div class="guest-counters"><div><span>어린이<small>체험할 어린이 인원</small></span><div class="stepper"><button type="button" data-counter="children" data-delta="-1" aria-label="어린이 한 명 줄이기">−</button><output id="children-count" aria-live="polite">1</output><button type="button" data-counter="children" data-delta="1" aria-label="어린이 한 명 늘리기">＋</button></div></div><div><span>보호자<small>함께 방문할 보호자 인원</small></span><div class="stepper"><button type="button" data-counter="adults" data-delta="-1" aria-label="보호자 한 명 줄이기">−</button><output id="adults-count" aria-live="polite">1</output><button type="button" data-counter="adults" data-delta="1" aria-label="보호자 한 명 늘리기">＋</button></div></div></div>
+      <div class="booking-summary" aria-live="polite"><span id="selected-date-label">방문일을 선택해 주세요</span><strong id="selected-guests-label">어린이 1명 · 보호자 1명</strong></div><p class="form-error" id="booking-error" role="alert" hidden></p>
+      <button class="button button-orange booking-submit" type="submit" id="booking-submit">예약 안내로 계속하기 <svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></button><p class="booking-footnote" id="booking-footnote">방문일과 인원을 정한 후 예약 안내를 확인해 주세요.</p>
+      <div class="inquiry-fallback" id="inquiry-fallback" hidden><h3>온라인 예약 연결을 준비하고 있어요.</h3><p>선택하신 방문 계획은 아래와 같아요.<br>전화로 운영일과 예약 가능 여부를 확인해 주세요.</p><p class="inquiry-plan" id="inquiry-plan"></p><a class="button button-green" data-phone href="tel:01059314144"><svg class="icon" aria-hidden="true"><use href="#i-phone"/></svg> 전화로 방문 문의</a><button class="copy-plan" type="button" id="copy-plan">방문 계획 복사하기</button><small>아직 예약이 접수되거나 확정된 상태가 아닙니다.</small></div>
+    </form>
+  </dialog>
+
+  <dialog class="experience-dialog" id="experience-dialog" aria-labelledby="experience-title"><button class="icon-button experience-close" data-close="experience-dialog" aria-label="체험 안내 닫기"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button><img id="experience-detail-image" src="assets/images/indoor-wide.webp" alt="" width="618" height="464"><div class="experience-detail-copy"><p class="eyebrow" id="experience-category"></p><h2 id="experience-title"></h2><p id="experience-description"></p><div class="experience-reminder"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span id="experience-reminder-text"></span></div><button class="button button-green" id="experience-book">방문 준비하기 <svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></button></div></dialog>
+</body>
+</html>
