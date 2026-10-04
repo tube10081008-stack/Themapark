@@ -2,21 +2,24 @@
 
 이 문서는 2026-10-05 기준 고객 홈페이지 정적 에셋 및 JEV AI 상담 서버리스 함수(`netlify/functions/consult.mjs`)의 **수동 배포 및 릴리스 재현 절차**를 정의합니다. (01 운영시스템, 02 기업사이트, 04 업무로그와 격리된 전용 사이트입니다.)
 
+> [!CAUTION] 외부 배포 실행 금지
+> 현재 단계에서는 실제 Netlify 프로덕션 배포, 계정 변경, API 키 활성화가 승인되지 않았습니다. 본 문서는 추후 승인 시 재현 가능한 표준 절차서이며, **임의의 외부 배포는 일체 실행하지 않습니다.**
+
 ---
 
-## 1. 정적 배포와 서버리스 함수 배포의 차이점
+## 1. 배포 방식과 서버리스 함수 포함 시 고려사항
 
-> [!WARNING] Netlify Web UI 단순 폴더 드롭(Drop) 시 함수 누락 주의
-> Netlify Web 대시보드의 단순 드래그 앤 드롭(`https://app.netlify.com/drop`)은 오직 정적 파일(`publish = "."`)만 서비스하며, **`netlify/functions/` 하위의 서버리스 함수를 자동으로 빌드·배포하지 않습니다.**
-> 따라서 단순 정적 ZIP을 올리면 `/.netlify/functions/consult` 호출 시 `404 Not Found`가 발생하며 상담 기능이 작동하지 않습니다.
-
-서버리스 함수가 포함된 고객 홈페이지를 Git 자동 연동 없이 수동 릴리스하기 위해서는 **Netlify CLI 수동 배포** 방식을 표준 절차로 채택합니다.
+- **Netlify Web UI 폴더 드롭 배포의 특성**:
+  - Netlify Web 대시보드의 단순 드래그 앤 드롭(`https://app.netlify.com/drop`)은 주로 정적 산출물 서빙을 기본으로 처리하며, 업로드 패키징 형태나 대시보드 설정에 따라 `netlify/functions` 하위의 서버리스 함수가 온전히 인식·배포되지 않을 가능성이 있습니다.
+  - 지오(GEO-006)의 Netlify 배포 이력 관찰과 별개로, 현재 `06_봉플레이_고객홈페이지`의 서버리스 함수를 포함한 배포는 실제 운영 환경에서 한 번도 수행된 적이 없는 **실제 배포 미검증(미실행) 상태**입니다.
+- **표준 릴리스 도구**:
+  - Functions가 포함된 고객 홈페이지를 안전하고 재현 가능하게 배포하기 위해 **Netlify CLI 기반 배포 절차**를 표준으로 규정합니다.
 
 ---
 
 ## 2. 서버 환경변수 설정 (Netlify Site Settings)
 
-배포 전 Netlify 대시보드 (`Site configuration > Environment variables`)에서 아래 환경변수를 설정합니다. **API 키나 비밀값은 저장소·HTML·채팅에 절대 커밋하지 않습니다.**
+배포 전 Netlify 대시보드 (`Site configuration > Environment variables`)에서 아래 환경변수를 설정합니다. **실제 API 키나 비밀값은 저장소·HTML·채팅에 절대 커밋하지 않습니다.**
 
 | 환경변수명 | 필수 여부 | 권장 기본값 | 설명 |
 |---|---|---|---|
@@ -25,11 +28,11 @@
 | `JEV_MODEL` | 선택 (JEV_ENABLED=true 시 필수) | `systemone-preview` | 계정 지원 모델 식별자 |
 | `RATE_LIMIT_STORE_URL` | 권장 (JEV_ENABLED=true 시 필수) | `(Upstash REST URL)` | 다중 인스턴스 분산 레이트리미트 저장소 URL |
 | `RATE_LIMIT_STORE_TOKEN` | 권장 (JEV_ENABLED=true 시 필수) | `(Upstash REST Token)` | 분산 저장소 인증 토큰 |
-| `RATE_LIMIT_PER_MINUTE` | 선택 | `10` | IP당 분당 허용 요청 수 |
-| `RATE_LIMIT_DAILY_TOTAL` | 선택 | `500` | 전체 인스턴스 일일 허용 총 요청 수 (비용 상한선) |
+| `RATE_LIMIT_PER_MINUTE` | 선택 | `10` | IP당 분당 허용 요청 수 (0 또는 음수 설정 시 전면 차단) |
+| `RATE_LIMIT_DAILY_TOTAL` | 선택 | `500` | 전체 인스턴스 일일 허용 총 요청 수 (0 또는 음수 설정 시 전면 차단) |
 
-> [!IMPORTANT] Fail-Closed 비용 방어 규칙
-> `JEV_ENABLED === 'true'`일 때 `RATE_LIMIT_STORE_URL`이 설정되지 않았거나 통신 장애가 발생하면, 서버는 유료 호출을 즉시 차단(`Fail-Closed`)하고 기본 안내 모드로 안전하게 폴백하여 미인가 과금을 방지합니다.
+> [!IMPORTANT] Fail-Closed 외부 호출 차단 규칙
+> `JEV_ENABLED === 'true'`일 때 `RATE_LIMIT_STORE_URL`이 설정되지 않았거나 통신 장애가 발생하면, 서버는 외부 유료 API 호출을 즉시 차단(`Fail-Closed`, 호출 0건 유지)하고 로컬 확정 규칙 모드로 안전하게 폴백합니다.
 
 ---
 
@@ -50,9 +53,9 @@ node --test tests/runtime.test.mjs
 
 ---
 
-## 4. Netlify CLI 기반 수동 배포 실행 절차
+## 4. Netlify CLI 기반 단계별 수동 배포 절차
 
-Git 자동 연동 없이 로컬 산출물을 프로덕션에 배포하는 표준 명령:
+운영 환경에 바로 배포하지 않고, 반드시 **초안(Draft/Preview) 배포를 거쳐 검증한 뒤 운영 배포**를 수행합니다:
 
 ```bash
 # 1. Netlify CLI 인증 (초기 1회)
@@ -61,7 +64,12 @@ npx netlify login
 # 2. 고객 홈페이지 프로젝트 연결 (초기 1회)
 npx netlify link
 
-# 3. 정적 파일과 Functions를 동시에 프로덕션 배포
+# 3. [1단계: 초안 배포] 운영 사이트에 영향 주지 않는 Preview URL로 배포
+npx netlify deploy --dir=. --functions=netlify/functions
+
+# 4. [2단계: 실측 검증] 터미널에 출력된 'Website Draft URL'에 접속하여 5절의 스모크 테스트 수행
+
+# 5. [3단계: 운영 배포] 벤 및 대표의 정식 승인 후 프로덕션 URL로 승격
 npx netlify deploy --prod --dir=. --functions=netlify/functions
 ```
 
@@ -75,18 +83,18 @@ npx netlify deploy --prod --dir=. --functions=netlify/functions
 - `netlify.toml` (빌드 및 Functions 설정, 헤더 보안 정책)
 - `netlify/functions/consult.mjs` (상담 서버리스 함수 진입점)
 - `netlify/functions/lib/consultation.mjs` (지식 계약 및 의도 분류)
-- `netlify/functions/lib/rate-limit.mjs` (분산 호출 제한 및 비용 방어)
+- `netlify/functions/lib/rate-limit.mjs` (분산 호출 제한 및 Fail-Closed 과금 방어)
 - `assets/` (로고, 폰트, 반응형 이미지)
 
 ---
 
 ## 5. 배포 후 실측 검증 (Smoke Test)
 
-배포 완료 후 반환된 프로덕션 URL(`https://<site-name>.netlify.app`)에서 다음을 실측합니다:
+초안 URL 또는 프로덕션 URL에서 다음 시나리오를 실측합니다:
 
 1. **상담 함수 정상 응답 확인**:
    ```bash
-   curl -s -X POST https://<site-name>.netlify.app/.netlify/functions/consult \
+   curl -s -X POST https://<preview-or-site-url>/.netlify/functions/consult \
      -H "Content-Type: application/json" \
      -d '{"message":"요금"}'
    ```
@@ -99,6 +107,7 @@ npx netlify deploy --prod --dir=. --functions=netlify/functions
 3. **실제 브라우저 UI 동작 확인**:
    - 데스크톱/모바일에서 'AI 상담' 버튼 클릭 시 모달 정상 팝업
    - '요금' 빠른 버튼 클릭 시 15,000원 기본권 안내 메시지 정상 렌더링
+   - 한글 IME 입력 중 Enter 키 입력 시 중복 전송 방지 확인
    - ESC 키 입력 시 팝업 닫힘 및 포커스 정상 복귀
    - 네트워크 오프라인 시 안내 문구 표출
 

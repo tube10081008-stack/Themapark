@@ -31,6 +31,7 @@ export default async function handler(request, context = {}) {
   const rateLimitOptions = {
     env,
     store: context.store,
+    isShared: context.isShared,
     fetcher: context.fetcher || fetch
   };
 
@@ -38,7 +39,7 @@ export default async function handler(request, context = {}) {
   if (!rl.allowed) {
     return json({
       error: rl.error || '문의 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.',
-      code: 'RATE_LIMIT_EXCEEDED',
+      code: rl.code || 'RATE_LIMIT_EXCEEDED',
       retry_after: rl.retryAfter || 60
     }, 429, { 'Retry-After': String(rl.retryAfter || 60) });
   }

@@ -88,9 +88,12 @@
     }
   });
 
-  // Enter로 전송, Shift+Enter로 줄바꿈 지원 (키보드 조작성)
+  // Enter로 전송, Shift+Enter로 줄바꿈 지원 (한글 IME 조합 중 중복 전송 방지)
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
+      if (e.isComposing || e.keyCode === 229) {
+        return; // 한글 조합 중에는 폼을 전송하지 않음
+      }
       e.preventDefault();
       form.requestSubmit();
     }
@@ -118,7 +121,7 @@
     const message = input.value.trim();
     if (busy || !message) return;
 
-    // 1. 오프라인 상태 감지
+    // 1. 클라이언트 오프라인 상태 감지
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       line('오프라인 상태입니다. 네트워크 연결을 확인해 주세요. 긴급 문의는 전화(010-5931-4144)로 부탁드립니다.', 'error');
       return;
@@ -138,18 +141,40 @@
         signal: AbortSignal.timeout(9000)
       });
 
-      // 2. HTTP 429 레이트 리미트 감지
+      // 2. HTTP 429 레이트 리미트 감지 (일일 한도 마감 vs 1분 분당 제한 구분)
       if (res.status === 429) {
         const errData = await res.json().catch(() => ({}));
+        if (errData.code === 'DAILY_QUOTA_EXCEEDED') {
+          line(
+            '안내: 오늘 상담 안내 한도가 마감되었습니다. 전화(010-5931-4144)로 문의해 주세요.',
+            'warning'
+          );
+        } else {
+          line(
+            '안내: ' + (errData.error || '문의 요청이 많아 일시적으로 제한되었습니다. 1분 후 다시 시도해 주세요.'),
+            'warning'
+          );
+        }
+        return;
+      }
+
+      // 3. 입력 형식 오류 (HTTP 400, 413, 415)
+      if (res.status === 400 || res.status === 413 || res.status === 415) {
+        const errData = await res.json().catch(() => ({}));
         line(
-          '안내: ' + (errData.error || '문의 요청이 많아 일시적으로 제한되었습니다. 잠시 후 다시 시도해 주시거나 전화(010-5931-4144)로 문의해 주세요.'),
-          'warning'
+          '입력 오류: ' + (errData.error || '질문은 1~1,200자 이내로 입력해 주세요.'),
+          'error'
         );
         return;
       }
 
+      // 4. 기타 서버 오류 (HTTP 5xx 등)
       if (!res.ok) {
-        throw new Error(`HTTP_${res.status}`);
+        line(
+          '서버 연결 오류 (' + res.status + '): 일시적인 서버 문제입니다. 잠시 후 다시 시도해 주시거나 전화(010-5931-4144)로 문의해 주세요.',
+          'error'
+        );
+        return;
       }
 
       const data = await res.json();
@@ -162,7 +187,7 @@
         line(data.source, 'source');
       }
     } catch (err) {
-      // 3. 타임아웃 / 통신 장애 분기
+      // 5. 타임아웃 / 네트워크 단절 분기
       if (err.name === 'TimeoutError' || err.name === 'AbortError') {
         line('상담 응답 시간이 초과되었습니다 (9초). 잠시 후 다시 시도해 주세요.', 'error');
       } else {
