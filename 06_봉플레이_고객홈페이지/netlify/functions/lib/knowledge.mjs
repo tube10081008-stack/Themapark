@@ -14,13 +14,19 @@
 //
 // 근거 규칙: BEN-004 "오래된 confirmed와 새 근거가 충돌하면 해당 값은 고객용 출력에서 보류".
 
-export const KNOWLEDGE_VERSION = 'claude-009/1';
+export const KNOWLEDGE_VERSION = 'claude-009/2';
+// 고객 화면에 보이는 출처 설명 (내부 작업 코드·SHA 는 넣지 않는다)
+export const CUSTOMER_SOURCE = '리틀포레스트 봉플레이 공개 안내 기준 (2026-10-05)';
 export const STATUSES = Object.freeze(['confirmed', 'published', 'undetermined', 'planned', 'abolished']);
 
-// 출처 문서 (기준 커밋 934dd0f 에서 계산; blob = git rev-parse <commit>:<path>, last_commit = git log -1 -- <path>)
-export const READ_AT_COMMIT = '934dd0f1a559a41c533dcd300c4dce4e9c14a440';
+// 출처 문서. blob = git rev-parse <commit>:<path>, last_commit = git log -1 -- <path>.
+// 1차는 934dd0f, R1 보완에서 추가한 출처(decision_ben015)는 c935504 에서 계산했다.
+// blob 은 저장소에 기록된(LF) 원문 기준. CRLF 로 체크아웃된 환경에서는 줄 끝을 LF 로 정규화해 비교한다.
+// 출처 변경 시 갱신 책임은 클로이, 통합 판단은 벤 (BEN-015 R1). 값 재승인 없이 SHA 만 바꾸지 않는다.
+export const READ_AT_COMMIT = 'c935504ef7e87a700b7f8a99b1fc6daf60035186';
 export const SOURCES = Object.freeze({
   decision_004b: { path: 'docs/migration/CLAUDE-004b_대표결정_20260929.md', blob: '25a771f29df45a6bfb020ec6a3e85e8ba6fe7880', last_commit: '0197ffef1a93d030fc3635793fafe26771cd4b55' },
+  decision_ben015: { path: 'docs/migration/BEN-015_대표결정_20261005.md', blob: 'e1d1f04dccf0b4b9d2948f492d6faccc8b711d0f', last_commit: 'c935504ef7e87a700b7f8a99b1fc6daf60035186' },
   decision_ben004: { path: 'docs/migration/BEN-004_클로이_PR검토와_기준정보결정.md', blob: 'fa562cdcf171808a74890202fdc1e3f2c2c1dd4d', last_commit: 'c81eddf4abe9a55ff3b86c23a33b02e99d480044' },
   decision_ben010: { path: 'docs/migration/BEN-010_완료검토_접근권한_버스지원.md', blob: 'dca3d944c183eb746e4d9f97c93ae0b058fae82c', last_commit: '33d5e5b59567439f1111f3bd454c338f40c9a14e' },
   task_ben011: { path: 'docs/tasks/BEN-011_전체작업_병행실행.md', blob: 'd78a70648401d99e22ef9d930394e83399b6c7e8', last_commit: 'ded2f1cf9dc84e54a3987a8195888aacf7e7faca' },
@@ -46,10 +52,22 @@ export const facts = Object.freeze({
     basis: [{ source: 'decision_004b', item: '결정 1 — 어린이 기본이용권 할인 없이 15,000원' }],
     homepage: { row: '기본 이용권' }, site_profile: { field: 'price.tkt_basic', value: 15000 },
     note: '05 기록 상태는 unresolved(고지 정정 대기). 01 booking.html 은 15,000원으로 정정됨. 05 승격은 CLAUDE-007 범위.' }),
-  'price.tkt_allday': f({ kind: 'fact', status: 'published', value: 21000, display: '21,000원',
-    basis: [{ source: 'homepage', item: '이용요금 — 종합 이용권 21,000원' }],
+  'price.tkt_allday': f({ kind: 'fact', status: 'confirmed', value: 21000, display: '21,000원',
+    basis: [{ source: 'decision_ben015', item: '1. 종합 이용권 21,000원으로 확정 (홈페이지·고객 AI 상담 적용)' },
+            { source: 'homepage', item: '이용요금 — 종합 이용권 21,000원' }],
     homepage: { row: '종합 이용권' }, site_profile: { field: 'price.tkt_allday', value: 21000 },
-    note: '05 기록 상태 system_default(공식 요금표 값, 개인 판매가 고지 근거 없음). 대표 확인 전 상담 안내 보류.' }),
+    note: '대표 확정(2026-10-05). 05 기록 상태는 system_default 그대로 — 05 반영은 벤이 분리한 별도 작업.' }),
+  'price.child_basis': f({ kind: 'fact', status: 'confirmed', value: ['price.tkt_basic', 'price.tkt_allday'], display: '기본·종합 이용권은 어린이 1인 기준',
+    basis: [{ source: 'decision_004b', item: '결정 1 — 어린이 기본이용권' },
+            { source: 'site_profile', item: "price.tkt_allday.scope '어린이 종합이용권 1인 (개인)'" },
+            { source: 'decision_ben015', item: '홈페이지의 종합 이용권에 적용' },
+            { source: 'homepage', item: '요금 안내 — 기본·종합·단체권은 어린이 1인 기준' }],
+    homepage: { text: ['어린이 1인 기준'] },
+    note: '단체권의 어린이 기준은 홈페이지 문구 외 근거가 없어 넣지 않는다.' }),
+  'discount.resident_rate': f({ kind: 'fact', status: 'confirmed', value: 0.2, display: '20%',
+    basis: [{ source: 'site_profile', item: "discount.resident_rate (confirmed, scope '봉화군민 우대 할인 (현장 신분증 확인)')" }],
+    homepage: { text: ['봉화군민', '20% 우대 할인', '신분증'] }, site_profile: { field: 'discount.resident_rate', value: 0.2 },
+    note: '적용 권종·중복 조건은 근거가 없어 안내하지 않는다 (방문 전 문의).' }),
   'price.tkt_guardian': f({ kind: 'fact', status: 'confirmed', value: 5000, display: '5,000원',
     basis: [{ source: 'site_profile', item: 'price.tkt_guardian (confirmed, 대표 2026-09-29 웹 고지 요금 그대로)' }],
     homepage: { row: '보호자 입장권' }, site_profile: { field: 'price.tkt_guardian', value: 5000 } }),
@@ -104,6 +122,8 @@ export function renderAnswers(kb = facts) {
   const withheld = prices.filter(([, id]) => !ok(id)).map(([label]) => label);
   let price = said.length ? `${said.join(', ')}입니다.` : '';
   if (withheld.length) price += `${price ? ' ' : ''}${withheld.join('·')} 가격은 방문 전에 문의해 주세요.`;
+  if (ok('price.child_basis') && ok('price.tkt_basic') && ok('price.tkt_allday')) price += ` ${d('price.child_basis')}입니다.`;
+  if (ok('discount.resident_rate')) price += ` 봉화군민은 ${d('discount.resident_rate')} 우대 할인이 있으며 현장에서 신분증을 확인합니다.`;
   price += ' 할인 중복과 개별 적용 여부는 방문 전에 문의해 주세요.';
 
   const hours = ok('hours.open')
@@ -195,8 +215,10 @@ export function checkKnowledge({ homepage = null, siteProfile = null, blobs = nu
       const src = SOURCES[b.source];
       if (!src) { flag('missing', `출처 키 없음 ${b.source}`); continue; }
       if (blobs) {
-        if (!(b.source in blobs) || blobs[b.source] == null) flag('missing', `출처 파일 없음 ${src.path}`);
-        else if (blobs[b.source] !== src.blob) flag('uncertain', `출처 변경됨 ${src.path} (기록 ${src.blob.slice(0, 7)} → 현재 ${String(blobs[b.source]).slice(0, 7)}) — 재검토 필요`);
+        // blobs 값은 SHA 하나 또는 후보 배열(원문 바이트, 줄 끝 LF 정규화) — 하나라도 기록값과 같으면 동일 원문
+        const cand = blobs[b.source] == null ? [] : [].concat(blobs[b.source]);
+        if (!(b.source in blobs) || cand.length === 0) flag('missing', `출처 파일 없음 ${src.path}`);
+        else if (!cand.includes(src.blob)) flag('uncertain', `출처 변경됨 ${src.path} (기록 ${src.blob.slice(0, 7)} → 현재 ${String(cand[cand.length - 1]).slice(0, 7)}) — 재검토 필요`);
       }
     }
 
