@@ -17,7 +17,7 @@
     '    <button type="button" class="consult-close" aria-label="상담 창 닫기">✕</button>',
     '  </div>',
     '  <p class="consult-notice">AI 자동 안내 · 직원 실시간 상담은 아닙니다.</p>',
-    '  <p class="consult-privacy-warning">전화번호·이름·예약번호 등 개인정보는 입력하지 마세요. AI 연결 시 질문은 TypeSafe로 전송될 수 있습니다.</p>',
+    '  <p class="consult-privacy-warning">전화번호·이름·예약번호 등 개인정보는 입력하지 마세요. AI 연결 시 질문은 AI 모델 공급자(Sakana 등)로 전송될 수 있습니다.</p>',
     '  <div class="consult-log" role="log" aria-live="polite" aria-relevant="additions"></div>',
     '  <div class="consult-topics" aria-label="자주 묻는 주제 빠른 선택"></div>',
     '  <form class="consult-form">',
@@ -182,7 +182,7 @@
         throw new Error('INVALID_ANSWER');
       }
 
-      line((data.mode === 'jev' ? 'AI 안내: ' : '기본 안내: ') + data.answer, 'bot');
+      line((data.mode === 'jev' || data.mode === 'model' ? 'AI 안내: ' : '기본 안내: ') + data.answer, 'bot');
       if (data.source) {
         line(data.source, 'source');
       }

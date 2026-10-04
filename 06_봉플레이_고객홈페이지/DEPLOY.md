@@ -23,16 +23,20 @@
 
 | 환경변수명 | 필수 여부 | 권장 기본값 | 설명 |
 |---|---|---|---|
+| `CONSULT_PROVIDER` | 선택 | `sakana` | AI 모델 공급자 식별자 (미설정 시 기본 안내 모드 및 기존 TypeSafe 호환) |
+| `CONSULT_MODEL` | 선택 (CONSULT_PROVIDER 설정 시) | `(계정 확인 모델 ID)` | 계정에서 확인한 모델 ID (기본 후보 fugu, 자동 지정하지 않음) |
+| `CONSULT_ENABLED` | 필수 | `false` | 모델 공급자 외부 호출 활성화 스위치 (미승인 시 `false` 유지, 외부 호출 0건 유지) |
+| `SAKANA_API_KEY` | 선택 (CONSULT_PROVIDER='sakana' 시) | `(비공개)` | Sakana AI API 인증 키 (서버 환경변수에만 설정) |
 | `JEV_ENABLED` | 필수 | `false` | JEV 유료 외부 호출 활성화 스위치 (미승인 시 `false` 유지, 기본 안내 모드로 동작) |
 | `TYPESAFE_API_KEY` | 선택 (JEV_ENABLED=true 시 필수) | `(비공개)` | TypeSafe API 인증 키 |
 | `JEV_MODEL` | 선택 (JEV_ENABLED=true 시 필수) | `systemone-preview` | 계정 지원 모델 식별자 |
-| `RATE_LIMIT_STORE_URL` | 권장 (JEV_ENABLED=true 시 필수) | `(Upstash REST URL)` | 다중 인스턴스 분산 레이트리미트 저장소 URL |
-| `RATE_LIMIT_STORE_TOKEN` | 권장 (JEV_ENABLED=true 시 필수) | `(Upstash REST Token)` | 분산 저장소 인증 토큰 |
+| `RATE_LIMIT_STORE_URL` | 권장 (외부 모델 활성화 시 필수) | `(Upstash REST URL)` | 다중 인스턴스 분산 레이트리미트 저장소 URL |
+| `RATE_LIMIT_STORE_TOKEN` | 권장 (외부 모델 활성화 시 필수) | `(Upstash REST Token)` | 분산 저장소 인증 토큰 |
 | `RATE_LIMIT_PER_MINUTE` | 선택 | `10` | IP당 분당 허용 요청 수 (0 또는 음수 설정 시 전면 차단) |
 | `RATE_LIMIT_DAILY_TOTAL` | 선택 | `500` | 전체 인스턴스 일일 허용 총 요청 수 (0 또는 음수 설정 시 전면 차단) |
 
 > [!IMPORTANT] Fail-Closed 외부 호출 차단 규칙
-> `JEV_ENABLED === 'true'`일 때 `RATE_LIMIT_STORE_URL`이 설정되지 않았거나 통신 장애가 발생하면, 서버는 외부 유료 API 호출을 즉시 차단(`Fail-Closed`, 호출 0건 유지)하고 로컬 확정 규칙 모드로 안전하게 폴백합니다.
+> `CONSULT_ENABLED === 'true'` 또는 `JEV_ENABLED === 'true'`일 때 `RATE_LIMIT_STORE_URL`이 설정되지 않았거나 통신 장애가 발생하면, 서버는 외부 유료 API 호출을 즉시 차단(`Fail-Closed`, 호출 0건 유지)하고 로컬 확정 규칙 모드로 안전하게 폴백합니다.
 
 ---
 
@@ -83,6 +87,9 @@ npx netlify deploy --prod --dir=. --functions=netlify/functions
 - `netlify.toml` (빌드 및 Functions 설정, 헤더 보안 정책)
 - `netlify/functions/consult.mjs` (상담 서버리스 함수 진입점)
 - `netlify/functions/lib/consultation.mjs` (지식 계약 및 의도 분류)
+- `netlify/functions/lib/decision-engine.mjs` (지식 판단 엔진 / BEN-016)
+- `netlify/functions/lib/model-provider.mjs` (모델 공급자 어댑터 / Sakana 연동 / BEN-016)
+- `netlify/functions/lib/knowledge.mjs` (승인 지식 계약 및 해시 검증)
 - `netlify/functions/lib/rate-limit.mjs` (분산 호출 제한 및 Fail-Closed 과금 방어)
 - `assets/` (로고, 폰트, 반응형 이미지)
 

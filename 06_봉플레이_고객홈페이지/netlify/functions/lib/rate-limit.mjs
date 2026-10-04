@@ -219,6 +219,8 @@ export async function checkRateLimit(request, options = {}) {
   const limitDailyTotal = parsePositiveLimit(env.RATE_LIMIT_DAILY_TOTAL, 500);
 
   const isJevEnabled = env.JEV_ENABLED === 'true';
+  const isConsultEnabled = env.CONSULT_ENABLED === 'true';
+  const isExternalModelEnabled = isJevEnabled || isConsultEnabled;
 
   // 저장소 선택
   let store = options.store;
@@ -234,20 +236,20 @@ export async function checkRateLimit(request, options = {}) {
     }
   }
 
-  // [Fail-Closed 과금 방어 1 - 메모리 우회 플래그 완전 제거]:
-  // JEV_ENABLED === 'true'일 때 분산 저장소(Redis)가 미설정된 상태면
+  // [Fail-Closed 과금 방어 1 - 메모리 우회 플래그 완전 제거 및 공급자 공통 확장 (BEN-016)]:
+  // JEV_ENABLED === 'true' 또는 CONSULT_ENABLED === 'true'일 때 분산 저장소(Redis)가 미설정된 상태면
   // 메모리 카운터만으로는 다중 인스턴스 과금 차단이 불가능하므로
   // 외부 유료 API 호출을 원천 차단하고(allowExternal = false) 기본 규칙 모드로 안전 폴백.
   // (테스트 주입은 options.isShared === true로 명시 전달된 경우에만 인정)
-  let allowExternal = isJevEnabled;
-  if (isJevEnabled) {
+  let allowExternal = isExternalModelEnabled;
+  if (isExternalModelEnabled) {
     const isSharedConfigured = Boolean(
       (options.store && options.isShared === true) ||
       (env.RATE_LIMIT_STORE_URL && env.RATE_LIMIT_STORE_TOKEN)
     );
 
     if (!isSharedConfigured) {
-      allowExternal = false; // 분산 저장소 미설정 시 유료 JEV 호출 차단
+      allowExternal = false; // 분산 저장소 미설정 시 유료 JEV / 모델 공급자 호출 차단
     }
   }
 
@@ -308,14 +310,14 @@ export async function checkRateLimit(request, options = {}) {
     // [Fail-Closed 과금 방어 2]: 저장소 통신 장애 또는 응답 이상 발생 시
     // 유료 호출을 즉시 차단하고 429 반환
     return {
-      allowed: !isJevEnabled, // JEV 미사용 시에는 로컬 규칙 답변 허용, JEV 사용 모드 시 안전 차단
+      allowed: !isExternalModelEnabled, // 외부 모델(JEV/공급자) 미사용 시에는 로컬 규칙 답변 허용, 유료 모델 사용 시 과금 방어를 위해 안전 차단
       allowExternal: false,
-      status: isJevEnabled ? 429 : 200,
+      status: isExternalModelEnabled ? 429 : 200,
       retryAfter: 60,
       clientIp,
       code: 'STORE_FAILURE',
       reason: 'store_failure',
-      error: isJevEnabled
+      error: isExternalModelEnabled
         ? '상담 서버 과금 방어 저장소 연결 실패로 일시 차단되었습니다. 전화로 문의해 주세요.'
         : undefined
     };

@@ -362,6 +362,159 @@ test('1. 분산 레이트 리미트 & Fail-Closed 과금 방어 (ANT-004 / R2 �
     const testInjected = extractClientIp(untrustedReq, {}, { testIp: '127.0.0.99' });
     assert.equal(testInjected, '127.0.0.99', 'options.testIp 주입 시 테스트 IP 정상 반환');
   });
+
+  await t.test('1-9. [BEN-016 공급자 공통 호출 제한 & Sakana 연결 경로 & Fail-Closed 검증]', { timeout: 60000 }, async (st) => {
+    const sakanaEnv = {
+      CONSULT_ENABLED: 'true',
+      CONSULT_PROVIDER: 'sakana',
+      CONSULT_MODEL: 'test-model',
+      SAKANA_API_KEY: 'fake-test-key'
+    };
+
+    // A. 분산 저장소 미설정 상태: externalAllowed=false 주입되어 외부 호출 0건, rules fallback (Fail-Closed)
+    let externalCallsA = 0;
+    const mockFetcherA = async () => {
+      externalCallsA++;
+      throw new Error('EXTERNAL_API_SHOULD_NEVER_BE_CALLED_WITHOUT_DISTRIBUTED_STORE');
+    };
+    const reqA = new Request('https://example.test/.netlify/functions/consult', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: '이용권 요금과 위치를 알려주세요' })
+    });
+    const resA = await handler(reqA, { env: sakanaEnv, fetcher: mockFetcherA });
+    assert.equal(resA.status, 200);
+    assert.equal(externalCallsA, 0, '분산 저장소 미설정 시 Sakana 외부 API 호출 0건 유지');
+    const dataA = await resA.json();
+    assert.equal(dataA.mode, 'rules', '외부 비활성화 시 기본 규칙 모드로 동작');
+    assert.equal(dataA.reason, 'external_disabled');
+
+    // B. 클라이언트가 request JSON에 externalAllowed: true 를 위변조하여 전송하더라도 서버에서 무시됨 (0건 호출)
+    let externalCallsB = 0;
+    const mockFetcherB = async () => {
+      externalCallsB++;
+      throw new Error('CLIENT_INJECTED_EXTERNAL_ALLOWED_MUST_BE_IGNORED');
+    };
+    const reqB = new Request('https://example.test/.netlify/functions/consult', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: '이용권 요금과 위치를 알려주세요',
+        externalAllowed: true // 위변조 시도
+      })
+    });
+    const resB = await handler(reqB, { env: sakanaEnv, fetcher: mockFetcherB });
+    assert.equal(resB.status, 200);
+    assert.equal(externalCallsB, 0, '클라이언트 JSON의 externalAllowed는 철저히 무시되고 외부 호출 0건');
+    const dataB = await resB.json();
+    assert.equal(dataB.mode, 'rules');
+    assert.equal(dataB.reason, 'external_disabled');
+
+    // C. 저장소 통신 장애(STORE_FAILURE) 발생 시: 즉시 429 반환 및 외부 호출 0건
+    let externalCallsC = 0;
+    const failingStore = {
+      hit: async () => {
+        throw new Error('REDIS_DOWN');
+      }
+    };
+    const reqC = new Request('https://example.test/.netlify/functions/consult', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: '운영시간 문의' })
+    });
+    const resC = await handler(reqC, {
+      env: sakanaEnv,
+      store: failingStore,
+      fetcher: async () => {
+        externalCallsC++;
+        throw new Error('MUST_NOT_BE_CALLED');
+      }
+    });
+    assert.equal(externalCallsC, 0, '저장소 장애 시 유료 호출 절대 차단');
+    assert.equal(resC.status, 429, '저장소 실패 시 429 반환');
+    const bodyC = await resC.json();
+    assert.equal(bodyC.code, 'STORE_FAILURE');
+
+    // D. 분산 저장소 정상 설정 및 허용 시: 서버 내부에서 externalAllowed: true 주입되어 Sakana 경로 정상 동작
+    let externalCallsD = 0;
+    let capturedUrlD = null;
+    let capturedBodyD = null;
+    const mockFetcherD = async (url, opts) => {
+      externalCallsD++;
+      capturedUrlD = url;
+      capturedBodyD = JSON.parse(opts.body);
+      return new Response(JSON.stringify({
+        choices: [{
+          finish_reason: 'stop',
+          message: {
+            content: JSON.stringify({ ids: ['price', 'location'], clarify: false })
+          }
+        }]
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    };
+
+    // Upstash Redis 모의 응답
+    const mockRedisFetcher = async () => {
+      return new Response(JSON.stringify([{ result: 1 }, { result: 1 }, { result: 1 }, { result: 1 }]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    };
+    const redisStore = new DistributedRedisRateLimitStore(
+      'https://mock-redis.upstash.io',
+      'MOCK_TOKEN',
+      mockRedisFetcher
+    );
+
+    const reqD = new Request('https://example.test/.netlify/functions/consult', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: '비용과 주소가 궁금해요' })
+    });
+    const resD = await handler(reqD, {
+      env: sakanaEnv,
+      store: redisStore,
+      isShared: true,
+      fetcher: mockFetcherD
+    });
+
+    assert.equal(resD.status, 200);
+    assert.equal(externalCallsD, 1, '분산 저장소 검증 통과 시 외부 호출 1회 정상 실행');
+    assert.equal(capturedUrlD, 'https://api.sakana.ai/v1/chat/completions');
+    assert.equal(capturedBodyD.model, 'test-model');
+    const dataD = await resD.json();
+    assert.equal(dataD.mode, 'model', '공급자 선택 모드는 model로 응답');
+    assert.equal(dataD.reason, 'selected_knowledge');
+    assert.match(dataD.answer, /21,000/);
+    assert.match(dataD.answer, /유록길 22/);
+
+    // E. SAKANA_API_KEY만 설정되고 CONSULT_ENABLED=false 인 경우: 외부 호출 0건
+    let externalCallsE = 0;
+    const envDisabled = {
+      ...sakanaEnv,
+      CONSULT_ENABLED: 'false'
+    };
+    const reqE = new Request('https://example.test/.netlify/functions/consult', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: '비용과 주소가 궁금해요' })
+    });
+    const resE = await handler(reqE, {
+      env: envDisabled,
+      store: redisStore,
+      fetcher: async () => {
+        externalCallsE++;
+        throw new Error('MUST_NOT_BE_CALLED');
+      }
+    });
+    assert.equal(resE.status, 200);
+    assert.equal(externalCallsE, 0, 'CONSULT_ENABLED=false 시 외부 호출 0건');
+    const dataE = await resE.json();
+    assert.equal(dataE.mode, 'rules');
+  });
 });
 
 // ---------------------------------------------------------------------------

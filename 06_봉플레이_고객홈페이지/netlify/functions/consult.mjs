@@ -72,19 +72,31 @@ export default async function handler(request, context = {}) {
 
     const input = JSON.parse(new TextDecoder().decode(bytes));
 
-    // [Fail-Closed 과금 방어]: 분산 저장소 미설정/장애 시 외부 유료 JEV 호출 원천 차단
+    // [Fail-Closed 과금 방어]: 분산 저장소 미설정/장애 시 외부 유료 호출(JEV 및 공급자 공통) 원천 차단
     let safeEnv = env;
     if (env.JEV_ENABLED === 'true' && !rl.allowExternal) {
       safeEnv = {
-        ...env,
+        ...safeEnv,
         JEV_ENABLED: 'false',
         JEV_BLOCKED_REASON: rl.reason || 'cost_defense_store_missing'
       };
     }
+    if (env.CONSULT_ENABLED === 'true' && !rl.allowExternal) {
+      safeEnv = {
+        ...safeEnv,
+        CONSULT_ENABLED: 'false',
+        CONSULT_BLOCKED_REASON: rl.reason || 'cost_defense_store_missing'
+      };
+    }
+
+    // [서버 주입 externalAllowed]: 공유 제한 저장소 검증(rl.allowExternal) 결과만 내부에서 주입하며,
+    // 클라이언트 요청 JSON(input.externalAllowed)은 절대 수용하지 않음 (BEN-016)
+    const serverExternalAllowed = Boolean(rl.allowExternal);
 
     const result = await consult(input.message, {
       env: safeEnv,
-      fetcher: context.fetcher || fetch
+      fetcher: context.fetcher || fetch,
+      externalAllowed: serverExternalAllowed
     });
 
     return json(result);
