@@ -2,55 +2,55 @@
 HEADLESS BROWSER HTTP & DUAL-VIEWPORT VERIFICATION EVIDENCE (ANT-001)
 Engine: C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
 Server: http://127.0.0.1:4173
-Date: 2026-09-30T01:07:10.920Z
+Date: 2026-10-04T11:02:37.496Z
 ================================================================================
 
 1. Verification Summary Matrix:
 [Mobile (390x844)] pages/booking.html
   - Status: PASS (Exit Code: 0)
-  - Screenshot: booking_mobile_390x844.png (87600 bytes)
-  - DOM Length: 81479 chars
+  - Screenshot: booking_mobile_390x844.png (87693 bytes)
+  - DOM Length: 81500 chars
   - Assertions: 15000원 단일가, 운영시간 확정후 안내, 스크린샷 생성
 
 [Mobile (390x844)] pages/gate.html
   - Status: PASS (Exit Code: 0)
   - Screenshot: gate_mobile_390x844.png (26338 bytes)
-  - DOM Length: 71620 chars
+  - DOM Length: 71694 chars
   - Assertions: 체류 인원 카운터, 수용 정원 바, 스크린샷 생성
 
 [Mobile (390x844)] pages/operations.html
   - Status: PASS (Exit Code: 0)
-  - Screenshot: operations_mobile_390x844.png (38249 bytes)
-  - DOM Length: 272819 chars
+  - Screenshot: operations_mobile_390x844.png (38206 bytes)
+  - DOM Length: 273193 chars
   - Assertions: 매표 콘솔, 동기화 뱃지, 스크린샷 생성
 
 [Mobile (390x844)] pages/closing.html
   - Status: PASS (Exit Code: 0)
-  - Screenshot: closing_mobile_390x844.png (29827 bytes)
+  - Screenshot: closing_mobile_390x844.png (29829 bytes)
   - DOM Length: 117885 chars
   - Assertions: 마감 정산 보드, 일자 선택 컴포넌트, 스크린샷 생성
 
 [Desktop (1440x900)] pages/booking.html
   - Status: PASS (Exit Code: 0)
-  - Screenshot: booking_desktop_1440x900.png (135780 bytes)
-  - DOM Length: 81479 chars
+  - Screenshot: booking_desktop_1440x900.png (135829 bytes)
+  - DOM Length: 81501 chars
   - Assertions: 15000원 단일가, 운영시간 확정후 안내, 스크린샷 생성
 
 [Desktop (1440x900)] pages/gate.html
   - Status: PASS (Exit Code: 0)
-  - Screenshot: gate_desktop_1440x900.png (43354 bytes)
-  - DOM Length: 71622 chars
+  - Screenshot: gate_desktop_1440x900.png (42753 bytes)
+  - DOM Length: 71694 chars
   - Assertions: 체류 인원 카운터, 수용 정원 바, 스크린샷 생성
 
 [Desktop (1440x900)] pages/operations.html
   - Status: PASS (Exit Code: 0)
-  - Screenshot: operations_desktop_1440x900.png (74545 bytes)
-  - DOM Length: 272823 chars
+  - Screenshot: operations_desktop_1440x900.png (76210 bytes)
+  - DOM Length: 273197 chars
   - Assertions: 매표 콘솔, 동기화 뱃지, 스크린샷 생성
 
 [Desktop (1440x900)] pages/closing.html
   - Status: PASS (Exit Code: 0)
-  - Screenshot: closing_desktop_1440x900.png (61827 bytes)
+  - Screenshot: closing_desktop_1440x900.png (61817 bytes)
   - DOM Length: 117885 chars
   - Assertions: 마감 정산 보드, 일자 선택 컴포넌트, 스크린샷 생성
 
@@ -58,9 +58,9 @@ Date: 2026-09-30T01:07:10.920Z
   GET /pages/booking.html -> 200
   GET /assets/bongplay-site.js -> 200
   GET /assets/config.js -> 200
-  GET /assets/bongplay-sync.js -> 200
   GET /assets/bongplay-id.js -> 200
   GET /assets/print.css -> 200
+  GET /assets/bongplay-sync.js -> 200
   GET /favicon.ico -> 404
   GET /pages/gate.html -> 200
   GET /assets/bongplay-site.js -> 200
@@ -71,20 +71,20 @@ Date: 2026-09-30T01:07:10.920Z
   GET /favicon.ico -> 404
   GET /pages/operations.html -> 200
   GET /assets/bongplay-site.js -> 200
-  GET /assets/config.js -> 200
   GET /assets/bongplay-sync.js -> 200
-  GET /assets/bongplay-id.js -> 200
+  GET /assets/config.js -> 200
   GET /assets/print.css -> 200
+  GET /assets/bongplay-id.js -> 200
   GET /assets/bongplay-notify.js -> 200
   GET /assets/bongplay-wakelock.js -> 200
   GET /favicon.ico -> 404
   GET /pages/closing.html -> 200
   GET /assets/bongplay-site.js -> 200
   GET /assets/config.js -> 200
+  GET /assets/print.css -> 200
   GET /assets/bongplay-sync.js -> 200
   GET /assets/bongplay-notify.js -> 200
   GET /assets/bongplay-id.js -> 200
-  GET /assets/print.css -> 200
 
 ================================================================================
 ALL HEADLESS BROWSER CHECKS COMPLETED SUCCESSFULLY

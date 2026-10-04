@@ -59,7 +59,7 @@
 | CLAUDE-001 | Claude | `claude/CLAUDE-001-branch-asset-inventory` | `068e704` | `docs/migration/CLAUDE-001_클로드브랜치_자산목록.md`, 본 작업표 1행 | 기존 Claude 브랜치 고유 자산 목록·이관 권고 작성 (파일 이동 없음) | PR #2 병합 완료 |
 | CLAUDE-002 | Claude | `claude/CLAUDE-002-analysis-docs` | `3830fad` | `docs/분석/` 신규 2개, 본 작업표 1행 | JEV 분석·지식시스템 v2 설계를 원문 그대로 이관하고 원본 SHA·전제·적용 상태 머리말 추가, 인용·경로 대조 | 벤 검토 통과 / 이력 보존 통합 |
 | GEO-001 | 지오 | `aside/GEO-001-worklog-audit` | `bb0fcec3af437cbb8f171c7cf182874387ce0e57` | `docs/migration/GEO-001_업무로그_비교및실사용검증.md`, 본 행 | 코드 비교 및 배포·시트 연결 검증, 미실행 구분, master 대상 PR | PR #10 병합 완료 aeede4f / 경량 추가 확인 |
-| ANT-001 | 아난티 | `antigravity/ANT-001-operations-integrity` | `ded2f1c` (`origin/master` 최신 병합) | 01 운영 UI·공통 JS·테스트·검증 보고서·본 행 | 전체 화면·핵심 흐름 검증, P0/P1 수정, R1~R4·추가조건 완결, 취소 상태 보류(schema_blocked) 및 아웃박스 보존 어댑터, 실제 3대 E2E 브라우저 업무 흐름 100% 실측 PASS (`e2e_browser_flows.js`), 7,000원 폐지 품목 판매 차단, 버스비 자체 상담 정정, 스크린샷 7종 증적 완비, 총 57건 + 3대 시나리오 전수 통과, BEN-011 완결 | PR #11 최종 완결 / 벤 최종 검토 및 통합 요청 |
+| ANT-001 | 아난티 | `antigravity/ANT-001-operations-integrity` | `ded2f1c` (`origin/master` 최신 병합) | 01 운영 UI·공통 JS·테스트·검증 보고서·본 행 | 전체 화면·핵심 흐름 검증, P0/P1 수정, R1~R4·추가조건 완결, 취소 상태 보류(schema_blocked) 및 아웃박스 보존 어댑터, 실제 3대 E2E 브라우저 업무 흐름 100% 실측 PASS, 폐지 상품 신규 주문 전면 차단(All-or-Nothing 무결성 원칙, 쓰기 0건 보장), 정상 단체 16,800원/짚코스터 단품 7,000원/기타상품 보존, UI 실패 가드 보강, 총 66건 전수 통과 | PR #11 벤 최종 검토 반영 완결 및 최종 통합 요청 |
 | CLAUDE-003 | Claude | `claude/CLAUDE-003-legacy-business-docs` | `3830fad` | `03_봉뜨락_도면및행정자료/_참고_초기기획_20260830/` 신규 5개(원본 4 + README), 본 작업표 1행 | 운영계획서·손익 그리드·채용 제안서 2종을 원본 그대로(blob 동일) 보존, README에 원본 SHA·구버전·현행 판단 미사용 명시. 제안서 2종은 대표 결정(2026-09-29)으로 보관 전용 | 벤 검토 통과 / 이력 보존 통합 |
 | CLAUDE-004 | Claude | `claude/CLAUDE-004-agents-design` | `3830fad` | `05_봉플레이_AI에이전트/DESIGN.md` 신규, 본 작업표 1행 | 6종 이관 1차 설계: 기준정보 JSON 계약·입력 스냅샷·숨은 쓰기 경로·테스트 계획·PR 순서 (코드 이동 없음) | 설계 벤 검토 통과 / 이력 보존 통합 |
 | CLAUDE-004b | 클로이 | `claude/CLAUDE-004b-profile-contract` | `2314e75` (+ master `1bc6ff1` 병합) | 05 계약·검증·gate·테스트 (`site_profile.json`, `core/`, `tests/`, README, `env.template`, DESIGN 갱신) | PR #9 R1/R2 요금 추출 누락 보완 후 재검토 | R1/R2 보완 `4613a7a`, 작업 폴더 지정·실행 환경 문서화 추가, Linux·Python 3.11.15에서 키 없이 83건 통과 / PR 본문 최신화 / 벤 재검토 대기 (Windows 재실행 미확인) |
@@ -114,7 +114,7 @@ COORD-007 / Ben / ben/COORD-007-live-targets / 기준 ed5a2ce / 운영 대상 �
 
 | ID | 담당 | 브랜치 | 범위 | 완료 조건 | 현재 상태 |
 |---|---|---|---|---|---|
-| ANT-001 | 아난티 | antigravity/ANT-001-operations-integrity | 01·QA·본인 행 | 안전점검/POS, 취소/퇴장/전파, 마감 날짜 전환 실제 UI 검증 및 7천원 차단/버스비 정정 | 실측 100% PASS 완료 / PR #11 최종 완결 및 벤 통합 요청 |
+| ANT-001 | 아난티 | antigravity/ANT-001-operations-integrity | 01·QA·본인 행 | 안전점검/POS, 취소/퇴장/전파, 마감 실측 및 폐지상품 주문 우회 차단(쓰기0건)/정상상품 보존 | 폐지품목 주문 원천차단(쓰기0건) 및 5대 회귀 전수 PASS(총 66건) / PR #11 최종 완결 |
 | CLAUDE-005 | 클로이 | claude/CLAUDE-005-price-promotion-readiness (착수 master `38d0c00`) | 승격 준비 문서·본인 행 | 출처 SHA/품목/변경필드/검사 결과 정리 | 사전 점검 완료 — `docs/migration/CLAUDE-005_요금계약_승격준비.md`, #11 `db509c7` 대조 승격 모의 4/4 통과, 결정 요청 D1~D4 / 실제 승격은 #11 병합 후 별도 지시 |
 | GEO-003 | 지오 | aside/GEO-003-archive-parity (기준 `38d0c00`) | 통합 대조 문서·본인 행 | 현행→내부 기능/자료연결/직원보호 대조 | 읽기 대조 완료, `docs/qa/GEO-003_내부아카이브_통합대조.md` master 대상 PR 제출 / 미인증 목록 수신 확인, 벤 검토 대기 |
 | COORD-009 | Ben | ben/COORD-009-next-assignments | 본 지시·작업표 | 범위·의존·완료 기준 명시 | 대표 실행 요청에 따라 배정 |

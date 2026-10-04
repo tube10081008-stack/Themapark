@@ -664,3 +664,167 @@ test('8. [추가 조건 4] 기준정보 요금(15,000원), 명칭, 운영시간 
   assert.ok(idJs.includes("effective_to: '2026-09-29'"), 'bongplay-id.js에서 구 요금 유효기간 종료 처리 확인');
   assert.ok(coreJs.includes("effective_to: '2026-09-29'"), 'bongplay-id-core.js에서 구 요금 유효기간 종료 처리 확인');
 });
+
+// -----------------------------------------------------------------------------
+// 9. [PR #11 회귀] 폐지 상품 신규 주문 전면 차단 및 정상 주문 보존 무결성 검증
+// -----------------------------------------------------------------------------
+test('9. [PR #11 회귀] 폐지 상품 신규 주문 전면 차단 및 정상 주문 보존 무결성 검증', async (t) => {
+  function createMockEnvironment() {
+    const store = {};
+    const mockLocalStorage = {
+      getItem: (key) => (store[key] !== undefined ? store[key] : null),
+      setItem: (key, val) => { store[key] = String(val); },
+      removeItem: (key) => { delete store[key]; },
+      clear: () => { Object.keys(store).forEach(k => delete store[k]); }
+    };
+
+    const syncCalls = [];
+    const mockBongplaySync = {
+      upsert: (table, record) => {
+        syncCalls.push({ table, record });
+        return Promise.resolve({ ok: true });
+      }
+    };
+
+    const mockGlobal = {
+      localStorage: mockLocalStorage,
+      BongplaySync: mockBongplaySync,
+      console: console,
+      Date: Date,
+      Math: Math,
+      JSON: JSON
+    };
+
+    new Function('window', 'global', 'localStorage', readFile('assets/bongplay-id.js'))(mockGlobal, mockGlobal, mockLocalStorage);
+    return {
+      BongplayID: mockGlobal.BongplayID,
+      store,
+      syncCalls,
+      mockLocalStorage
+    };
+  }
+
+  await t.test('9-1. 옛 폐지ID 단독 주문 (PROD_GROUP_VOUCHER) -> 쓰기 0건 및 success: false 검증', () => {
+    const env = createMockEnvironment();
+    const res = env.BongplayID.createOrder({
+      order_id: 'BEN-TEST-VOUCHER',
+      items: [{ product_id: 'PROD_GROUP_VOUCHER', quantity: 1, list_price: 7000 }]
+    });
+
+    assert.equal(res.success, false, '폐지 품목 단독 주문 시 success는 false여야 함');
+    assert.equal(res.error, 'DEPRECATED_PRODUCT_BLOCKED', '에러 코드는 DEPRECATED_PRODUCT_BLOCKED');
+    assert.equal(env.store['bongplay_order_items'], undefined, 'order_items 스토리지 쓰기 0건 보장');
+    assert.equal(env.store['bongplay_order_payments'], undefined, 'order_payments 스토리지 쓰기 0건 보장');
+    assert.equal(env.syncCalls.length, 0, 'BongplaySync.upsert 동기화 호출 0건 보장');
+  });
+
+  await t.test('9-2. 정상 + 폐지 혼합 주문 -> 전체 거부 및 쓰기 0건 (부분 저장 원천 차단) 검증', () => {
+    const env = createMockEnvironment();
+    const res = env.BongplayID.createOrder({
+      order_id: 'BEN-TEST-MIXED',
+      items: [
+        { product_id: 'tkt_basic', quantity: 1, list_price: 15000 },
+        { product_id: 'PROD_GROUP_VOUCHER', quantity: 1, list_price: 7000 }
+      ]
+    });
+
+    assert.equal(res.success, false, '폐지 품목이 혼합된 주문은 전체 거부되어야 함 (All-or-Nothing)');
+    assert.equal(res.error, 'DEPRECATED_PRODUCT_BLOCKED');
+    assert.equal(env.store['bongplay_order_items'], undefined, '정상 품목도 부분 저장되지 않고 order_items 쓰기 0건');
+    assert.equal(env.store['bongplay_order_payments'], undefined, 'order_payments 쓰기 0건');
+    assert.equal(env.syncCalls.length, 0, 'BongplaySync.upsert 호출 0건');
+  });
+
+  await t.test('9-3. 명시적 payments 포함 폐지 주문 (벤 BEN-SYNTHETIC 재현) -> 쓰기 0건 검증', () => {
+    const env = createMockEnvironment();
+    const res = env.BongplayID.createOrder({
+      order_id: 'BEN-SYNTHETIC',
+      items: [{ product_id: 'PROD_GROUP_VOUCHER', quantity: 1, list_price: 7000 }],
+      payments: [{ method: 'card', amount: 7000 }]
+    });
+
+    assert.equal(res.success, false, '명시적 결제수단이 있어도 폐지 품목이면 실패 반환');
+    assert.equal(res.error, 'DEPRECATED_PRODUCT_BLOCKED');
+    assert.equal(env.store['bongplay_order_items'], undefined, 'order_items 쓰기 0건');
+    assert.equal(env.store['bongplay_order_payments'], undefined, '명시적 결제정보가 있어도 order_payments 쓰기 0건 차단');
+    assert.equal(env.syncCalls.length, 0, '동기화 upsert 호출 0건');
+  });
+
+  await t.test('9-4. 정상 단체 16,800원 주문 (PROD_GROUP_ALL) -> 정상 통과 및 저장 검증', () => {
+    const env = createMockEnvironment();
+    const res = env.BongplayID.createOrder({
+      order_id: 'ORD-GROUP-16800',
+      items: [{ product_id: 'PROD_GROUP_ALL', quantity: 1, list_price: 16800 }],
+      payments: [{ method: 'card', amount: 16800 }]
+    });
+
+    assert.equal(res.success, true, '정상 단체 주문은 success: true');
+    assert.equal(res.total_amount, 16800);
+    assert.equal(res.items.length, 1);
+    assert.equal(res.items[0].product_id, 'PROD_GROUP_ALL');
+    assert.equal(res.items[0].paid_amount, 16800);
+    assert.equal(res.payments.length, 1);
+    assert.equal(res.payments[0].amount, 16800);
+
+    const savedItems = JSON.parse(env.store['bongplay_order_items'] || '[]');
+    const savedPayments = JSON.parse(env.store['bongplay_order_payments'] || '[]');
+    assert.equal(savedItems.length, 1, 'order_items에 1건 정상 저장');
+    assert.equal(savedPayments.length, 1, 'order_payments에 1건 정상 저장');
+    assert.equal(env.syncCalls.length, 2, 'BongplaySync.upsert 2건 정상 호출 (item 1건, payment 1건)');
+  });
+
+  await t.test('9-5. 짚코스터 단품 7,000원 주문 (ride_coaster_single) -> 정상 통과 및 보존 검증', () => {
+    const env = createMockEnvironment();
+    const res = env.BongplayID.createOrder({
+      order_id: 'ORD-COASTER-7000',
+      items: [{ product_id: 'ride_coaster_single', quantity: 1, list_price: 7000 }],
+      payments: [{ method: 'card', amount: 7000 }]
+    });
+
+    assert.equal(res.success, true, '짚코스터 단품 7,000원 주문은 정상 통과');
+    assert.equal(res.total_amount, 7000);
+    assert.equal(res.items.length, 1);
+    assert.equal(res.items[0].product_id, 'ride_coaster_single');
+    assert.equal(res.items[0].paid_amount, 7000);
+    assert.equal(res.items[0].product_name, '짚코스터 1회 탑승권 (단품)');
+
+    const savedItems = JSON.parse(env.store['bongplay_order_items'] || '[]');
+    assert.equal(savedItems.length, 1, 'order_items 정상 저장');
+    assert.equal(savedItems[0].paid_amount, 7000);
+  });
+
+  await t.test('9-6. 허용된 기타 상품 (custom_item) 주문 정상 보존 검증', () => {
+    const env = createMockEnvironment();
+    const res = env.BongplayID.createOrder({
+      order_id: 'ORD-CUSTOM-VALID',
+      items: [{ product_id: 'custom_item', product_name: '현장 특별 체험키트', list_price: 5000, quantity: 2 }],
+      payments: [{ method: 'cash', amount: 10000 }]
+    });
+
+    assert.equal(res.success, true, '허용된 기타 상품은 정상 주문 가능');
+    assert.equal(res.total_amount, 10000);
+    assert.equal(res.items[0].product_id, 'custom_item');
+    assert.equal(res.items[0].product_name, '현장 특별 체험키트');
+  });
+
+  await t.test('9-7. 구 프로모션 폐지 품목 (PROD_CHILD_BASIC_PROMO, 14,000원) 차단 및 쓰기 0건 검증', () => {
+    const env = createMockEnvironment();
+    const res = env.BongplayID.createOrder({
+      order_id: 'ORD-PROMO-14000',
+      items: [{ product_id: 'PROD_CHILD_BASIC_PROMO', quantity: 1, list_price: 14000 }]
+    });
+
+    assert.equal(res.success, false, '14,000원 프로모션 폐지 상품 차단');
+    assert.equal(res.error, 'DEPRECATED_PRODUCT_BLOCKED');
+    assert.equal(env.store['bongplay_order_items'], undefined, '쓰기 0건 보장');
+    assert.equal(env.syncCalls.length, 0, '동기화 쓰기 0건 보장');
+  });
+
+  await t.test('9-8. UI 호출부 (operations.html, consent-desk.html) createOrder 실패 가드 코드 검증', () => {
+    const opsHtml = readFile('pages/operations.html');
+    const deskHtml = readFile('pages/consent-desk.html');
+
+    assert.ok(opsHtml.includes('!order || order.success === false'), 'operations.html에 createOrder 실패 가드 존재');
+    assert.ok(deskHtml.includes('!order || order.success === false'), 'consent-desk.html에 createOrder 실패 가드 존재');
+  });
+});

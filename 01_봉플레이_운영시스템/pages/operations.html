@@ -3032,6 +3032,11 @@
           payments: payments
         });
 
+        if (!order || order.success === false) {
+          alert(order && order.message ? `❌ 주문 실패: ${order.message}` : '❌ 주문 처리에 실패했습니다 (폐지 품목 또는 데이터 오류).');
+          return;
+        }
+
         // 실적 패드가 열려 있으면 결제 원장 기준으로 즉시 재집계 (수기 가산 폐지)
         if (!document.getElementById('entryModal')?.classList.contains('hidden')) {
           applyLedgerToEntryPad();

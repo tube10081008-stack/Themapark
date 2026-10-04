@@ -19,7 +19,7 @@
     "cdnScripts": 4,
     "localStyles": 0,
     "cdnStyles": 1,
-    "bytes": 42226
+    "bytes": 43150
   },
   {
     "file": "pages/survey.html",
@@ -41,7 +41,7 @@
     "cdnScripts": 3,
     "localStyles": 1,
     "cdnStyles": 0,
-    "bytes": 48246
+    "bytes": 49212
   },
   {
     "file": "pages/consent-desk.html",
@@ -52,7 +52,7 @@
     "cdnScripts": 4,
     "localStyles": 1,
     "cdnStyles": 0,
-    "bytes": 64930
+    "bytes": 65115
   },
   {
     "file": "pages/operations.html",
@@ -63,7 +63,7 @@
     "cdnScripts": 4,
     "localStyles": 1,
     "cdnStyles": 3,
-    "bytes": 210617
+    "bytes": 214871
   },
   {
     "file": "pages/gate.html",
@@ -74,7 +74,7 @@
     "cdnScripts": 4,
     "localStyles": 0,
     "cdnStyles": 0,
-    "bytes": 48508
+    "bytes": 49605
   },
   {
     "file": "pages/safety-check.html",
@@ -96,7 +96,7 @@
     "cdnScripts": 3,
     "localStyles": 1,
     "cdnStyles": 0,
-    "bytes": 75918
+    "bytes": 77451
   },
   {
     "file": "pages/management.html",
@@ -129,7 +129,7 @@
     "cdnScripts": 3,
     "localStyles": 0,
     "cdnStyles": 0,
-    "bytes": 50088
+    "bytes": 51149
   },
   {
     "file": "pages/emergency.html",
@@ -184,7 +184,7 @@
     "cdnScripts": 0,
     "localStyles": 1,
     "cdnStyles": 0,
-    "bytes": 5120
+    "bytes": 5244
   },
   {
     "file": "forms/quotation.html",
@@ -195,7 +195,7 @@
     "cdnScripts": 0,
     "localStyles": 1,
     "cdnStyles": 0,
-    "bytes": 4738
+    "bytes": 4852
   },
   {
     "file": "forms/invoice.html",
@@ -206,7 +206,7 @@
     "cdnScripts": 0,
     "localStyles": 1,
     "cdnStyles": 0,
-    "bytes": 5487
+    "bytes": 5631
   },
   {
     "file": "forms/incident-report.html",
@@ -217,7 +217,7 @@
     "cdnScripts": 0,
     "localStyles": 1,
     "cdnStyles": 0,
-    "bytes": 5402
+    "bytes": 5534
   },
   {
     "file": "forms/safety-training.html",
@@ -228,7 +228,7 @@
     "cdnScripts": 0,
     "localStyles": 1,
     "cdnStyles": 0,
-    "bytes": 4521
+    "bytes": 4626
   },
   {
     "file": "forms/facility-change.html",
@@ -239,7 +239,7 @@
     "cdnScripts": 0,
     "localStyles": 1,
     "cdnStyles": 0,
-    "bytes": 4468
+    "bytes": 4579
   },
   {
     "file": "forms/operation-report.html",
@@ -250,7 +250,7 @@
     "cdnScripts": 0,
     "localStyles": 1,
     "cdnStyles": 0,
-    "bytes": 5420
+    "bytes": 5540
   },
   {
     "file": "forms/employment-contract.html",
@@ -261,7 +261,7 @@
     "cdnScripts": 0,
     "localStyles": 1,
     "cdnStyles": 0,
-    "bytes": 4474
+    "bytes": 4571
   },
   {
     "file": "forms/employment-cert.html",
@@ -272,7 +272,7 @@
     "cdnScripts": 0,
     "localStyles": 1,
     "cdnStyles": 0,
-    "bytes": 3309
+    "bytes": 3388
   },
   {
     "file": "forms/payslip.html",
@@ -283,7 +283,7 @@
     "cdnScripts": 0,
     "localStyles": 1,
     "cdnStyles": 0,
-    "bytes": 5059
+    "bytes": 5174
   },
   {
     "file": "forms/inspection-cert.html",
@@ -294,6 +294,6 @@
     "cdnScripts": 0,
     "localStyles": 1,
     "cdnStyles": 0,
-    "bytes": 4899
+    "bytes": 5013
   }
 ]

@@ -756,6 +756,79 @@
     });
   }
 
+  /* ---------- 4-1-1. 상품 폐지 여부 및 상품 정보 매핑 헬퍼 (Section 7 SSOT 연동) ---------- */
+  const KNOWN_DEPRECATED_PRODUCT_IDS = ['PROD_GROUP_VOUCHER', 'PROD_CHILD_BASIC_PROMO'];
+
+  function isDeprecatedProduct(productId, item) {
+    if (item && (item.deprecated === true || item.is_active === false)) {
+      return true;
+    }
+    if (!productId) return false;
+
+    if (KNOWN_DEPRECATED_PRODUCT_IDS.indexOf(productId) !== -1) {
+      return true;
+    }
+
+    const pProd = PRODUCTS[productId];
+    if (pProd && (pProd.deprecated === true || pProd.is_active === false)) {
+      return true;
+    }
+
+    const pMaster = MASTER_PRODUCTS[productId];
+    if (pMaster && (pMaster.deprecated === true || pMaster.is_active === false)) {
+      return true;
+    }
+
+    const pCat = PRODUCT_CATALOG.find(function (p) { return p.id === productId; });
+    if (pCat && (pCat.deprecated === true || pCat.is_active === false)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  function resolveProduct(item) {
+    if (!item) {
+      return {
+        id: 'custom_item',
+        name: '기타 상품',
+        category: 'fnb',
+        list_price: 0
+      };
+    }
+
+    const productId = item.product_id;
+    // 1. PRODUCTS (PRODUCT_CATALOG 기반)
+    const catProd = productId ? (PRODUCTS[productId] || PRODUCT_CATALOG.find(function (p) { return p.id === productId; })) : null;
+    if (catProd) {
+      return {
+        id: catProd.id,
+        name: item.product_name || catProd.name,
+        category: item.product_category || catProd.category,
+        list_price: Number(item.list_price != null ? item.list_price : (catProd.list_price != null ? catProd.list_price : (catProd.price || 0)))
+      };
+    }
+
+    // 2. MASTER_PRODUCTS (기준정보 마스터)
+    const masterProd = productId ? MASTER_PRODUCTS[productId] : null;
+    if (masterProd) {
+      return {
+        id: masterProd.product_id,
+        name: item.product_name || masterProd.product_name,
+        category: item.product_category || masterProd.product_category,
+        list_price: Number(item.list_price != null ? item.list_price : (masterProd.price || 0))
+      };
+    }
+
+    // 3. 허용된 커스텀/기타 품목 (custom_item)
+    return {
+      id: productId || 'custom_item',
+      name: item.product_name || '기타 상품',
+      category: item.product_category || 'fnb',
+      list_price: Number(item.list_price != null ? item.list_price : (item.price || 0))
+    };
+  }
+
   /* ---------- 4-2. 주문 및 상품 항목 단위 등록 (P0-1 Order Items Ledger) ---------- */
   function createOrder(orderParams) {
     orderParams = orderParams || {};
@@ -768,23 +841,50 @@
     const staffId = orderParams.staff_id || 'stf_jiyeon';
 
     const itemsInput = Array.isArray(orderParams.items) ? orderParams.items : [];
-    const orderItems = [];
 
-    itemsInput.forEach((item, idx) => {
-      const prod = PRODUCTS[item.product_id] || {
-        id: item.product_id || 'custom_item',
-        name: item.product_name || '기타 상품',
-        category: item.product_category || 'fnb',
-        list_price: Number(item.list_price || item.price || 0)
+    // [사전 검증 1] 품목 배열 유무 검증
+    if (itemsInput.length === 0) {
+      console.warn('[createOrder] Empty items in orderParams:', orderId);
+      return {
+        success: false,
+        error: 'EMPTY_ORDER_ITEMS',
+        message: '주문 품목이 비어있습니다.',
+        order_id: orderId,
+        visit_id: visitId,
+        items: [],
+        payments: [],
+        total_amount: 0,
+        total_quantity: 0
       };
+    }
 
-      if (prod && (prod.deprecated || prod.is_active === false)) {
-        console.warn(`[createOrder] Deprecated product blocked: ${prod.id}`);
-        return;
+    // [사전 검증 2] 폐지 상품 전수 사전 검증 (All-or-Nothing 무결성 원칙)
+    // 주문 항목 중 단 1건이라도 폐지 상품이면 전체 주문을 즉시 거부하며,
+    // order_items / order_payments 로컬 저장 및 BongplaySync.upsert 쓰기 0건을 엄격 보장
+    for (let i = 0; i < itemsInput.length; i++) {
+      const item = itemsInput[i];
+      const pId = item ? (item.product_id || item.id) : null;
+      if (isDeprecatedProduct(pId, item)) {
+        console.warn(`[createOrder] Deprecated product blocked: ${pId} in order ${orderId}`);
+        return {
+          success: false,
+          error: 'DEPRECATED_PRODUCT_BLOCKED',
+          message: `폐지된 상품(${pId || '알 수 없음'})은 신규 주문할 수 없습니다.`,
+          order_id: orderId,
+          visit_id: visitId,
+          items: [],
+          payments: [],
+          total_amount: 0,
+          total_quantity: 0
+        };
       }
+    }
 
+    const orderItems = [];
+    itemsInput.forEach((item, idx) => {
+      const prod = resolveProduct(item);
       const qty = Math.max(1, Number(item.quantity) || 1);
-      const listPrice = Number(item.list_price || prod.list_price || 0);
+      const listPrice = Number(item.list_price != null ? item.list_price : (prod.list_price || 0));
       const discount = Number(item.discount_amount) || 0;
       const paid = Math.max(0, (listPrice * qty) - discount);
 
@@ -864,6 +964,7 @@
     }
 
     return {
+      success: true,
       order_id: orderId,
       visit_id: visitId,
       items: orderItems,
@@ -3426,6 +3527,7 @@
     markVisitEntry: markVisitEntry,
     markVisitExit: markVisitExit,
     createOrder: createOrder,
+    isDeprecatedProduct: isDeprecatedProduct,
     recordFacilityEvent: recordFacilityEvent,
     recordCongestionTelemetry: recordCongestionTelemetry,
     recordOperatorAction: recordOperatorAction,
@@ -3511,5 +3613,5 @@
     MODULES: ['id-core', 'telemetry', 'equipment', 'analytics']
   };
 
-})(typeof window !== 'undefined' ? window : this);
+})(typeof window !== 'undefined' ? window : (typeof global !== 'undefined' ? global : this));
 
