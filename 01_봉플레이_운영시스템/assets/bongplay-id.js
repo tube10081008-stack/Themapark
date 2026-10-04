@@ -182,7 +182,7 @@
     { id: 'tkt_allday',        name: '종합이용권 (기본+짚코스터 1회)', short: '종합권',   category: 'ticket', list_price: 21000, customer: 'child',  discountable: true,  headcount: 1, coaster: true, sort: 10 },
     { id: 'tkt_basic',         name: '기본이용권 (실내+네트챌린지 2시간)', short: '기본권', category: 'ticket', list_price: 15000, customer: 'child',  discountable: true,  headcount: 1, sort: 20 },
     { id: 'tkt_morning',       name: '조조 오전권 (종합, 12시 이전 입장)', short: '조조권', category: 'ticket', list_price: 18000, customer: 'child',  discountable: true,  headcount: 1, coaster: true, time_window: 'morning', sort: 30 },
-    { id: 'tkt_guardian',      name: '보호자 입장권 (카페 음료 포함)',  short: '보호자',   category: 'ticket', list_price: 5000,  customer: 'adult',  discountable: true,  headcount: 1, sort: 40 },
+    { id: 'tkt_guardian',      name: '보호자 입장권 (웰컴 음료 1잔 포함)',  short: '보호자',   category: 'ticket', list_price: 5000,  customer: 'adult',  discountable: true,  headcount: 1, sort: 40 },
     { id: 'tkt_infant_free',   name: '영유아 무료 (36개월 미만)',      short: '영유아',   category: 'ticket', list_price: 0,     customer: 'infant', discountable: false, headcount: 1, sort: 50 },
     { id: 'tkt_teacher_free',  name: '단체 인솔교사 무료',             short: '인솔교사', category: 'ticket', list_price: 0,     customer: 'adult',  discountable: false, headcount: 1, sort: 60 },
     // 2. 놀이시설 단품 / 추가권 (정액 — 할인 비대상)
@@ -311,7 +311,7 @@
     },
     PROD_ADULT_STD: {
       product_id: 'PROD_ADULT_STD',
-      product_name: '보호자 입장권 (음료 1잔 포함)',
+      product_name: '보호자 입장권 (웰컴 음료 1잔 포함)',
       product_category: 'ticket_adult',
       price: 5000,
       effective_from: '2026-01-01',
