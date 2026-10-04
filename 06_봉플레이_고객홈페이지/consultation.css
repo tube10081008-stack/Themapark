@@ -1,1 +1,329 @@
-.consult-open{position:fixed;right:18px;bottom:100px;z-index:40;border:0;border-radius:30px;background:#20583f;color:white;padding:14px 20px;box-shadow:0 4px 16px #0003;font:inherit;cursor:pointer}.consult-dialog{box-sizing:border-box;width:min(94vw,480px);max-height:85dvh;overflow:auto;border:0;border-radius:20px;padding:24px;font:inherit}.consult-dialog::backdrop{background:#0006}.consult-dialog p{font-size:14px;line-height:1.65}.consult-log{max-height:34dvh;overflow:auto;background:#f4f6f2;border-radius:12px;padding:12px;margin:12px 0;overflow-wrap:anywhere}.consult-dialog textarea{box-sizing:border-box;width:100%;font:inherit;margin:8px 0;padding:10px}.consult-dialog button{font:inherit;padding:8px 12px;border:1px solid #b9c8be;border-radius:8px;margin:4px;cursor:pointer}.consult-dialog button:disabled{opacity:.5}.consult-dialog a{display:inline-block;margin-top:14px}
+/* consultation.css — 봉플레이 JEV AI 상담 모달 스타일 (ANT-004) */
+
+.consult-open {
+  position: fixed;
+  right: 18px;
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  z-index: 50;
+  border: 0;
+  border-radius: 30px;
+  background: #20583f;
+  color: #ffffff;
+  padding: 14px 22px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  font: inherit;
+  font-weight: 700;
+  font-size: 15px;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.consult-open:hover {
+  background: #184431;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+}
+
+.consult-open:focus-visible {
+  outline: 3px solid #e89637;
+  outline-offset: 3px;
+}
+
+.consult-dialog {
+  box-sizing: border-box;
+  width: min(94vw, 480px);
+  max-height: 85dvh;
+  margin: auto;
+  overflow: hidden;
+  border: 0;
+  border-radius: 20px;
+  padding: 0;
+  background: #ffffff;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  font: inherit;
+  color: #1a2e24;
+}
+
+.consult-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.consult-dialog-inner {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding: 24px;
+  max-height: 85dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.consult-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.consult-header h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  color: #20583f;
+}
+
+.consult-close {
+  background: transparent;
+  border: none;
+  font-size: 20px;
+  color: #5c7063;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 8px;
+  min-width: 36px;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.consult-close:hover {
+  background: #f0f3ee;
+  color: #194b3b;
+}
+
+.consult-notice {
+  margin: 0 0 4px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #20583f;
+}
+
+.consult-privacy-warning {
+  margin: 0 0 12px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #6a7c71;
+  background: #faf8f5;
+  border-left: 3px solid #e89637;
+  padding: 6px 10px;
+  border-radius: 4px;
+}
+
+.consult-log {
+  flex: 1 1 auto;
+  min-height: 140px;
+  max-height: 32dvh;
+  overflow-y: auto;
+  background: #f4f6f2;
+  border: 1px solid #e1e7de;
+  border-radius: 12px;
+  padding: 12px;
+  margin: 0 0 12px 0;
+  overflow-wrap: anywhere;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.consult-msg {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  max-width: 92%;
+}
+
+.consult-msg-user {
+  align-self: flex-end;
+  background: #20583f;
+  color: #ffffff;
+  border-bottom-right-radius: 2px;
+}
+
+.consult-msg-bot {
+  align-self: flex-start;
+  background: #ffffff;
+  color: #1a2e24;
+  border: 1px solid #dbe2d8;
+  border-bottom-left-radius: 2px;
+}
+
+.consult-msg-source {
+  align-self: flex-start;
+  background: transparent;
+  color: #7b8e83;
+  font-size: 11px;
+  padding: 0 4px;
+  margin-top: -4px;
+}
+
+.consult-msg-warning {
+  align-self: center;
+  background: #fff8eb;
+  color: #945305;
+  border: 1px solid #fed7aa;
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.consult-msg-error {
+  align-self: center;
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.consult-topics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.consult-topic-btn {
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 11px;
+  border: 1px solid #c2cec6;
+  border-radius: 16px;
+  background: #ffffff;
+  color: #20583f;
+  cursor: pointer;
+  min-height: 32px;
+  transition: all 0.12s ease;
+}
+
+.consult-topic-btn:hover {
+  background: #eef3ec;
+  border-color: #20583f;
+}
+
+.consult-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.consult-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #20583f;
+}
+
+.consult-form textarea {
+  box-sizing: border-box;
+  width: 100%;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 10px 12px;
+  border: 1px solid #b9c8be;
+  border-radius: 10px;
+  resize: vertical;
+  min-height: 64px;
+}
+
+.consult-form textarea:focus-visible {
+  outline: 2px solid #20583f;
+  border-color: #20583f;
+}
+
+.consult-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.consult-submit {
+  font: inherit;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 10px 20px;
+  background: #20583f;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  min-height: 42px;
+  transition: background 0.15s ease;
+}
+
+.consult-submit:hover:not(:disabled) {
+  background: #184431;
+}
+
+.consult-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.consult-close-btn {
+  font: inherit;
+  font-size: 14px;
+  padding: 10px 16px;
+  background: #f0f3ee;
+  color: #3b5043;
+  border: 1px solid #c8d3ca;
+  border-radius: 8px;
+  cursor: pointer;
+  min-height: 42px;
+}
+
+.consult-close-btn:hover {
+  background: #e4ebe2;
+}
+
+.consult-footer {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid #eef2eb;
+  text-align: center;
+}
+
+.consult-tel-link {
+  display: inline-block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #20583f;
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+
+.consult-tel-link:hover {
+  text-decoration: underline;
+  background: #f4f6f2;
+}
+
+/* 모바일 뷰포트 (390px 등) 대응 */
+@media (max-width: 480px) {
+  .consult-dialog {
+    width: 96vw;
+    border-radius: 16px;
+  }
+  .consult-dialog-inner {
+    padding: 16px;
+  }
+  .consult-open {
+    right: 14px;
+    padding: 12px 18px;
+    font-size: 14px;
+  }
+  .consult-topics {
+    gap: 4px;
+  }
+  .consult-topic-btn {
+    padding: 5px 9px;
+    font-size: 12px;
+  }
+}
