@@ -1,0 +1,119 @@
+{
+  "version": "ben-019-contract-v1",
+  "fact_source": "06_봉플레이_고객홈페이지/netlify/functions/lib/knowledge.mjs",
+  "blocks": [
+    {
+      "id": "price.basic",
+      "kind": "fact",
+      "required_confirmed": [
+        "price.tkt_basic",
+        "price.child_basis"
+      ],
+      "template": "어린이 기본 이용권은 {{price.tkt_basic}}이에요.",
+      "fallback": "기본 이용권 요금은 담당자에게 확인해 주세요."
+    },
+    {
+      "id": "price.comprehensive",
+      "kind": "fact",
+      "required_confirmed": [
+        "price.tkt_allday",
+        "price.child_basis"
+      ],
+      "template": "어린이 종합 이용권은 {{price.tkt_allday}}이에요.",
+      "fallback": "종합 이용권 요금은 담당자에게 확인해 주세요."
+    },
+    {
+      "id": "price.guardian",
+      "kind": "fact",
+      "required_confirmed": [
+        "price.tkt_guardian"
+      ],
+      "template": "보호자 입장권은 {{price.tkt_guardian}}이에요.",
+      "fallback": "보호자 입장권 요금은 담당자에게 확인해 주세요."
+    },
+    {
+      "id": "benefit.drink",
+      "kind": "fact",
+      "required_confirmed": [
+        "benefit.guardian_drink"
+      ],
+      "template": "보호자 입장권은 {{benefit.guardian_drink}}이에요. 음료 종류와 이용 방법은 방문 전에 확인해 주세요.",
+      "fallback": "음료 제공 여부와 이용 방법은 담당자에게 확인해 주세요."
+    },
+    {
+      "id": "price.group",
+      "kind": "fact",
+      "required_confirmed": [
+        "price.group_allday",
+        "group.min_size"
+      ],
+      "template": "{{group.min_size}} 이상 단체 종합권은 1인 {{price.group_allday}}으로 안내하고 있어요. 인솔자 조건은 담당자에게 확인해 주세요.",
+      "fallback": "단체 요금과 적용 인원은 담당자에게 확인해 주세요."
+    },
+    {
+      "id": "discount.resident",
+      "kind": "fact",
+      "required_confirmed": [
+        "discount.resident_rate"
+      ],
+      "template": "봉화군민은 {{discount.resident_rate}} 우대 할인이 있고 현장에서 신분증을 확인해요. 적용 권종과 할인 중복 여부는 확인이 필요해요.",
+      "fallback": "군민 할인 조건은 담당자에게 확인해 주세요."
+    },
+    {
+      "id": "location.address",
+      "kind": "fact",
+      "required_confirmed": [
+        "address.road"
+      ],
+      "template": "주소는 {{address.road}}이에요.",
+      "fallback": "주소는 담당자에게 확인해 주세요."
+    },
+    {
+      "id": "facilities.outdoor",
+      "kind": "fact",
+      "required_confirmed": [
+        "facility.outdoor_attractions"
+      ],
+      "template": "야외에는 {{facility.outdoor_attractions}}가 있어요. 이용 조건과 날씨에 따른 운영 여부는 현장 안내를 확인해 주세요.",
+      "fallback": "시설 이용 조건은 현장 안내를 확인해 주세요."
+    },
+    {
+      "id": "hours.pending",
+      "kind": "status_notice",
+      "fact": "hours.open",
+      "required_status": "undetermined",
+      "template": "운영일과 운영시간은 확정 후 안내해요. 지금은 실시간 입장 가능 여부를 확인할 수 없어 방문 전에 담당자 확인이 필요해요."
+    },
+    {
+      "id": "group.bus_pending",
+      "kind": "status_notice",
+      "fact": "group.bus_support",
+      "required_status": "planned",
+      "template": "버스비 지원은 계획 단계예요. 지원 금액과 대상 규모는 아직 확정되지 않았어요."
+    },
+    {
+      "id": "policy.booking",
+      "kind": "policy",
+      "policy_basis": "cs-policy.md",
+      "template": "이 상담에서는 예약 접수·결제·확정이 진행되지 않아요. 방문 가능 여부는 담당자에게 문의해 주세요."
+    },
+    {
+      "id": "policy.staff",
+      "kind": "policy",
+      "policy_basis": "cs-policy.md",
+      "template": "이 문의는 담당자 확인이 필요해요. 상담 내용이 직원에게 자동 전달되거나 접수되지는 않으니 아래 전화 문의를 이용해 주세요."
+    },
+    {
+      "id": "policy.eligibility",
+      "kind": "policy",
+      "policy_basis": "cs-policy.md",
+      "template": "연령·키·시설별 이용 조건은 담당자나 현장 안내로 확인해 주세요. 제가 이용 가능 여부를 확정할 수는 없어요."
+    },
+    {
+      "id": "policy.parking",
+      "kind": "policy",
+      "policy_basis": "cs-policy.md",
+      "template": "주차 가능 대수와 버스 진입 조건은 담당자에게 확인해 주세요."
+    }
+  ]
+}
