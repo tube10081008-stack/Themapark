@@ -156,3 +156,6 @@ COORD-007 / Ben / ben/COORD-007-live-targets / 기준 ed5a2ce / 운영 대상 �
 
 ## BEN-017 보호자권 안내 통일
 벤 / BEN-015 통합 브랜치에서 연계 변경(조정 예외), 기준 e1b775b / 01 표시 문구·06 홈페이지·상담 지식 / 5,000원 유지, 웰컴 음료 1잔 포함 통일 / 운영 배포 없음. 근거 docs/migration/BEN-017_보호자권_웰컴음료.md
+
+## BEN-018 상담 홈페이지 배포
+벤 / ben/BEN-015-jev-consultation 연계 / 기준 d25db16 / 06 릴리스 스크립트·상담 버튼·배포 문서 / 대표 승인 ZIP 배포, 공개 UI 검증, Sakana 서버 설정 준비 / runtime-enabled 패키지 준비, Upstash 미준비로 실제 모델 연결 대기

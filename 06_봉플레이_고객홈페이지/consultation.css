@@ -3,7 +3,8 @@
 .consult-open {
   position: fixed;
   right: 18px;
-  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  /* Leave room for the hosting badge on the public production page. */
+  bottom: calc(96px + env(safe-area-inset-bottom, 0px));
   z-index: 50;
   border: 0;
   border-radius: 30px;
