@@ -159,3 +159,10 @@ COORD-007 / Ben / ben/COORD-007-live-targets / 기준 ed5a2ce / 운영 대상 �
 
 ## BEN-018 상담 홈페이지 배포
 벤 / ben/BEN-015-jev-consultation 연계 / 기준 d25db16 / 06 릴리스 스크립트·상담 버튼·배포 문서 / 대표 승인 ZIP 배포, 공개 UI 검증, Sakana 서버 설정 준비 / runtime-enabled 패키지 준비, Upstash 미준비로 실제 모델 연결 대기
+
+## BEN-019 대화형 상담과 CS 교육
+벤 / ben/BEN-015-jev-consultation 연계 문서(조정 예외) / 기준 `30a08a24705d3add60fb97171632ed37b20538d4` / docs/tasks/BEN-019_봉이_대화형상담_CS설계.md 및 작업표 / 캐릭터·CS·대화 문맥·검증·담당 경계 확정 / 설계 작성, 구현·배포 미실행
+- CLAUDE-010: 클로이, 정책·세부 지식 계약·합성 평가 자료. 위 기준에서 별도 claude/CLAUDE-010-conversation-cs 브랜치. 지식 계약을 우선 제출.
+- ANT-005: 아난티, 위 기준에서 antigravity/ANT-005-conversation-assistant 브랜치. 상담 UI 골격 병행 가능, 백엔드는 CLAUDE-010 계약 검토 후 연결. 신규 모듈의 build-release 허용 목록 반영 필수.
+- GEO-007: 지오, 미리보기 배포 후 합성 대화 QA. 현재는 시나리오 준비만 가능. 운영 환경변수·실데이터 수정 없음.
+- 공통: 각자 별도 작업 공간, master 직접 푸시 금지. 구현 PR에는 BEN-015 의존성을 명시하고 master 병합 전 벤이 통합 순서를 조정한다.
