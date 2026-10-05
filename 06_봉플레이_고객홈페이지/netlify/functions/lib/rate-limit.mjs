@@ -323,3 +323,36 @@ export async function checkRateLimit(request, options = {}) {
     };
   }
 }
+
+/**
+ * 대화 이력 검증 및 정제 (BEN-019 / ANT-005)
+ * - 클라이언트가 전송한 과거 발화(history)는 신뢰할 수 없는 문맥 데이터임
+ * - 허용 역할: 'user', 'assistant' 만 허용 (system, developer 등 권한 승격 시도 엄격 제외)
+ * - 길이 제한: 건당 최대 800자, 전체 합계 최대 3,200자, 최대 최근 6개 발화
+ * - 개인정보 탐지: 전화번호, 이메일, 주민등록번호 패턴 포함 발화는 문맥 전달에서 제외
+ */
+export function sanitizeHistory(history) {
+  if (!history || !Array.isArray(history)) return [];
+  const allowed = [];
+  let totalLength = 0;
+  // 최근 발화 최대 6개 추출
+  const recentTurns = history.slice(-6);
+  for (const turn of recentTurns) {
+    if (!turn || typeof turn !== 'object') continue;
+    // 역할 검증: user 및 assistant 만 허용 (system/developer 등 거부)
+    if (turn.role !== 'user' && turn.role !== 'assistant') continue;
+    if (typeof turn.text !== 'string') continue;
+    const cleaned = turn.text.normalize('NFKC').trim().slice(0, 800);
+    if (!cleaned) continue;
+    // 개인정보 패턴 검사: 이메일, 전화번호(+82/010), 주민등록번호
+    if (/\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b|(?:\+82|0\d{1,2})[-\s]?\d{3,4}[-\s]?\d{4}|\d{6}[-\s]?[1-4]\d{6}/.test(cleaned)) {
+      continue; // 민감 발화 제외
+    }
+    if (totalLength + cleaned.length > 3200) {
+      break;
+    }
+    totalLength += cleaned.length;
+    allowed.push({ role: turn.role, text: cleaned });
+  }
+  return allowed;
+}

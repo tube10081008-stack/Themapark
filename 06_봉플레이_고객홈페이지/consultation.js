@@ -1,4 +1,6 @@
 (() => {
+  const INITIAL_GREETING = '안녕하세요, 봉플레이 AI 방문 도우미 봉이예요 🌿 이용권부터 단체 방문 준비까지 함께 살펴볼게요. 어떤 점이 궁금하세요?';
+
   const button = document.createElement('button');
   button.className = 'consult-open';
   button.textContent = 'AI 상담';
@@ -13,16 +15,21 @@
   dialog.innerHTML = [
     '<div class="consult-dialog-inner">',
     '  <div class="consult-header">',
-    '    <h2 id="consult-title">봉플레이 상담 안내</h2>',
-    '    <button type="button" class="consult-close" aria-label="상담 창 닫기">✕</button>',
+    '    <div class="consult-title-wrap">',
+    '      <h2 id="consult-title">봉플레이 AI 방문 도우미 <span class="consult-name">봉이 🌿</span></h2>',
+    '    </div>',
+    '    <div class="consult-header-actions">',
+    '      <button type="button" class="consult-reset-btn" aria-label="새 대화 시작">새 대화</button>',
+    '      <button type="button" class="consult-close" aria-label="상담 창 닫기">✕</button>',
+    '    </div>',
     '  </div>',
-    '  <p class="consult-notice">AI 자동 안내 · 직원 실시간 상담은 아닙니다.</p>',
-    '  <p class="consult-privacy-warning">전화번호·이름·예약번호 등 개인정보는 입력하지 마세요. AI 연결 시 질문은 AI 모델 공급자(Sakana 등)로 전송될 수 있습니다.</p>',
+    '  <p class="consult-notice">AI 방문 도우미 자동 안내 · 직원 실시간 상담은 아닙니다.</p>',
+    '  <p class="consult-privacy-warning">전화번호·이름·예약번호 등 개인정보는 입력하지 마세요. 질문과 최근 대화 일부가 Sakana 등 AI 공급자로 전송될 수 있습니다.</p>',
     '  <div class="consult-log" role="log" aria-live="polite" aria-relevant="additions"></div>',
     '  <div class="consult-topics" aria-label="자주 묻는 주제 빠른 선택"></div>',
     '  <form class="consult-form">',
     '    <label for="consult-question" class="consult-label">궁금한 점</label>',
-    '    <textarea id="consult-question" maxlength="1200" required rows="3" placeholder="예: 이용권 요금이 얼마인가요? (Enter로 전송, Shift+Enter로 줄바꿈)"></textarea>',
+    '    <textarea id="consult-question" maxlength="1200" required rows="3" placeholder="예: 아이랑 가는데 어떤 표가 좋아요? (Enter로 전송, Shift+Enter로 줄바꿈)"></textarea>',
     '    <div class="consult-actions">',
     '      <button type="submit" class="consult-submit">문의하기</button>',
     '      <button type="button" class="consult-close-btn">닫기</button>',
@@ -42,8 +49,31 @@
   const submit = dialog.querySelector('.consult-submit');
   const closeBtn = dialog.querySelector('.consult-close');
   const closeBtnBottom = dialog.querySelector('.consult-close-btn');
+  const resetBtn = dialog.querySelector('.consult-reset-btn');
 
+  // 대화 기억 (In-Memory Conversation History) — BEN-019
+  // 브라우저 메모리에만 최근 6개 발화(사용자·상담사 합계) 보관.
+  // localStorage / sessionStorage / 서버 원장에 절대 영속화하지 않음.
+  // 건당 최대 800자, 전체 합계 최대 3,200자 초과 시 오래된 발화부터 제거.
+  let conversationHistory = [];
+  let conversationGeneration = 1;
+  let currentAbortController = null;
   let lastFocusedElement = null;
+  let busy = false;
+
+  function trimHistory(history) {
+    let trimmed = history.slice(-6);
+    trimmed = trimmed.map(turn => ({
+      role: turn.role === 'assistant' ? 'assistant' : 'user',
+      text: typeof turn.text === 'string' ? turn.text.slice(0, 800) : ''
+    }));
+    let totalLen = trimmed.reduce((sum, t) => sum + t.text.length, 0);
+    while (trimmed.length > 0 && totalLen > 3200) {
+      const removed = trimmed.shift();
+      totalLen -= removed.text.length;
+    }
+    return trimmed;
+  }
 
   function line(text, type = 'info') {
     const p = document.createElement('p');
@@ -56,12 +86,45 @@
     log.scrollTop = log.scrollHeight;
   }
 
+  function showInitialGreeting() {
+    log.innerHTML = '';
+    line(INITIAL_GREETING, 'bot');
+  }
+
+  function resetConversation() {
+    // 1. 진행 중인 비동기 요청 즉시 취소
+    if (currentAbortController) {
+      currentAbortController.abort();
+      currentAbortController = null;
+    }
+    // 2. 대화 세대 ID 증가 (지연된 이전 세대 응답 폐기)
+    conversationGeneration++;
+    busy = false;
+    submit.disabled = false;
+    form.removeAttribute('aria-busy');
+
+    // 3. 브라우저 메모리 대화 이력 초기화
+    conversationHistory = [];
+
+    // 4. 로그 초기화 및 첫 인사 재표시
+    showInitialGreeting();
+
+    // 5. 입력창 비우기 및 포커스
+    input.value = '';
+    input.focus();
+  }
+
+  resetBtn.addEventListener('click', resetConversation);
+
   function openDialog() {
     lastFocusedElement = document.activeElement;
     if (typeof dialog.showModal === 'function') {
       dialog.showModal();
     } else {
       dialog.setAttribute('open', '');
+    }
+    if (log.children.length === 0) {
+      showInitialGreeting();
     }
     input.focus();
   }
@@ -114,8 +177,6 @@
     topicsContainer.append(b);
   }
 
-  let busy = false;
-
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const message = input.value.trim();
@@ -127,19 +188,35 @@
       return;
     }
 
+    const thisGeneration = conversationGeneration;
+    const currentAbort = new AbortController();
+    currentAbortController = currentAbort;
+
     busy = true;
     submit.disabled = true;
     form.setAttribute('aria-busy', 'true');
     line('나: ' + message, 'user');
     input.value = '';
 
+    const historyPayload = trimHistory(conversationHistory);
+
     try {
+      const timeoutId = setTimeout(() => currentAbort.abort(), 9000);
       const res = await fetch('/.netlify/functions/consult', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message }),
-        signal: AbortSignal.timeout(9000)
+        body: JSON.stringify({
+          message,
+          history: historyPayload
+        }),
+        signal: currentAbort.signal
       });
+      clearTimeout(timeoutId);
+
+      // 세대 확인: '새 대화' 클릭 등으로 이전 세대 요청이 된 경우 결과 폐기
+      if (thisGeneration !== conversationGeneration) {
+        return;
+      }
 
       // 2. HTTP 429 레이트 리미트 감지 (일일 한도 마감 vs 1분 분당 제한 구분)
       if (res.status === 429) {
@@ -186,7 +263,15 @@
       if (data.source) {
         line(data.source, 'source');
       }
+
+      // 성공한 발화만 메모리 대화 이력에 추가 (답변 실패 시 assistant 응답 미추가)
+      conversationHistory.push({ role: 'user', text: message });
+      conversationHistory.push({ role: 'assistant', text: data.answer });
+      conversationHistory = trimHistory(conversationHistory);
     } catch (err) {
+      if (thisGeneration !== conversationGeneration) {
+        return;
+      }
       // 5. 타임아웃 / 네트워크 단절 분기
       if (err.name === 'TimeoutError' || err.name === 'AbortError') {
         line('상담 응답 시간이 초과되었습니다 (9초). 잠시 후 다시 시도해 주세요.', 'error');
@@ -197,10 +282,13 @@
         );
       }
     } finally {
-      busy = false;
-      submit.disabled = false;
-      form.removeAttribute('aria-busy');
-      input.focus();
+      if (thisGeneration === conversationGeneration) {
+        busy = false;
+        submit.disabled = false;
+        form.removeAttribute('aria-busy');
+        input.focus();
+        currentAbortController = null;
+      }
     }
   });
 })();

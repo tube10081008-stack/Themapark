@@ -1,5 +1,5 @@
 import { consult } from './lib/consultation.mjs';
-import { checkRateLimit } from './lib/rate-limit.mjs';
+import { checkRateLimit, sanitizeHistory } from './lib/rate-limit.mjs';
 
 const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), {
   status,
@@ -93,10 +93,14 @@ export default async function handler(request, context = {}) {
     // 클라이언트 요청 JSON(input.externalAllowed)은 절대 수용하지 않음 (BEN-016)
     const serverExternalAllowed = Boolean(rl.allowExternal);
 
+    // [대화 이력 정제]: 클라이언트 전달 history의 역할·길이·개인정보 검증 (BEN-019)
+    const safeHistory = sanitizeHistory(input.history);
+
     const result = await consult(input.message, {
       env: safeEnv,
       fetcher: context.fetcher || fetch,
-      externalAllowed: serverExternalAllowed
+      externalAllowed: serverExternalAllowed,
+      history: safeHistory
     });
 
     return json(result);

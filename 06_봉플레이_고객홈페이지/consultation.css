@@ -69,13 +69,66 @@
   align-items: center;
   justify-content: space-between;
   margin-bottom: 8px;
+  gap: 10px;
+}
+
+.consult-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
 .consult-header h2 {
   margin: 0;
-  font-size: 20px;
+  font-size: 19px;
   font-weight: 800;
   color: #20583f;
+  line-height: 1.3;
+}
+
+.consult-name {
+  color: #2e7d32;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.consult-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.consult-reset-btn {
+  background: #f0f5f2;
+  border: 1px solid #c7d8ce;
+  color: #1a4a35;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+}
+
+.consult-reset-btn:hover {
+  background: #e2ede7;
+  border-color: #a8c4b2;
+}
+
+.consult-reset-btn:active {
+  transform: scale(0.97);
+}
+
+.consult-reset-btn:focus-visible {
+  outline: 3px solid #e89637;
+  outline-offset: 2px;
 }
 
 .consult-close {
