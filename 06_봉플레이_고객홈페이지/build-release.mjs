@@ -20,7 +20,7 @@ const assets=[];
 function walk(dir){for(const e of fs.readdirSync(dir,{withFileTypes:true})){const p=path.join(dir,e.name);if(e.isSymbolicLink())throw Error('Links are not supported');if(e.isDirectory())walk(p);else if(allowedAssetNames.has(e.name))assets.push(path.relative(root,p).replaceAll('\\','/'));else throw Error('Unreviewed asset: '+e.name);}}
 walk(path.join(root,'assets'));
 const files=[...publicFiles.filter(p=>!p.startsWith('assets/')).map(p=>[p,'public/'+p]),...assets.map(p=>[p,'public/'+p]),
-  ...['consult.mjs','lib/consultation.mjs','lib/knowledge.mjs','lib/decision-engine.mjs','lib/model-provider.mjs','lib/rate-limit.mjs'].map(p=>['netlify/functions/'+p,'netlify/functions/'+p])];
+  ...['consult.mjs','lib/consultation.mjs','lib/knowledge.mjs','lib/decision-engine.mjs','lib/conversation-engine.mjs','lib/model-provider.mjs','lib/rate-limit.mjs'].map(p=>['netlify/functions/'+p,'netlify/functions/'+p])];
 const prepared=files.map(([src,dest])=>{let bytes=fs.readFileSync(path.join(root,src));if(src.endsWith('/consult.mjs')){
   let code=bytes.toString('utf8');const marker='const env = context.env || process.env || {};';if(!code.includes(marker))throw Error('Handler changed; review release switch');
   const replacement=mode==='basic-guidance'
