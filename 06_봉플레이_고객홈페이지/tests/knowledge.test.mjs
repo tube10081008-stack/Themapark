@@ -92,7 +92,7 @@ test('answers: confirmed values are stated exactly', () => {
   assert.match(answers.price.text, /기본·종합 이용권은 어린이 1인 기준입니다/);
   assert.match(answers.price.text, /봉화군민은 20% 우대 할인이 있으며 현장에서 신분증을 확인합니다/);
   assert.doesNotMatch(answers.group.text, /어린이/, '단체권 어린이 기준은 근거 부족으로 안내하지 않음');
-  assert.equal(answers.price.text, '기본 이용권은 15,000원, 종합 이용권은 21,000원, 보호자 입장권은 5,000원입니다. 기본·종합 이용권은 어린이 1인 기준입니다. 봉화군민은 20% 우대 할인이 있으며 현장에서 신분증을 확인합니다. 할인 중복과 개별 적용 여부는 방문 전에 문의해 주세요.');
+  assert.equal(answers.price.text, '기본 이용권은 15,000원, 종합 이용권은 21,000원, 보호자 입장권은 5,000원입니다. 기본·종합 이용권은 어린이 1인 기준입니다. 봉화군민은 20% 우대 할인이 있으며 현장에서 신분증을 확인합니다. 보호자 입장권은 웰컴 음료 1잔 포함입니다. 할인 중복과 개별 적용 여부는 방문 전에 문의해 주세요.');
   assert.match(answers.group.text, /20인 이상 단체 종합권은 1인 16,800원/);
   assert.match(answers.location.text, /리틀포레스트 봉플레이의 주소는 경상북도 봉화군 봉화읍 유록길 22/);
   assert.match(answers.facilities.text, /짚코스터·네트챌린지/);
@@ -139,7 +139,7 @@ test('published facts are not statable, except contact channels', () => {
 test('current repo: classification snapshot', { skip: !HAVE_REPO && '저장소 전체가 없어 대조 생략' }, () => {
   const r = byId(checkKnowledge(currentInputs()));
   const expected = {
-    'facility.name': 'ok', 'address.road': 'ok', 'price.tkt_guardian': 'ok', 'price.group_allday': 'ok',
+    'benefit.guardian_drink': 'ok', 'facility.name': 'ok', 'address.road': 'ok', 'price.tkt_guardian': 'ok', 'price.group_allday': 'ok',
     'group.min_size': 'ok', 'hours.open': 'ok', 'facility.outdoor_attractions': 'ok', 'group.bus_support': 'ok',
     'booking.mode': 'ok',
     'price.tkt_basic': 'uncertain', // 05 기록 unresolved (승격은 CLAUDE-007 범위)

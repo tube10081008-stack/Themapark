@@ -14,7 +14,7 @@
 //
 // 근거 규칙: BEN-004 "오래된 confirmed와 새 근거가 충돌하면 해당 값은 고객용 출력에서 보류".
 
-export const KNOWLEDGE_VERSION = 'claude-009/2';
+export const KNOWLEDGE_VERSION = 'ben-017/1';
 // 고객 화면에 보이는 출처 설명 (내부 작업 코드·SHA 는 넣지 않는다)
 export const CUSTOMER_SOURCE = '리틀포레스트 봉플레이 공개 안내 기준 (2026-10-05)';
 export const STATUSES = Object.freeze(['confirmed', 'published', 'undetermined', 'planned', 'abolished']);
@@ -25,16 +25,17 @@ export const STATUSES = Object.freeze(['confirmed', 'published', 'undetermined',
 // 출처 변경 시 갱신 책임은 클로이, 통합 판단은 벤 (BEN-015 R1). 값 재승인 없이 SHA 만 바꾸지 않는다.
 export const READ_AT_COMMIT = 'c935504ef7e87a700b7f8a99b1fc6daf60035186';
 export const SOURCES = Object.freeze({
+  decision_ben017: { path: 'docs/migration/BEN-017_보호자권_웰컴음료.md', blob: 'ff2625adddd643441329b45e5f736433e88ea4b4', last_commit: '04b8d2464ccf1431daa32ddcb6f0e52a9d080676' },
   decision_004b: { path: 'docs/migration/CLAUDE-004b_대표결정_20260929.md', blob: '25a771f29df45a6bfb020ec6a3e85e8ba6fe7880', last_commit: '0197ffef1a93d030fc3635793fafe26771cd4b55' },
   decision_ben015: { path: 'docs/migration/BEN-015_대표결정_20261005.md', blob: 'e1d1f04dccf0b4b9d2948f492d6faccc8b711d0f', last_commit: 'c935504ef7e87a700b7f8a99b1fc6daf60035186' },
   decision_ben004: { path: 'docs/migration/BEN-004_클로이_PR검토와_기준정보결정.md', blob: 'fa562cdcf171808a74890202fdc1e3f2c2c1dd4d', last_commit: 'c81eddf4abe9a55ff3b86c23a33b02e99d480044' },
   decision_ben010: { path: 'docs/migration/BEN-010_완료검토_접근권한_버스지원.md', blob: 'dca3d944c183eb746e4d9f97c93ae0b058fae82c', last_commit: '33d5e5b59567439f1111f3bd454c338f40c9a14e' },
   task_ben011: { path: 'docs/tasks/BEN-011_전체작업_병행실행.md', blob: 'd78a70648401d99e22ef9d930394e83399b6c7e8', last_commit: 'ded2f1cf9dc84e54a3987a8195888aacf7e7faca' },
   site_profile: { path: '05_봉플레이_AI에이전트/site_profile.json', blob: 'a5e7916c230d6a85e153781b0ebe7a4ff0ea3cfa', last_commit: '4613a7aaa1b1c462996f8df2e74c8ec4368e5e63' },
-  homepage: { path: '06_봉플레이_고객홈페이지/index.html', blob: 'e14f8d98f16b01955d247e8b39576bc9260c7cb9', last_commit: '7fe54ab6607442707a7c897231e3ab5ddb6168ec' },
+  homepage: { path: '06_봉플레이_고객홈페이지/index.html', blob: '6a5531c67228516e1782cc635c62dd78e785f942', last_commit: '04b8d2464ccf1431daa32ddcb6f0e52a9d080676' },
   homepage_config: { path: '06_봉플레이_고객홈페이지/config.js', blob: '457876a216b47f4daa7197810239cbe1d16cbde9', last_commit: '892a06143ebe69e64a77761cd5793ab199c9755b' },
   consultation_policy: { path: '06_봉플레이_고객홈페이지/CONSULTATION.md', blob: '01a51c3944f448009e1044bf1b2896ad8e44606b', last_commit: '934dd0f1a559a41c533dcd300c4dce4e9c14a440' },
-  ops_booking: { path: '01_봉플레이_운영시스템/pages/booking.html', blob: 'd9128b2f3c67725f4ea11244a32076771a895b0e', last_commit: 'b8d05b9452867b0a4c5e4226abdfd175cea5e11f' }
+  ops_booking: { path: '01_봉플레이_운영시스템/pages/booking.html', blob: 'f8a70008d0b8d86e4423436cc5db5d4a5c0d8821', last_commit: '04b8d2464ccf1431daa32ddcb6f0e52a9d080676' }
 });
 
 const f = (fact) => Object.freeze(fact);
@@ -42,6 +43,7 @@ const f = (fact) => Object.freeze(fact);
 // homepage.row: 홈페이지 요금표 행 제목, homepage.text: 홈페이지에 있어야 할 문구
 // site_profile: 05 의 필드명과 그 파일에 기록된 상태(2026-10-05 기준 기록값, 승격하지 않음)
 export const facts = Object.freeze({
+  'benefit.guardian_drink': f({ kind: 'fact', status: 'confirmed', display: '웰컴 음료 1잔 포함', basis: [{source:'decision_ben017',item:'보호자권 5,000원 · 웰컴 음료 1잔 포함 승인'}] }),
   'facility.name': f({ kind: 'fact', status: 'confirmed', value: '리틀포레스트 봉플레이', display: '리틀포레스트 봉플레이',
     basis: [{ source: 'decision_004b', item: '결정 2 — 대외 시설명' }],
     homepage: { text: ['리틀포레스트 봉플레이'] }, site_profile: { field: 'facility.name', value: '리틀포레스트 봉플레이' } }),
@@ -124,6 +126,7 @@ export function renderAnswers(kb = facts) {
   if (withheld.length) price += `${price ? ' ' : ''}${withheld.join('·')} 가격은 방문 전에 문의해 주세요.`;
   if (ok('price.child_basis') && ok('price.tkt_basic') && ok('price.tkt_allday')) price += ` ${d('price.child_basis')}입니다.`;
   if (ok('discount.resident_rate')) price += ` 봉화군민은 ${d('discount.resident_rate')} 우대 할인이 있으며 현장에서 신분증을 확인합니다.`;
+  if (ok('benefit.guardian_drink') && ok('price.tkt_guardian')) price += ` 보호자 입장권은 ${d('benefit.guardian_drink')}입니다.`;
   price += ' 할인 중복과 개별 적용 여부는 방문 전에 문의해 주세요.';
 
   const hours = ok('hours.open')
