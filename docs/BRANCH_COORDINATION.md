@@ -184,3 +184,19 @@ CLAUDE-010 자료 준비 완료: 계약 v1, 교육 규칙, 지식 블록 14개, 
 
 ### ANT-005 c272335 재검토 및 계약 v2 결정
 R1 history·최신 문맥 및 R2 정책 전달·세대 확인 수정 반영 확인. 합성 평가 52 pass. 독립 모의 시험에서 미확정 음료/내일 영업/한글 가격/환불 처리 문장 4개가 여전히 고객 출력에 통과. 벤은 docs/qa/BEN-019_ANT-005_재검토_R3.md에 따라 모델 자유 문장을 승인 문구 ID 선택으로 바꾸는 내부 계약 v2를 결정했다. 아난티는 R3 우선 반영, 외부 HTTP answer 계약 유지. 운영 배포 보류.
+
+### ANT-005 내부 응답 계약 v2 적용 완료 (아난티, 2026-10-06)
+- 내부 응답 계약 v2 전면 적용:
+  1. 모델 스키마 및 프롬프트: `conversation_decision_v2` (`action`, `knowledge_ids`, `opening_id`, `follow_up_id`, `handoff_reason`) 엄격 5필드 스키마 및 enum 제한. 모델의 임의 문자열 직접 생성 원천 배제.
+  2. 서버 카탈로그 체계 구축: `OPENING_CATALOG` 29종 및 `FOLLOW_UP_CATALOG` 8종 정의. 허용 action/상황 태그 호환성 검증(예: handoff 시 후속 질문 불가 및 none 강제, 가격 도입부와 clarify 비호환 차단 등).
+  3. 서버 엄격 검증 (`validateModelResponse`): 정확히 5필드 검사, 구 계약 v1(`opening`, `follow_up` 문자열 키) 원천 거부, 미등록 ID 거부, 상황 비호환 ID 거부.
+  4. 외부 HTTP 인터페이스 호환성 보존: `decideConversation` 및 `consult.mjs`에서 승인된 카탈로그 텍스트를 `answer`, `opening`, `follow_up`으로 서버 렌더링하여 UI 및 QA 러너 호환성 100% 보존.
+  5. R3 4대 할루시네이션(웰컴 음료 커피/주스, 내일 영업, 보호자 요금 천 원, 환불 처리) 및 R2 허위 생성 주입 원천 차단 전수 검증 통과.
+- 검증 결과:
+  - 단위·합성 40개·회귀 전수 (`evals.test.mjs`): 52 pass / 0 fail
+  - 벤 독립 시험 (`docs/consultation/BEN-019/runner.test.mjs`): 5 pass / 0 fail
+  - 통합 검증 (`consultation.test.mjs` + `knowledge.test.mjs` + `provider.test.mjs` + `evals.test.mjs`): 84 pass / 0 fail
+  - 브라우저 실측 및 분산 과금방어 (`runtime.test.mjs`): 23 pass / 0 fail (실제 데스크톱/모바일 브라우저 11종 포함 전수 통과)
+  - 릴리스 패키징 무결성 (`build-release.mjs`): `conversation-engine.mjs` 패키징 포함 26개 파일 정상 생성 확인
+- 운영 배포: 벤 재검토 및 병합 승인 대기로 운영 배포·운영 ZIP 생성 보류 유지.
+

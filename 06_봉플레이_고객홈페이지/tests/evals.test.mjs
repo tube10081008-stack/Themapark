@@ -5,6 +5,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   KNOWLEDGE_BLOCKS,
+  OPENING_CATALOG,
+  FOLLOW_UP_CATALOG,
   renderKnowledgeBlock,
   getAvailableKnowledgeBlocks,
   validateModelResponse,
@@ -70,74 +72,94 @@ test('1. 세부 지식 14개 블록 및 5필드 응답 계약 단위 검증 (BEN
     assert.equal(available.length, 14, '현재 기준 14개 블록 모두 사용 가능');
   });
 
-  await t.test('1-2. 5필드 응답 계약(action, knowledge_ids, opening, follow_up, handoff_reason) 유효성 검사', () => {
-    // 정상 케이스
+  await t.test('1-2. 5필드 내부 응답 계약 v2(action, knowledge_ids, opening_id, follow_up_id, handoff_reason) 유효성 검사', () => {
+    // 정상 케이스 (서버 카탈로그 ID 선택)
+    assert.equal(validateModelResponse({
+      action: 'answer',
+      knowledge_ids: ['price.basic'],
+      opening_id: 'price_guidance',
+      follow_up_id: 'none',
+      handoff_reason: null
+    }), true);
+
+    // 구 계약 v1 원문 응답(opening, follow_up 자유 문자열)은 엄격 거부
     assert.equal(validateModelResponse({
       action: 'answer',
       knowledge_ids: ['price.basic'],
       opening: '이용권 요금을 안내해 드릴게요.',
       follow_up: '',
       handoff_reason: null
-    }), true);
+    }), false, '구 계약 v1 원문 응답은 거부되어야 함');
 
-    // 필드 누락
+    // 필수 필드 누락
     assert.equal(validateModelResponse({
       action: 'answer',
-      knowledge_ids: ['price.basic']
+      knowledge_ids: ['price.basic'],
+      opening_id: 'price_guidance'
     }), false);
 
     // 추가 필드 금지
     assert.equal(validateModelResponse({
       action: 'answer',
       knowledge_ids: ['price.basic'],
-      opening: '',
-      follow_up: '',
+      opening_id: 'price_guidance',
+      follow_up_id: 'none',
       handoff_reason: null,
       extra_field: 'forbidden'
     }), false);
 
-    // opening에 숫자 포함 시 차단
+    // v2 형식에 v1 자유 문자열 키 혼합 주입 시 차단
     assert.equal(validateModelResponse({
       action: 'answer',
       knowledge_ids: ['price.basic'],
-      opening: '요금은 15,000원입니다.',
-      follow_up: '',
+      opening_id: 'price_guidance',
+      follow_up_id: 'none',
+      handoff_reason: null,
+      opening: '추가 문자열'
+    }), false);
+
+    // 등록되지 않은 임의 opening_id 차단 (자유 생성 방어)
+    assert.equal(validateModelResponse({
+      action: 'answer',
+      knowledge_ids: ['price.basic'],
+      opening_id: 'unregistered_opening_id',
+      follow_up_id: 'none',
       handoff_reason: null
     }), false);
 
-    // opening에 허위 확약 문구 포함 시 차단
+    // 등록되지 않은 임의 follow_up_id 차단 (자유 생성 방어)
     assert.equal(validateModelResponse({
       action: 'answer',
       knowledge_ids: ['price.basic'],
-      opening: '무료로 이용 가능하세요.',
-      follow_up: '',
+      opening_id: 'price_guidance',
+      follow_up_id: 'unregistered_follow_up_id',
       handoff_reason: null
     }), false);
 
-    // follow_up에 물음표 2개 이상 시 차단
+    // action과 호환되지 않는 opening_id 차단 (예: clarify 전용 greeting을 answer에 사용)
     assert.equal(validateModelResponse({
       action: 'answer',
       knowledge_ids: ['price.basic'],
-      opening: '',
-      follow_up: '몇 명이 오시나요? 언제 오시나요?',
+      opening_id: 'greeting',
+      follow_up_id: 'none',
       handoff_reason: null
     }), false);
 
-    // follow_up에 개인정보 요청 시 차단
+    // action과 호환되지 않는 follow_up_id 차단 (예: handoff 상황에서 clarify 전용 ask_anything 질문 사용)
     assert.equal(validateModelResponse({
-      action: 'answer',
-      knowledge_ids: ['price.basic'],
-      opening: '',
-      follow_up: '전화번호를 남겨주세요?',
-      handoff_reason: null
+      action: 'handoff',
+      knowledge_ids: ['policy.staff'],
+      opening_id: 'staff_complaint',
+      follow_up_id: 'ask_anything',
+      handoff_reason: 'complaint'
     }), false);
 
     // handoff 시 유효하지 않은 handoff_reason 차단
     assert.equal(validateModelResponse({
       action: 'handoff',
       knowledge_ids: ['policy.staff'],
-      opening: '',
-      follow_up: '',
+      opening_id: 'staff_complaint',
+      follow_up_id: 'none',
       handoff_reason: 'invalid_reason'
     }), false);
 
@@ -145,8 +167,8 @@ test('1. 세부 지식 14개 블록 및 5필드 응답 계약 단위 검증 (BEN
     assert.equal(validateModelResponse({
       action: 'answer',
       knowledge_ids: ['price.basic'],
-      opening: '',
-      follow_up: '',
+      opening_id: 'price_guidance',
+      follow_up_id: 'none',
       handoff_reason: 'refund'
     }), false);
   });
@@ -399,35 +421,120 @@ test('2. 40개 합성 평가 시나리오 전수 실행 및 판정 (BEN-019 / AN
   fs.writeFileSync(mdDest, reportMd + '\n', 'utf8');
 });
 
-test('3. BEN-019 R1·R2 완료검토 피드백 독립 재현 및 회귀 전수 검증', async (t) => {
-  await t.test('3-1. [P1] follow_up 악성 허위 생성 차단 (100원, 예약완료, 무제한, 언제든 오세요 등)', () => {
-    // 벤의 실제 재현 페이로드
-    const attackResponse = {
-      action: 'answer',
-      knowledge_ids: ['price.guardian'],
-      opening: '',
-      follow_up: '보호자 입장권은 100원이며 예약도 완료됐어요.',
-      handoff_reason: null
-    };
-    assert.equal(validateModelResponse(attackResponse), false, '100원 및 예약 완료 문장은 엄격히 차단되어야 함');
+test('3. BEN-019 R1·R2·R3 완료검토 피드백 독립 재현 및 회귀 전수 검증', async (t) => {
+  await t.test('3-1. [R3 내부 응답 계약 v2] 4개 할루시네이션 문장 및 R2 허위 생성 주입 원천 차단과 승인 ID 렌더링 검증', async () => {
+    // 벤의 R3 재현 4대 할루시네이션 문장
+    const r3AttackSentences = [
+      '웰컴 음료는 커피와 주스 중에서 고르시면 돼요.',
+      '내일 정상 영업하니 오시면 돼요.',
+      '보호자 요금은 천 원이에요.',
+      '환불 처리해 드렸어요.'
+    ];
 
-    // 비수치 허위 주장 변형들
-    const variants = [
+    // R2 비수치 및 수치 허위 약속 변형 문장
+    const r2AttackSentences = [
+      '보호자 입장권은 100원이며 예약도 완료됐어요.',
       '음료는 무제한이에요.',
       '언제든 오세요.',
       '예약됐어요.',
       '무료로 이용 가능하세요.',
       '전액 환불해 드릴게요.'
     ];
-    for (const v of variants) {
+
+    const allAttacks = [...r3AttackSentences, ...r2AttackSentences];
+
+    // 1. 구 계약 v1의 follow_up / opening 키로 임의 문장 주입 시 거부
+    for (const attack of allAttacks) {
       assert.equal(validateModelResponse({
         action: 'answer',
-        knowledge_ids: ['price.guardian'],
+        knowledge_ids: ['price.basic'],
         opening: '',
-        follow_up: v,
+        follow_up: attack,
         handoff_reason: null
-      }), false, `비수치 허위 주장 차단: ${v}`);
+      }), false, `구 계약 v1 follow_up 주입 거부: ${attack}`);
+
+      assert.equal(validateModelResponse({
+        action: 'answer',
+        knowledge_ids: ['price.basic'],
+        opening: attack,
+        follow_up: '',
+        handoff_reason: null
+      }), false, `구 계약 v1 opening 주입 거부: ${attack}`);
     }
+
+    // 2. 계약 v2의 opening_id / follow_up_id 위치에 임의 문장 주입 시 거부
+    for (const attack of allAttacks) {
+      assert.equal(validateModelResponse({
+        action: 'answer',
+        knowledge_ids: ['price.basic'],
+        opening_id: attack,
+        follow_up_id: 'none',
+        handoff_reason: null
+      }), false, `opening_id 위치 임의 문자열 주입 거부: ${attack}`);
+
+      assert.equal(validateModelResponse({
+        action: 'answer',
+        knowledge_ids: ['price.basic'],
+        opening_id: 'price_guidance',
+        follow_up_id: attack,
+        handoff_reason: null
+      }), false, `follow_up_id 위치 임의 문자열 주입 거부: ${attack}`);
+    }
+
+    // 3. decideConversation 외부 모델 공급자 모의 주입 시 출력 차단 검증
+    for (const attack of allAttacks) {
+      const mockAttackProvider = async () => ({
+        action: 'answer',
+        knowledge_ids: ['price.basic'],
+        opening_id: 'none',
+        follow_up_id: attack,
+        handoff_reason: null
+      });
+
+      const res = await decideConversation('요금 안내해 주세요', {
+        env: {
+          CONSULT_ENABLED: 'true',
+          CONSULT_PROVIDER: 'mock_attacker',
+          CONSULT_MODEL: 'fugu',
+          SAKANA_API_KEY: 'mock'
+        },
+        externalAllowed: true,
+        providerRegistry: { mock_attacker: mockAttackProvider }
+      });
+
+      assert.equal(res.mode, 'fallback', '계약 위반 모델 응답은 즉시 안전 fallback 전환');
+      assert.doesNotMatch(res.answer, new RegExp(attack.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `고객 answer에 악성 문장 미노출: ${attack}`);
+      assert.doesNotMatch(res.follow_up, new RegExp(attack.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `고객 follow_up에 악성 문장 미노출: ${attack}`);
+    }
+
+    // 4. 정상 문맥의 모델 ID 선택은 고객에게 자연스러운 승인 문장으로 렌더링됨
+    const mockLegitProvider = async () => ({
+      action: 'answer',
+      knowledge_ids: ['price.basic'],
+      opening_id: 'price_guidance',
+      follow_up_id: 'more_questions',
+      handoff_reason: null
+    });
+
+    const legitRes = await decideConversation('이용권 가격 좀 알려주세요', {
+      env: {
+        CONSULT_ENABLED: 'true',
+        CONSULT_PROVIDER: 'mock_legit',
+        CONSULT_MODEL: 'fugu',
+        SAKANA_API_KEY: 'mock'
+      },
+      externalAllowed: true,
+      providerRegistry: { mock_legit: mockLegitProvider }
+    });
+
+    assert.equal(legitRes.mode, 'model', '정상 모델 응답 통과');
+    assert.equal(legitRes.opening_id, 'price_guidance');
+    assert.equal(legitRes.follow_up_id, 'more_questions');
+    assert.equal(legitRes.opening, '이용권 요금을 확인해 드릴게요.');
+    assert.equal(legitRes.follow_up, '다른 궁금한 점이 생기면 말씀해 주세요.');
+    assert.match(legitRes.answer, /^이용권 요금을 확인해 드릴게요\./, '승인된 도입 문구 정상 렌더링');
+    assert.match(legitRes.answer, /15,000원/, '지식 블록 본문 정상 렌더링');
+    assert.match(legitRes.answer, /다른 궁금한 점이 생기면 말씀해 주세요\.$/, '승인된 후속 질문 정상 렌더링');
   });
 
   await t.test('3-2. [P1] 복합 질문("안녕하세요 보호자 가격을 알려주세요") 분기 검증', async () => {
