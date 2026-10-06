@@ -171,7 +171,7 @@
   const PRODUCTS = {
     // 1. 이용권 (Tickets)
     tkt_child_allday:   { id: 'tkt_child_allday',   name: '종합이용권 (어린이)', category: 'ticket', list_price: 21000 },
-    tkt_adult_guardian: { id: 'tkt_adult_guardian', name: '보호자 입장권 (성인)', category: 'ticket', list_price: 5000 },
+    tkt_adult_guardian: { id: 'tkt_adult_guardian', name: '보호자 입장권 (웰컴 음료 1잔 포함)', category: 'ticket', list_price: 5000 },
     tkt_group_package:  { id: 'tkt_group_package',  name: '단체 패키지 이용권',   category: 'ticket', list_price: 15000 },
     // 2. 식음료 (F&B)
     fnb_apple_juice:    { id: 'fnb_apple_juice',    name: '봉화 사과 착즙주스',   category: 'fnb',    list_price: 4000 },
@@ -236,7 +236,7 @@
     },
     PROD_ADULT_STD: {
       product_id: 'PROD_ADULT_STD',
-      product_name: '보호자 입장권 (음료 1잔 포함)',
+      product_name: '보호자 입장권 (웰컴 음료 1잔 포함)',
       product_category: 'ticket_adult',
       price: 5000,
       effective_from: '2026-01-01',
