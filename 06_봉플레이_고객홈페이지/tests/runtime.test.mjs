@@ -624,6 +624,13 @@ test('2. 실제 브라우저 실측 (데스크톱 1440x900 & 모바일 390x844 �
           return res.end(JSON.stringify({ answer: '지연 응답' }));
         }
 
+        if (serverMockMode === 'delayed_body') {
+          // R3 검증: 헤더 즉시 전송 후 body 전송을 1.5초 지연
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          await new Promise(r => setTimeout(r, 1500));
+          return res.end(JSON.stringify({ answer: '지연된 이전 세대 답변입니다.' }));
+        }
+
         // 일반 정상 모드: consultation handler 실행
         const chunks = [];
         for await (const chunk of req) chunks.push(chunk);
@@ -1081,6 +1088,60 @@ test('2. 실제 브라우저 실측 (데스크톱 1440x900 & 모바일 390x844 �
       `);
       assert.equal(storageState.localLength, 0, '대화 이력이 localStorage에 절대 저장되지 않음 (0건)');
       assert.equal(storageState.sessionLength, 0, '대화 이력이 sessionStorage에 절대 저장되지 않음 (0건)');
+    });
+
+    await t.test('2-11. [Desktop 1440x900] R3 새 대화 경쟁 조건 실측 (헤더 반환 후 body 지연 중 새 대화 클릭 시 이전 응답 혼입 0건)', { timeout: 60000 }, async () => {
+      serverMockMode = 'normal';
+      const isAlreadyOpen = await evaluate("document.querySelector('.consult-dialog').hasAttribute('open')");
+      if (!isAlreadyOpen) {
+        await evaluate("document.querySelector('.consult-open').click()");
+        await new Promise(r => setTimeout(r, 100));
+      }
+
+      // 1. 초기화
+      await evaluate("document.querySelector('.consult-reset-btn').click()");
+      await new Promise(r => setTimeout(r, 100));
+
+      // 2. body 지연 모드로 질문 1 제출
+      serverMockMode = 'delayed_body';
+      await evaluate(`
+        (() => {
+          const input = document.querySelector('#consult-question');
+          input.value = '지연 요청할 과거 질문';
+          document.querySelector('.consult-form').requestSubmit();
+        })()
+      `);
+
+      // 3. 헤더 수신 후 body 읽기 진행 중(200ms 후) '새 대화' 클릭
+      await new Promise(r => setTimeout(r, 200));
+      await evaluate("document.querySelector('.consult-reset-btn').click()");
+      await new Promise(r => setTimeout(r, 100));
+
+      // 4. 즉시 정상 모드로 새 질문 제출
+      serverMockMode = 'normal';
+      await evaluate(`
+        (() => {
+          const input = document.querySelector('#consult-question');
+          input.value = '요금';
+          document.querySelector('.consult-form').requestSubmit();
+        })()
+      `);
+
+      // 5. 이전 지연 body(1.5초) 해제 및 새 질문 응답 완료 대기
+      let logTextFinal = '';
+      for (let i = 0; i < 30; i++) {
+        await new Promise(r => setTimeout(r, 100));
+        logTextFinal = await evaluate("document.querySelector('.consult-log').innerText");
+        if (logTextFinal && logTextFinal.includes('15,000원')) break;
+      }
+
+      // 6. 무결성 확인
+      assert.doesNotMatch(logTextFinal, /지연된 이전 세대 답변입니다/, '지연된 이전 응답은 새 대화 화면에 절대 노출되지 않음 (0건 혼입)');
+      assert.match(logTextFinal, /15,000원/, '새 대화의 새 질문에 대한 올바른 답변 표시');
+
+      // 전송 버튼 재활성화 및 busy 해제 확인
+      const isBusy = await evaluate("document.querySelector('.consult-submit').disabled");
+      assert.equal(isBusy, false, '새 요청 완료 후 정상적으로 버튼 활성화');
     });
 
   } finally {

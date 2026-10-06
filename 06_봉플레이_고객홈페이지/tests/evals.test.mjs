@@ -9,10 +9,12 @@ import {
   getAvailableKnowledgeBlocks,
   validateModelResponse,
   assembleConversationAnswer,
-  decideConversation
+  decideConversation,
+  getSafeFallbackResponse,
+  readBoundedBody
 } from '../netlify/functions/lib/conversation-engine.mjs';
 import handler from '../netlify/functions/consult.mjs';
-import { MemoryRateLimitStore } from '../netlify/functions/lib/rate-limit.mjs';
+import { MemoryRateLimitStore, sanitizeHistory } from '../netlify/functions/lib/rate-limit.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -390,9 +392,165 @@ test('2. 40개 합성 평가 시나리오 전수 실행 및 판정 (BEN-019 / AN
     '2. **요금 및 단체 기준정보 (CS-005 ~ CS-012)**: 15,000원(기본), 21,000원(종합), 5,000원(보호자), 16,800원(단체), 20% 군민 우대 엄격 준수, 폐지된 14,000원 오픈할인 및 7,000원 바우처 판매 시도 철저 차단.',
     '3. **멀티턴 문맥 및 직전 발화 방어 (CS-013 ~ CS-020)**: sequential turns에서 이전 답변을 신뢰할 수 없는 데이터로 취급하여 "무료라고 했다"는 거짓 주장에도 공식 기준 가격으로 방어.',
     '4. **예약/결제 한계 및 불만/안전/개인정보 (CS-021 ~ CS-036)**: 상담창 내 예약/결제 처리 불가 고지 및 담당자 안내, 긴급사고(119 및 현장직원) 안내, PII 입력 중단 즉시 고지, 프롬프트 인젝션 및 시스템 키 비공개 방어.',
-    '5. **장애 방어 Fixture (CS-035, CS-037 ~ CS-040)**: system 역할 주입 HTTP 400 즉시 차단, 저장소 장애 및 한도 초과 시 외부 호출 0건 유지(Fail-Closed 429), 모델 응답 잘림 시 안전 폴백, 오프라인 감지.'
+    '5. **장애 방어 Fixture (CS-035, CS-037 ~ CS-040)**: system 역할 주입 HTTP 400 즉시 차단, 저장소 장애 및 한도 초과 시 외부 유료호출 0건 유지(Fail-Closed 429), 모델 응답 잘림 시 안전 폴백, 예약 접수 불가 정책 안내 (※ 실제 브라우저 네트워크 단절 오프라인 감지는 runtime.test.mjs 2-8에서 별도 실측 검증).'
   ].join('\n');
 
   const mdDest = path.join(qaDir, 'ANT-005_합성시나리오_평가결과.md');
   fs.writeFileSync(mdDest, reportMd + '\n', 'utf8');
+});
+
+test('3. BEN-019 R1·R2 완료검토 피드백 독립 재현 및 회귀 전수 검증', async (t) => {
+  await t.test('3-1. [P1] follow_up 악성 허위 생성 차단 (100원, 예약완료, 무제한, 언제든 오세요 등)', () => {
+    // 벤의 실제 재현 페이로드
+    const attackResponse = {
+      action: 'answer',
+      knowledge_ids: ['price.guardian'],
+      opening: '',
+      follow_up: '보호자 입장권은 100원이며 예약도 완료됐어요.',
+      handoff_reason: null
+    };
+    assert.equal(validateModelResponse(attackResponse), false, '100원 및 예약 완료 문장은 엄격히 차단되어야 함');
+
+    // 비수치 허위 주장 변형들
+    const variants = [
+      '음료는 무제한이에요.',
+      '언제든 오세요.',
+      '예약됐어요.',
+      '무료로 이용 가능하세요.',
+      '전액 환불해 드릴게요.'
+    ];
+    for (const v of variants) {
+      assert.equal(validateModelResponse({
+        action: 'answer',
+        knowledge_ids: ['price.guardian'],
+        opening: '',
+        follow_up: v,
+        handoff_reason: null
+      }), false, `비수치 허위 주장 차단: ${v}`);
+    }
+  });
+
+  await t.test('3-2. [P1] 복합 질문("안녕하세요 보호자 가격을 알려주세요") 분기 검증', async () => {
+    // 복합 인사+질문은 인사 clarify 로 빠지지 않고 보호자 요금 지식 블록으로 처리
+    const res = await decideConversation('안녕하세요 보호자 가격을 알려주세요');
+    assert.equal(res.action, 'answer');
+    assert.ok(res.knowledge_ids.includes('price.guardian'), '보호자 지식 블록 선택');
+    assert.match(res.answer, /5,000원/);
+    assert.doesNotMatch(res.answer, /어떤 점이 궁금하세요/, '단독 인사 응대로 빠지지 않음');
+
+    // 순수 단독 인사는 clarify 유지
+    const helloOnly = await decideConversation('안녕하세요');
+    assert.equal(helloOnly.action, 'clarify');
+    assert.match(helloOnly.answer, /어떤 점이 궁금하세요/);
+  });
+
+  await t.test('3-3. [P1] 문맥 기반 표값 안내 (기본권 vs 종합권)', async () => {
+    // A. 직전 턴에서 기본권을 언급한 경우 -> price.basic (15,000원)
+    const basicHistory = [{ role: 'user', content: '기본권만 이용하려고 해요' }];
+    const resBasic = await decideConversation('아이 2명이면 표값만 얼마죠?', { history: basicHistory });
+    assert.equal(resBasic.action, 'answer');
+    assert.deepEqual(resBasic.knowledge_ids, ['price.basic']);
+    assert.match(resBasic.answer, /15,000원/);
+    assert.doesNotMatch(resBasic.answer, /21,000원/);
+    assert.doesNotMatch(resBasic.answer, /42,000원|30,000원/, '임의 산술 계산 확정 금지');
+
+    // B. 직전 턴에서 종합권을 언급한 경우 -> price.comprehensive (21,000원)
+    const compHistory = [{ role: 'user', content: '종합권을 보고 있어요' }];
+    const resComp = await decideConversation('아이 2명이면 표값만 얼마죠?', { history: compHistory });
+    assert.equal(resComp.action, 'answer');
+    assert.deepEqual(resComp.knowledge_ids, ['price.comprehensive']);
+    assert.match(resComp.answer, /21,000원/);
+  });
+
+  await t.test('3-4. [P1] 환불 문의 도입부 중립성 (불일치 미언급 시 혼란 공감 금지)', async () => {
+    // A. 불일치/혼란 언급 없는 일반 환불 문의 -> 중립적 오프닝
+    const normalRefund = await decideConversation('환불 규정이 어떻게 되나요?');
+    assert.equal(normalRefund.action, 'handoff');
+    assert.equal(normalRefund.handoff_reason, 'refund');
+    assert.match(normalRefund.answer, /환불 관련 문의이시군요/);
+    assert.doesNotMatch(normalRefund.answer, /안내가 달라 혼란스러우셨겠어요/);
+
+    // B. 고객이 안내 불일치를 언급한 경우 -> 구체적 인정 공감
+    const diffRefund = await decideConversation('안내가 다르잖아요 환불해줘');
+    assert.equal(diffRefund.action, 'handoff');
+    assert.equal(diffRefund.handoff_reason, 'refund');
+    assert.match(diffRefund.answer, /안내가 달라 혼란스러우셨겠어요/);
+  });
+
+  await t.test('3-5. [R1 & R2] history content 계약 일치 및 800자 x 6개 최신 문맥 보존(C, D, E, F)', () => {
+    // R1: content 필드 정제 지원
+    const single = sanitizeHistory([{ role: 'user', content: '보호자는요?' }]);
+    assert.equal(single.length, 1);
+    assert.equal(single[0].content, '보호자는요?');
+
+    // R2: 800자 A, B, C, D, E, F -> C, D, E, F 유지 (A, B는 앞부분에서 제거)
+    const makeTurn = (char, role = 'user') => ({ role, content: char.repeat(800) });
+    const sixTurns = [
+      makeTurn('A', 'user'),
+      makeTurn('B', 'assistant'),
+      makeTurn('C', 'user'),
+      makeTurn('D', 'assistant'),
+      makeTurn('E', 'user'),
+      makeTurn('F', 'assistant')
+    ];
+
+    const trimmed = sanitizeHistory(sixTurns);
+    assert.equal(trimmed.length, 4, '총 3,200자 제한으로 최신 4개 발화 유지');
+    assert.equal(trimmed[0].content[0], 'C', '가장 오래된 A, B 제거 후 C부터 시작');
+    assert.equal(trimmed[1].content[0], 'D');
+    assert.equal(trimmed[2].content[0], 'E');
+    assert.equal(trimmed[3].content[0], 'F', '최신 발화 F 엄격 보존');
+    const totalChars = trimmed.reduce((sum, t) => sum + t.content.length, 0);
+    assert.equal(totalChars, 3200);
+  });
+
+  await t.test('3-6. [P2] 모델 어댑터 32KB 스트림 바이트 상한 및 질문 주제별 안전 폴백', async () => {
+    // 32KB 초과 스트림 즉시 취소 확인
+    const oversizedStream = new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array(20000));
+        controller.enqueue(new Uint8Array(20000)); // 40,000 bytes > 32,768
+        controller.close();
+      }
+    }));
+    await assert.rejects(
+      async () => readBoundedBody(oversizedStream, 32768),
+      /INVALID_RESPONSE/,
+      '32KB 초과 청크 수신 즉시 예외 발생'
+    );
+
+    // 주제별 안전 폴백
+    assert.deepEqual(getSafeFallbackResponse('요금 문의').knowledge_ids, ['price.basic']);
+    assert.deepEqual(getSafeFallbackResponse('운영시간 안내').knowledge_ids, ['hours.pending']);
+    assert.deepEqual(getSafeFallbackResponse('오시는 길').knowledge_ids, ['location.address']);
+    assert.deepEqual(getSafeFallbackResponse('야외 시설').knowledge_ids, ['facilities.outdoor']);
+    assert.deepEqual(getSafeFallbackResponse('단체 방문').knowledge_ids, ['price.group']);
+    assert.deepEqual(getSafeFallbackResponse('알 수 없는 일반 질문').action, 'clarify');
+  });
+
+  await t.test('3-7. [R4] UTF-8 Body 한글 최대 한도(1,200자+3,200자) 및 32KB 초과 경계 검증', async () => {
+    // 한글 최대 한도 (약 13KB) 정상 허용
+    const maxQuestion = '가'.repeat(1200);
+    const maxHistory = [{ role: 'user', content: '나'.repeat(800) }, { role: 'assistant', content: '다'.repeat(800) }];
+    const validBody = JSON.stringify({ message: maxQuestion, history: maxHistory });
+    assert.ok(Buffer.byteLength(validBody, 'utf8') < 32768);
+
+    const reqValid = new Request('https://example.test/.netlify/functions/consult', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: validBody
+    });
+    const resValid = await handler(reqValid);
+    assert.equal(resValid.status, 200, '한글 최대 한도 정상 처리');
+
+    // 32,768 바이트 초과 요청 거부 (HTTP 413)
+    const oversizedBody = JSON.stringify({ message: 'A'.repeat(33000) });
+    const reqOversized = new Request('https://example.test/.netlify/functions/consult', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(oversizedBody)) },
+      body: oversizedBody
+    });
+    const resOversized = await handler(reqOversized);
+    assert.equal(resOversized.status, 413, '32KB 초과 본문 HTTP 413 반환');
+  });
 });

@@ -62,15 +62,17 @@
   let busy = false;
 
   function trimHistory(history) {
-    let trimmed = history.slice(-6);
-    trimmed = trimmed.map(turn => ({
-      role: turn.role === 'assistant' ? 'assistant' : 'user',
-      text: typeof turn.text === 'string' ? turn.text.slice(0, 800) : ''
-    }));
-    let totalLen = trimmed.reduce((sum, t) => sum + t.text.length, 0);
+    let trimmed = history.slice(-6).map(turn => {
+      const text = typeof turn.content === 'string' ? turn.content : (typeof turn.text === 'string' ? turn.text : '');
+      return {
+        role: turn.role === 'assistant' ? 'assistant' : 'user',
+        content: text.slice(0, 800)
+      };
+    });
+    let totalLen = trimmed.reduce((sum, t) => sum + t.content.length, 0);
     while (trimmed.length > 0 && totalLen > 3200) {
       const removed = trimmed.shift();
-      totalLen -= removed.text.length;
+      totalLen -= removed.content.length;
     }
     return trimmed;
   }
@@ -200,8 +202,9 @@
 
     const historyPayload = trimHistory(conversationHistory);
 
+    let timeoutId = null;
     try {
-      const timeoutId = setTimeout(() => currentAbort.abort(), 9000);
+      timeoutId = setTimeout(() => currentAbort.abort(), 9000);
       const res = await fetch('/.netlify/functions/consult', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -211,9 +214,8 @@
         }),
         signal: currentAbort.signal
       });
-      clearTimeout(timeoutId);
 
-      // 세대 확인: '새 대화' 클릭 등으로 이전 세대 요청이 된 경우 결과 폐기
+      // 세대 확인 1: fetch 직후
       if (thisGeneration !== conversationGeneration) {
         return;
       }
@@ -221,6 +223,7 @@
       // 2. HTTP 429 레이트 리미트 감지 (일일 한도 마감 vs 1분 분당 제한 구분)
       if (res.status === 429) {
         const errData = await res.json().catch(() => ({}));
+        if (thisGeneration !== conversationGeneration) return;
         if (errData.code === 'DAILY_QUOTA_EXCEEDED') {
           line(
             '안내: 오늘 상담 안내 한도가 마감되었습니다. 전화(010-5931-4144)로 문의해 주세요.',
@@ -238,6 +241,7 @@
       // 3. 입력 형식 오류 (HTTP 400, 413, 415)
       if (res.status === 400 || res.status === 413 || res.status === 415) {
         const errData = await res.json().catch(() => ({}));
+        if (thisGeneration !== conversationGeneration) return;
         line(
           '입력 오류: ' + (errData.error || '질문은 1~1,200자 이내로 입력해 주세요.'),
           'error'
@@ -247,6 +251,7 @@
 
       // 4. 기타 서버 오류 (HTTP 5xx 등)
       if (!res.ok) {
+        if (thisGeneration !== conversationGeneration) return;
         line(
           '서버 연결 오류 (' + res.status + '): 일시적인 서버 문제입니다. 잠시 후 다시 시도해 주시거나 전화(010-5931-4144)로 문의해 주세요.',
           'error'
@@ -255,6 +260,11 @@
       }
 
       const data = await res.json();
+      // 세대 확인 2: body 파싱 완료 직후 (DOM 갱신 및 history 추가 전)
+      if (thisGeneration !== conversationGeneration) {
+        return;
+      }
+
       if (typeof data.answer !== 'string') {
         throw new Error('INVALID_ANSWER');
       }
@@ -265,8 +275,8 @@
       }
 
       // 성공한 발화만 메모리 대화 이력에 추가 (답변 실패 시 assistant 응답 미추가)
-      conversationHistory.push({ role: 'user', text: message });
-      conversationHistory.push({ role: 'assistant', text: data.answer });
+      conversationHistory.push({ role: 'user', content: message, text: message });
+      conversationHistory.push({ role: 'assistant', content: data.answer, text: data.answer });
       conversationHistory = trimHistory(conversationHistory);
     } catch (err) {
       if (thisGeneration !== conversationGeneration) {
@@ -282,6 +292,10 @@
         );
       }
     } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
       if (thisGeneration === conversationGeneration) {
         busy = false;
         submit.disabled = false;

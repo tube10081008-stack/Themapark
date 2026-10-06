@@ -334,25 +334,29 @@ export async function checkRateLimit(request, options = {}) {
 export function sanitizeHistory(history) {
   if (!history || !Array.isArray(history)) return [];
   const allowed = [];
-  let totalLength = 0;
   // 최근 발화 최대 6개 추출
   const recentTurns = history.slice(-6);
   for (const turn of recentTurns) {
     if (!turn || typeof turn !== 'object') continue;
     // 역할 검증: user 및 assistant 만 허용 (system/developer 등 거부)
     if (turn.role !== 'user' && turn.role !== 'assistant') continue;
-    if (typeof turn.text !== 'string') continue;
-    const cleaned = turn.text.normalize('NFKC').trim().slice(0, 800);
+    const raw = typeof turn.content === 'string' ? turn.content : (typeof turn.text === 'string' ? turn.text : null);
+    if (raw === null) continue;
+    const cleaned = raw.normalize('NFKC').trim().slice(0, 800);
     if (!cleaned) continue;
     // 개인정보 패턴 검사: 이메일, 전화번호(+82/010), 주민등록번호
     if (/\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b|(?:\+82|0\d{1,2})[-\s]?\d{3,4}[-\s]?\d{4}|\d{6}[-\s]?[1-4]\d{6}/.test(cleaned)) {
       continue; // 민감 발화 제외
     }
-    if (totalLength + cleaned.length > 3200) {
-      break;
-    }
-    totalLength += cleaned.length;
-    allowed.push({ role: turn.role, text: cleaned });
+    allowed.push({ role: turn.role, content: cleaned, text: cleaned });
   }
+
+  // R2 수정: 총 길이 3,200자 초과 시 오래된 앞 발화부터 제거하여 사용자의 최신 문맥 보존
+  let totalLength = allowed.reduce((sum, t) => sum + t.content.length, 0);
+  while (allowed.length > 0 && totalLength > 3200) {
+    const removed = allowed.shift();
+    totalLength -= removed.content.length;
+  }
+
   return allowed;
 }
