@@ -147,3 +147,6 @@ COORD-007 / Ben / ben/COORD-007-live-targets / 기준 ed5a2ce / 운영 대상 �
 
 ## BEN-014 고객 홈페이지 편입
 벤 / ben/BEN-014-customer-homepage / 기준 c826316 / 06_봉플레이_고객홈페이지 및 배포 문서 / 원본 보존 복사·정적 검증·Netlify ZIP 준비 / 진행 중
+
+## GEO-008 발권 대기열 실사용 검증 준비
+- GEO-008 / 지오 / aside/GEO-008-ticket-queue-qa (기준 `892a061`) / `docs/qa/GEO-008_발권대기열_실사용검증.md`, 본 행 / 고객 대기·매표 두 단말 시험표와 시험 환경 목록, 실제 결과 빈칸 / 시험표 PR 제출, 실행은 아난티 합성 시험 URL·계정·판본 SHA 인계 대기
