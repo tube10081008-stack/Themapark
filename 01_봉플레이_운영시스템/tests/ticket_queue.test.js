@@ -31,7 +31,7 @@ test('ANT-006 / BEN-022 발권 대기열 시스템 전수 검증', async (t) => 
   // ---------------------------------------------------------------------------
   await t.test('1. 합성 환경 동시 접수 50건 일련번호 순차 채번 & 무결성 검증', async () => {
     const store = BongplayQueue.createStore();
-    const dateStr = '2026-10-08';
+    const dateStr = BongplayQueue.getKstDateStr();
 
     // 50개 팀이 동시에 접수 요청을 보냄
     const enqueuePromises = [];
@@ -74,7 +74,7 @@ test('ANT-006 / BEN-022 발권 대기열 시스템 전수 검증', async (t) => 
   // ---------------------------------------------------------------------------
   await t.test('2. 재전송·새로고침·응답 유실 재시도 멱등성 보장 (중복 접수 차단)', () => {
     const store = BongplayQueue.createStore();
-    const dateStr = '2026-10-08';
+    const dateStr = BongplayQueue.getKstDateStr();
     const cid = 'cst_retry_test_1';
     const phone = '010-9999-8888';
     const idempotencyKey = BongplayQueue.generateIdempotencyKey(dateStr, cid, phone);
@@ -116,7 +116,7 @@ test('ANT-006 / BEN-022 발권 대기열 시스템 전수 검증', async (t) => 
   // ---------------------------------------------------------------------------
   await t.test('3. 직원 두 단말 동시 호출 경합 방지 (이중 호출 방지)', async () => {
     const store = BongplayQueue.createStore();
-    const dateStr = '2026-10-08';
+    const dateStr = BongplayQueue.getKstDateStr();
 
     // 2개 팀 접수
     store.enqueue({ consent_id: 'cst_race_1', guardian_name: '팀1', queue_date: dateStr });
@@ -147,7 +147,7 @@ test('ANT-006 / BEN-022 발권 대기열 시스템 전수 검증', async (t) => 
   // ---------------------------------------------------------------------------
   await t.test('4. 발권 라이프사이클 (호출 → 발권 시작 → 발권 성공 vs 실패 시 대기열 유지 가드)', () => {
     const store = BongplayQueue.createStore();
-    const dateStr = '2026-10-08';
+    const dateStr = BongplayQueue.getKstDateStr();
 
     const enq = store.enqueue({ consent_id: 'cst_life_1', guardian_name: '이순신', queue_date: dateStr });
     const qId = enq.item.id;
@@ -181,7 +181,7 @@ test('ANT-006 / BEN-022 발권 대기열 시스템 전수 검증', async (t) => 
   // ---------------------------------------------------------------------------
   await t.test('5. 발권 취소 시 예전 순서로 자동 복귀하지 않는 규칙 검증', () => {
     const store = BongplayQueue.createStore();
-    const dateStr = '2026-10-08';
+    const dateStr = BongplayQueue.getKstDateStr();
 
     // 1번 팀 발권 완료, 2번 팀 대기 중
     const t1 = store.enqueue({ consent_id: 'cst_t1', queue_date: dateStr });
@@ -206,7 +206,7 @@ test('ANT-006 / BEN-022 발권 대기열 시스템 전수 검증', async (t) => 
   // ---------------------------------------------------------------------------
   await t.test('6. 부재 보류 및 대기열 복귀 (앞선 팀 수 즉시 차감 및 복원)', () => {
     const store = BongplayQueue.createStore();
-    const dateStr = '2026-10-08';
+    const dateStr = BongplayQueue.getKstDateStr();
 
     const t1 = store.enqueue({ consent_id: 'cst_h1', queue_date: dateStr });
     const t2 = store.enqueue({ consent_id: 'cst_h2', queue_date: dateStr });
