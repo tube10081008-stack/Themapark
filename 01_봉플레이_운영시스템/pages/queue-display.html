@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>봉플레이 - 발권 대기 호출판 (공개 전광판)</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
+  <!-- Pretendard font -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/static/pretendard.css">
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0fdf4',
+              100: '#dcfce7',
+              500: '#22c55e',
+              600: '#16a34a',
+              700: '#15803d',
+              800: '#166534',
+              900: '#14532d',
+              950: '#052e16'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    * {
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+      box-sizing: border-box;
+    }
+    @keyframes flash-call {
+      0%, 100% { background-color: rgba(245, 158, 11, 0.15); border-color: rgba(245, 158, 11, 0.8); }
+      50% { background-color: rgba(245, 158, 11, 0.5); border-color: rgba(251, 191, 36, 1); transform: scale(1.02); }
+    }
+    .flash-highlight {
+      animation: flash-call 1.5s ease-in-out 3;
+    }
+  </style>
+
+  <script>
+    window.BONGPLAY_GUEST_MODE = true; // 익명 모니터 화면: 개인정보 PULL 원천 차단
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../assets/bongplay-site.js"></script>
+  <script src="../assets/config.js"></script>
+  <script src="../assets/bongplay-sync.js"></script>
+  <script src="../assets/bongplay-queue.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased select-none overflow-hidden">
+
+  <!-- Top Display Header -->
+  <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center text-white font-black text-lg shadow-md shadow-brand-600/30">
+        봉플
+      </div>
+      <div>
+        <h1 class="text-xl font-black text-white tracking-tight flex items-center gap-3">
+          <span>리틀포레스트 봉플레이 매표 대기 호출판</span>
+          <span class="text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 font-bold border border-slate-700">
+            공개 전광판
+          </span>
+        </h1>
+        <p class="text-xs text-slate-400">호출된 번호의 고객님께서는 해당 창구로 이동해 주시기 바랍니다.</p>
+      </div>
+    </div>
+
+    <!-- Clock & Sound Toggle & Fullscreen -->
+    <div class="flex items-center gap-4">
+      <button id="btnSoundToggle" type="button" onclick="toggleSound()" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-slate-200 flex items-center gap-1.5 transition">
+        <i data-lucide="volume-2" class="w-4 h-4 text-emerald-400"></i>
+        <span id="soundToggleText">호출음 켜짐</span>
+      </button>
+
+      <button type="button" onclick="toggleFullScreen()" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition" title="전체화면">
+        <i data-lucide="maximize" class="w-4 h-4"></i>
+      </button>
+
+      <div class="text-right pl-3 border-l border-slate-800">
+        <p id="displayClockTime" class="text-2xl font-black text-white tracking-wider">--:--:--</p>
+        <p id="displayClockDate" class="text-[11px] text-slate-400">----년 --월 --일</p>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Board Grid -->
+  <main class="flex-1 grid grid-cols-12 gap-6 p-6">
+
+    <!-- Left: Current Active Calling Counters (7 Cols) -->
+    <section class="col-span-8 flex flex-col space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-black text-white flex items-center gap-2">
+          <i data-lucide="megaphone" class="w-5 h-5 text-amber-400"></i>
+          <span>지금 호출 중인 번호</span>
+        </h2>
+        <span class="text-xs text-slate-400">화면에 표시된 창구로 와주세요</span>
+      </div>
+
+      <!-- Desk Cards Grid -->
+      <div id="deskCardsContainer" class="flex-1 grid grid-cols-2 gap-5">
+        <!-- 1번 창구 카드 -->
+        <div id="deskCard_1" class="rounded-3xl border-2 border-slate-800 bg-slate-900/90 p-6 flex flex-col justify-between shadow-xl transition-all">
+          <div class="flex items-center justify-between">
+            <span class="px-3 py-1 rounded-xl bg-brand-950 text-brand-400 border border-brand-700/60 font-black text-sm">
+              1번 창구
+            </span>
+            <span id="deskStatus_1" class="text-xs font-bold text-slate-400">호출 대기 중</span>
+          </div>
+
+          <div class="text-center py-8">
+            <p class="text-xs font-bold text-slate-500 mb-1">대기번호</p>
+            <h3 id="deskNumber_1" class="text-7xl font-black text-white tracking-tight">-</h3>
+          </div>
+
+          <div class="border-t border-slate-800/80 pt-3 text-center">
+            <p id="deskTime_1" class="text-xs text-slate-500">-</p>
+          </div>
+        </div>
+
+        <!-- 2번 창구 카드 -->
+        <div id="deskCard_2" class="rounded-3xl border-2 border-slate-800 bg-slate-900/90 p-6 flex flex-col justify-between shadow-xl transition-all">
+          <div class="flex items-center justify-between">
+            <span class="px-3 py-1 rounded-xl bg-sky-950 text-sky-400 border border-sky-700/60 font-black text-sm">
+              2번 창구
+            </span>
+            <span id="deskStatus_2" class="text-xs font-bold text-slate-400">호출 대기 중</span>
+          </div>
+
+          <div class="text-center py-8">
+            <p class="text-xs font-bold text-slate-500 mb-1">대기번호</p>
+            <h3 id="deskNumber_2" class="text-7xl font-black text-white tracking-tight">-</h3>
+          </div>
+
+          <div class="border-t border-slate-800/80 pt-3 text-center">
+            <p id="deskTime_2" class="text-xs text-slate-500">-</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right: Overall Queue Status & History (4 Cols) -->
+    <section class="col-span-4 flex flex-col space-y-4">
+
+      <!-- Overall Wait Summary Box -->
+      <div class="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-950 p-5 shadow-lg">
+        <p class="text-xs font-bold text-slate-400">현재 대기 현황</p>
+        <div class="flex items-baseline gap-2 mt-2">
+          <span id="totalWaitingCountText" class="text-5xl font-black text-brand-400">0</span>
+          <span class="text-base font-bold text-slate-300">팀 대기 중</span>
+        </div>
+        <p class="text-[11px] text-slate-500 mt-1">안전서약서 접수 순서대로 호출됩니다.</p>
+      </div>
+
+      <!-- Recent Called History List (Zero PII: Number & Desk only) -->
+      <div class="flex-1 rounded-3xl border border-slate-800 bg-slate-900/90 p-5 flex flex-col overflow-hidden shadow-lg">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+          <h3 class="text-sm font-black text-white flex items-center gap-1.5">
+            <i data-lucide="history" class="w-4 h-4 text-slate-400"></i>
+            <span>최근 호출 번호</span>
+          </h3>
+          <span class="text-[11px] text-slate-500">개인정보 미표시</span>
+        </div>
+
+        <div id="calledHistoryList" class="flex-1 overflow-y-auto divide-y divide-slate-800/60 mt-2 space-y-1">
+          <p class="text-xs text-slate-500 text-center py-6">호출된 내역이 없습니다.</p>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- Bottom Privacy & Security Guarantee Banner -->
+  <footer class="bg-slate-950 border-t border-slate-900 px-6 py-2.5 text-center text-xs text-slate-600 flex items-center justify-between">
+    <span>🔒 본 전광판은 개인정보보호법에 의거하여 고객 성명 및 연락처를 일체 표기하지 않습니다.</span>
+    <span class="text-[11px] text-slate-500">실시간 연동 · 봉플레이 운영 관제</span>
+  </footer>
+
+  <script>
+    let soundEnabled = true;
+    let audioCtx = null;
+    let prevCalledMap = {}; // desk_no -> { queue_number, called_at }
+
+    document.addEventListener('DOMContentLoaded', function () {
+      if (window.lucide) lucide.createIcons();
+      updateClock();
+      setInterval(updateClock, 1000);
+
+      loadPublicDisplay();
+      setInterval(loadPublicDisplay, 2500);
+    });
+
+    function updateClock() {
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      const ss = String(now.getSeconds()).padStart(2, '0');
+      document.getElementById('displayClockTime').textContent = `${hh}:${mm}:${ss}`;
+
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      const d = String(now.getDate()).padStart(2, '0');
+      const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+      document.getElementById('displayClockDate').textContent = `${y}년 ${m}월 ${d}일 (${dayNames[now.getDay()]})`;
+    }
+
+    function toggleSound() {
+      soundEnabled = !soundEnabled;
+      const text = document.getElementById('soundToggleText');
+      text.textContent = soundEnabled ? '호출음 켜짐' : '호출음 꺼짐';
+      text.previousElementSibling.setAttribute('data-lucide', soundEnabled ? 'volume-2' : 'volume-x');
+      if (window.lucide) lucide.createIcons();
+      if (soundEnabled) playChimeSound();
+    }
+
+    function playChimeSound() {
+      if (!soundEnabled) return;
+      try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return;
+        if (!audioCtx) audioCtx = new AudioContext();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+
+        const now = audioCtx.currentTime;
+        // Two-tone chime: High E (659.25Hz) -> C (523.25Hz)
+        const notes = [
+          { freq: 659.25, time: 0, duration: 0.35 },
+          { freq: 523.25, time: 0.35, duration: 0.5 }
+        ];
+
+        notes.forEach(n => {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(n.freq, now + n.time);
+          gain.gain.setValueAtTime(0.3, now + n.time);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + n.time + n.duration);
+
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now + n.time);
+          osc.stop(now + n.time + n.duration);
+        });
+      } catch (e) {
+        console.warn('Audio chime playback failed:', e);
+      }
+    }
+
+    function toggleFullScreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      } else {
+        document.exitFullscreen().catch(() => {});
+      }
+    }
+
+    async function loadPublicDisplay() {
+      try {
+        const res = await BongplayQueue.getPublicDisplay();
+        if (!res || !res.ok || !res.data) return;
+
+        const data = res.data;
+        renderDisplayBoard(data);
+      } catch (e) {
+        console.warn('Display load error:', e);
+      }
+    }
+
+    function renderDisplayBoard(data) {
+      document.getElementById('totalWaitingCountText').textContent = data.waiting_teams_count || 0;
+
+      const calledTeams = data.called_teams || [];
+      const deskOccupancy = { 1: null, 2: null };
+
+      // 각 창구별 최신 호출 팀 매핑
+      calledTeams.forEach(team => {
+        const dNo = team.desk_no || 1;
+        if (deskOccupancy[dNo] === null) {
+          deskOccupancy[dNo] = team;
+        }
+      });
+
+      // 1번 및 2번 창구 렌더링
+      [1, 2].forEach(deskNo => {
+        const card = document.getElementById('deskCard_' + deskNo);
+        const numEl = document.getElementById('deskNumber_' + deskNo);
+        const statusEl = document.getElementById('deskStatus_' + deskNo);
+        const timeEl = document.getElementById('deskTime_' + deskNo);
+
+        const currentTeam = deskOccupancy[deskNo];
+        if (currentTeam) {
+          numEl.textContent = currentTeam.formatted_number || ('#' + currentTeam.queue_number);
+          statusEl.textContent = (currentTeam.status === 'processing') ? '발권 진행 중' : '호출 중';
+          timeEl.textContent = '호출 시각: ' + (currentTeam.called_at ? currentTeam.called_at.slice(11, 19) : '-');
+
+          // 신규 호출 또는 재호출 감지 시 플래시 및 알림음
+          const prev = prevCalledMap[deskNo];
+          if (!prev || prev.queue_number !== currentTeam.queue_number || prev.called_at !== currentTeam.called_at) {
+            card.classList.remove('flash-highlight');
+            void card.offsetWidth; // trigger reflow
+            card.classList.add('flash-highlight');
+            playChimeSound();
+          }
+
+          prevCalledMap[deskNo] = {
+            queue_number: currentTeam.queue_number,
+            called_at: currentTeam.called_at
+          };
+        } else {
+          numEl.textContent = '-';
+          statusEl.textContent = '호출 대기 중';
+          timeEl.textContent = '대기 순번 호출 대기';
+          prevCalledMap[deskNo] = null;
+        }
+      });
+
+      // 우측 최근 호출 목록 (Zero PII)
+      const listEl = document.getElementById('calledHistoryList');
+      if (calledTeams.length === 0) {
+        listEl.innerHTML = '<p class="text-xs text-slate-500 text-center py-6">호출된 내역이 없습니다.</p>';
+      } else {
+        listEl.innerHTML = calledTeams.slice(0, 8).map(item => `
+          <div class="py-2.5 px-3 flex items-center justify-between rounded-xl hover:bg-slate-800/40 transition">
+            <div class="flex items-center gap-2">
+              <span class="text-lg font-black text-amber-400">${item.formatted_number || ('#' + item.queue_number)}</span>
+              <span class="text-[11px] font-bold text-slate-300 px-2 py-0.5 rounded-lg bg-slate-800 border border-slate-700">
+                ${item.desk_no ? item.desk_no + '번 창구' : '창구'}
+              </span>
+            </div>
+            <span class="text-xs text-slate-400">
+              ${item.status === 'processing' ? '발권 중' : '호출'}
+            </span>
+          </div>
+        `).join('');
+      }
+
+      if (window.lucide) lucide.createIcons();
+    }
+  </script>
+
+</body>
+</html>

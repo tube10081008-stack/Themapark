@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#020617">
+  <title>봉플레이 - 내 발권 대기 순서 확인</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
+  <!-- Pretendard font -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/static/pretendard.css">
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0fdf4',
+              100: '#dcfce7',
+              300: '#86efac',
+              400: '#4ade80',
+              500: '#22c55e',
+              600: '#16a34a',
+              700: '#15803d',
+              800: '#166534',
+              900: '#14532d',
+              950: '#052e16'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    * {
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+    body { word-break: keep-all; }
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); opacity: 0.8; }
+      50% { transform: scale(1.05); opacity: 1; }
+      100% { transform: scale(0.95); opacity: 0.8; }
+    }
+    .pulse-call { animation: pulse-ring 1.8s infinite ease-in-out; }
+  </style>
+
+  <script>
+    window.BONGPLAY_GUEST_MODE = true;
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../assets/bongplay-site.js"></script>
+  <script src="../assets/config.js"></script>
+  <script src="../assets/bongplay-sync.js"></script>
+  <script src="../assets/bongplay-queue.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased">
+
+  <!-- Header -->
+  <header class="bg-slate-950/90 border-b border-slate-800 sticky top-0 z-40 backdrop-blur-md px-4 py-3" style="padding-top: max(0.75rem, env(safe-area-inset-top));">
+    <div class="max-w-md mx-auto flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center text-white font-black text-xs shadow-md shadow-brand-600/30">
+          봉플
+        </div>
+        <div>
+          <h1 class="text-sm font-black text-white">매표소 발권 대기순서</h1>
+          <p class="text-[10px] text-slate-400">실시간 순서 및 예상시간</p>
+        </div>
+      </div>
+
+      <!-- Network / Sync Badge -->
+      <div id="netStatusBadge" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 text-[11px] font-semibold text-slate-400">
+        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span id="netStatusText">실시간 연결됨</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="flex-1 w-full max-w-md mx-auto px-4 py-5 flex flex-col justify-between">
+
+    <div class="space-y-4">
+
+      <!-- Offline / Disconnect Notice Banner (Requirement 8) -->
+      <div id="offlineAlertBanner" class="hidden rounded-2xl bg-amber-950/80 border border-amber-600/60 p-3.5 text-amber-200 text-xs">
+        <div class="flex items-center gap-2 font-bold mb-1">
+          <i data-lucide="wifi-off" class="w-4 h-4 text-amber-400"></i>
+          <span>네트워크 연결이 끊겼습니다</span>
+        </div>
+        <p class="text-[11px] text-amber-300/90 leading-snug">
+          마지막 갱신 시각: <span id="lastUpdatedOfflineText" class="font-bold">-</span><br>
+          연결이 복구되면 순서와 호출 상태가 자동으로 갱신됩니다.
+        </p>
+      </div>
+
+      <!-- Main Queue Ticket Card -->
+      <div id="mainQueueCard" class="rounded-3xl border border-slate-800 bg-gradient-to-b from-slate-900 to-slate-950 p-6 text-center shadow-xl space-y-4 relative overflow-hidden">
+        
+        <!-- Top Status Pill -->
+        <div class="flex items-center justify-center">
+          <span id="queueStatusPill" class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-black bg-brand-950 text-brand-400 border border-brand-700/60 shadow-sm">
+            <span class="w-2 h-2 rounded-full bg-brand-400 animate-ping"></span>
+            <span id="queueStatusPillText">대기 중</span>
+          </span>
+        </div>
+
+        <!-- Queue Number Big Display -->
+        <div class="py-2">
+          <p class="text-xs font-bold text-slate-400 tracking-wider">내 대기번호</p>
+          <h2 id="queueNumberBig" class="text-5xl font-black text-white tracking-tight mt-1">#---</h2>
+          <p id="queueDateText" class="text-[11px] text-slate-500 mt-1">접수 일자: ----.--.--</p>
+        </div>
+
+        <!-- Called Hero Box (Hidden by default, shown when CALLED) -->
+        <div id="calledHeroBox" class="hidden rounded-2xl bg-gradient-to-r from-amber-600 via-orange-500 to-rose-600 p-4 text-white shadow-lg pulse-call">
+          <div class="flex items-center justify-center gap-2 text-sm font-black uppercase tracking-wider mb-1">
+            <i data-lucide="bell-ring" class="w-5 h-5 text-white animate-bounce"></i>
+            <span>고객님 차례입니다!</span>
+          </div>
+          <p class="text-2xl font-black mt-1">
+            <span id="calledDeskNameText" class="underline decoration-white/40">1번 창구</span>로 와주세요
+          </p>
+          <p class="text-xs text-orange-100 mt-1">매표소 데스크에서 본 화면을 보여주시면 즉시 발권됩니다.</p>
+        </div>
+
+        <!-- Queue Stats Grid -->
+        <div id="queueStatsGrid" class="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800/80 text-left">
+          <div class="bg-slate-950/60 rounded-2xl p-3 border border-slate-800">
+            <p class="text-[11px] font-semibold text-slate-400">내 앞선 대기팀</p>
+            <p id="aheadCountText" class="text-xl font-black text-brand-400 mt-0.5">- 팀</p>
+            <p class="text-[10px] text-slate-500 mt-0.5">호출·처리 중 팀 포함</p>
+          </div>
+
+          <div class="bg-slate-950/60 rounded-2xl p-3 border border-slate-800">
+            <p class="text-[11px] font-semibold text-slate-400">예상 대기시간</p>
+            <p id="waitTimeText" class="text-xl font-black text-amber-400 mt-0.5">집계 중</p>
+            <p id="waitTimeSubText" class="text-[10px] text-slate-500 mt-0.5">실제 처리속도 기준</p>
+          </div>
+        </div>
+
+        <!-- Status Guidance Message -->
+        <div class="bg-slate-950/40 rounded-2xl p-3 border border-slate-800/60 text-xs text-slate-300 text-left leading-relaxed">
+          <div class="flex items-center gap-1.5 font-bold text-slate-200 mb-1">
+            <i data-lucide="info" class="w-3.5 h-3.5 text-brand-400"></i>
+            <span>안내 사항</span>
+          </div>
+          <p id="statusGuidanceText" class="text-[11px] text-slate-400">
+            카카오톡 또는 화면 알림을 켜두시면 순서가 되었을 때 알려드립니다. 호출 후 3회 이상 부재 시 다음 분으로 넘어갈 수 있습니다.
+          </p>
+        </div>
+
+        <!-- Refresh Info Footer -->
+        <div class="flex items-center justify-between text-[11px] text-slate-500 pt-1">
+          <span>마지막 확인: <span id="lastRefreshTimeText">-</span></span>
+          <button type="button" onclick="refreshQueueStatus(true)" class="text-brand-400 hover:text-brand-300 font-bold flex items-center gap-1">
+            <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+            <span>새로고침</span>
+          </button>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- Bottom Actions -->
+    <div class="pt-6 pb-2 space-y-2">
+      <a href="consent.html" class="w-full py-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 font-bold rounded-2xl text-xs flex items-center justify-center gap-2 transition">
+        <i data-lucide="file-text" class="w-4 h-4 text-slate-400"></i>
+        <span>내 서약서 / 바우처 QR 보기</span>
+      </a>
+
+      <p class="text-[10px] text-slate-600 text-center">
+        리틀포레스트 봉플레이 매표 발권 시스템 (BP-QUEUE)
+      </p>
+    </div>
+
+  </main>
+
+  <script>
+    let currentQueueId = null;
+    let pollInterval = null;
+    let audioContext = null;
+
+    document.addEventListener('DOMContentLoaded', function () {
+      if (window.lucide) lucide.createIcons();
+
+      // URL 파라미터 또는 localStorage에서 queue_id 확인
+      const urlParams = new URLSearchParams(window.location.search);
+      currentQueueId = urlParams.get('id') || localStorage.getItem('bongplay_my_queue_id');
+
+      if (!currentQueueId) {
+        // 최근 바우처에서 consent_id 확인
+        const rawVoucher = localStorage.getItem('bongplay_my_voucher');
+        if (rawVoucher) {
+          try {
+            const v = JSON.parse(rawVoucher);
+            if (v.consentId) {
+              const entry = BongplayQueue.store.getEntryByConsentId(v.consentId);
+              if (entry) currentQueueId = entry.id;
+            }
+          } catch (e) {}
+        }
+      }
+
+      // 온라인/오프라인 감지 이벤트
+      window.addEventListener('online', onNetworkStatusChange);
+      window.addEventListener('offline', onNetworkStatusChange);
+
+      refreshQueueStatus();
+      pollInterval = setInterval(refreshQueueStatus, 3000);
+    });
+
+    function onNetworkStatusChange() {
+      const isOnline = navigator.onLine;
+      const netBadge = document.getElementById('netStatusBadge');
+      const netText = document.getElementById('netStatusText');
+      const offlineAlert = document.getElementById('offlineAlertBanner');
+
+      if (isOnline) {
+        netBadge.className = 'flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 text-[11px] font-semibold text-slate-400';
+        netText.textContent = '실시간 연결됨';
+        offlineAlert.classList.add('hidden');
+        refreshQueueStatus();
+      } else {
+        netBadge.className = 'flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-950 border border-rose-800 text-[11px] font-semibold text-rose-300';
+        netText.textContent = '연결 끊김';
+        offlineAlert.classList.remove('hidden');
+        document.getElementById('lastUpdatedOfflineText').textContent = BongplayQueue.getKstTimeStr();
+      }
+      if (window.lucide) lucide.createIcons();
+    }
+
+    async function refreshQueueStatus(userClicked) {
+      if (!currentQueueId) {
+        document.getElementById('queueNumberBig').textContent = '#---';
+        document.getElementById('statusGuidanceText').textContent = '등록된 대기 접수 정보가 없습니다. 서약서 작성을 먼저 완료해 주세요.';
+        return;
+      }
+
+      const isOnline = navigator.onLine;
+      if (!isOnline) {
+        onNetworkStatusChange();
+        return;
+      }
+
+      try {
+        const res = await BongplayQueue.getCustomerStatus(currentQueueId);
+        if (!res || !res.ok || !res.item) {
+          return;
+        }
+
+        const item = res.item;
+        renderQueueView(item);
+
+        const nowStr = BongplayQueue.getKstTimeStr();
+        document.getElementById('lastRefreshTimeText').textContent = nowStr;
+        document.getElementById('lastUpdatedOfflineText').textContent = nowStr;
+      } catch (e) {
+        console.warn('Queue refresh error:', e);
+      }
+    }
+
+    let lastKnownStatus = null;
+
+    function renderQueueView(item) {
+      document.getElementById('queueNumberBig').textContent = item.formatted_number || ('#' + item.queue_number);
+      document.getElementById('queueDateText').textContent = '접수 번호: ' + item.queue_number + '번';
+
+      const pill = document.getElementById('queueStatusPill');
+      const pillText = document.getElementById('queueStatusPillText');
+      const calledBox = document.getElementById('calledHeroBox');
+      const statsGrid = document.getElementById('queueStatsGrid');
+      const guidance = document.getElementById('statusGuidanceText');
+
+      // 앞선 대기팀 수 및 예상시간
+      document.getElementById('aheadCountText').textContent = (item.ahead_count || 0) + ' 팀';
+      if (item.wait_time) {
+        document.getElementById('waitTimeText').textContent = item.wait_time.text || '집계 중';
+        if (item.wait_time.code === 'PAUSED') {
+          document.getElementById('waitTimeText').className = 'text-xl font-black text-rose-400 mt-0.5';
+          document.getElementById('waitTimeSubText').textContent = '데스크 사정으로 정지';
+        } else if (item.wait_time.code === 'CALCULATING') {
+          document.getElementById('waitTimeText').className = 'text-xl font-black text-slate-400 mt-0.5';
+          document.getElementById('waitTimeSubText').textContent = '실적 표본 부족';
+        } else {
+          document.getElementById('waitTimeText').className = 'text-xl font-black text-amber-400 mt-0.5';
+          document.getElementById('waitTimeSubText').textContent = '실제 처리속도 기준';
+        }
+      }
+
+      // 상태별 렌더링
+      switch (item.status) {
+        case BongplayQueue.STATUS.WAITING:
+          pill.className = 'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-black bg-brand-950 text-brand-400 border border-brand-700/60 shadow-sm';
+          pillText.textContent = '대기 중';
+          calledBox.classList.add('hidden');
+          statsGrid.classList.remove('hidden');
+          guidance.textContent = '차례가 되면 화면과 알림으로 창구 번호를 안내해 드립니다. 주변에서 잠시 대기해 주세요.';
+          break;
+
+        case BongplayQueue.STATUS.CALLED:
+          pill.className = 'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-black bg-amber-950 text-amber-300 border border-amber-600 shadow-sm';
+          pillText.textContent = '호출됨 (창구로 이동)';
+          calledBox.classList.remove('hidden');
+          document.getElementById('calledDeskNameText').textContent = (item.desk_no ? item.desk_no + '번 창구' : '매표소 창구');
+          guidance.textContent = '고객님 차례입니다! 매표소 ' + (item.desk_no || 1) + '번 창구로 이동하여 결제 및 팔찌를 수령하세요.';
+          
+          // 새로 호출되었을 때 진동 cue
+          if (lastKnownStatus !== BongplayQueue.STATUS.CALLED) {
+            playVibrateAlert();
+          }
+          break;
+
+        case BongplayQueue.STATUS.PROCESSING:
+          pill.className = 'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-black bg-blue-950 text-blue-300 border border-blue-600 shadow-sm';
+          pillText.textContent = '발권 처리 중';
+          calledBox.classList.remove('hidden');
+          guidance.textContent = '창구에서 매표 및 팔찌 교부가 진행 중입니다.';
+          break;
+
+        case BongplayQueue.STATUS.ISSUED:
+          pill.className = 'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-300 border border-emerald-600 shadow-sm';
+          pillText.textContent = '발권 완료';
+          calledBox.classList.add('hidden');
+          statsGrid.classList.add('hidden');
+          guidance.textContent = '발권이 완료되었습니다! 팔찌를 착용하시고 게이트로 입장해 주세요. 즐거운 시간 되세요!';
+          break;
+
+        case BongplayQueue.STATUS.NO_SHOW:
+          pill.className = 'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-black bg-slate-800 text-slate-300 border border-slate-700 shadow-sm';
+          pillText.textContent = '부재 보류';
+          calledBox.classList.add('hidden');
+          guidance.textContent = '호출 시 부재중이어서 대기 순서가 일시 보류되었습니다. 매표소 직원에게 말씀해 주시면 복귀 처리해 드립니다.';
+          break;
+
+        case BongplayQueue.STATUS.CANCELED:
+          pill.className = 'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-black bg-rose-950 text-rose-300 border border-rose-800 shadow-sm';
+          pillText.textContent = '접수 취소';
+          calledBox.classList.add('hidden');
+          guidance.textContent = '대기 접수가 취소되었습니다. 이용을 원하시면 서약서를 다시 제출해 주세요.';
+          break;
+      }
+
+      lastKnownStatus = item.status;
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function playVibrateAlert() {
+      if (navigator.vibrate) {
+        navigator.vibrate([200, 100, 200, 100, 400]);
+      }
+    }
+  </script>
+
+</body>
+</html>

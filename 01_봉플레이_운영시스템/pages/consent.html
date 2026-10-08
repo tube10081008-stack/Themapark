@@ -84,6 +84,7 @@
   <script src="../assets/config.js"></script>
   <script src="../assets/bongplay-sync.js"></script>
   <script src="../assets/bongplay-id.js"></script>
+  <script src="../assets/bongplay-queue.js"></script>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased">
 
@@ -291,6 +292,33 @@
         <div>
           <span class="text-xs text-slate-400 font-bold block">서약 번호</span>
           <span id="voucherCodeText" class="text-2xl font-black font-mono text-brand-400 tracking-wider">BP-XXXXXX</span>
+        </div>
+
+        <!-- Real-time Queue Number & Waiting Status (ANT-006) -->
+        <div id="voucherQueueBox" class="rounded-2xl border border-brand-500/50 bg-brand-950/80 p-4 space-y-2 text-center">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-brand-300 flex items-center gap-1.5">
+              <i data-lucide="ticket" class="w-4 h-4 text-brand-400"></i>
+              매표소 발권 대기순서
+            </span>
+            <span id="voucherQueueStatusBadge" class="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-brand-900 text-brand-200 border border-brand-700">대기 중</span>
+          </div>
+
+          <div class="py-1">
+            <h4 id="voucherQueueNumberText" class="text-4xl font-black text-white tracking-tight">#---</h4>
+            <p id="voucherQueueSubText" class="text-xs text-slate-300 mt-1">
+              내 앞선 대기: <b id="voucherAheadCountText" class="text-brand-300">- 팀</b> · 예상 대기시간: <b id="voucherWaitTimeText" class="text-amber-300">집계 중</b>
+            </p>
+          </div>
+
+          <div id="voucherQueueOfflineAlert" class="hidden text-xs text-amber-300 bg-amber-950/70 p-2.5 rounded-xl border border-amber-800 text-left leading-snug">
+            ⚠️ <b>네트워크 연결 대기 중 (오프라인)</b><br>서버 연결 확인 후 공식 대기번호가 발급됩니다.
+          </div>
+
+          <a id="btnOpenQueueStatusPage" href="queue-status.html" target="_blank" class="w-full py-2.5 bg-brand-600 hover:bg-brand-500 text-white text-xs font-black rounded-xl shadow transition flex items-center justify-center gap-1.5">
+            <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+            <span>실시간 대기 순서 및 호출 알림 보기</span>
+          </a>
         </div>
 
         <!-- Summary Info -->
@@ -764,6 +792,23 @@
         // Save via BongplaySync (offline resilient outbox)
         await BongplaySync.upsert('safety_consents', consentRecord);
 
+        // 대기열 등록 (ANT-006: 서버 확정 당일 대기번호 발급)
+        let queueItem = null;
+        let queueOffline = false;
+        try {
+          if (window.BongplayQueue) {
+            const qRes = await BongplayQueue.enqueueConsent(consentRecord);
+            if (qRes && qRes.ok && qRes.item) {
+              queueItem = qRes.item;
+              try { localStorage.setItem('bongplay_my_queue_id', queueItem.id); } catch (e) {}
+            } else if (qRes && qRes.offline) {
+              queueOffline = true;
+            }
+          }
+        } catch (qErr) {
+          console.warn('Queue enqueue error:', qErr);
+        }
+
         const voucher = {
           passCode,
           consentId: recordId,
@@ -771,7 +816,11 @@
           householdId,
           guardianName,
           peopleText: `${children.length + 1}명 (성인 1 · 아이 ${children.length})`,
-          date: dateStr
+          date: dateStr,
+          queueId: queueItem ? queueItem.id : null,
+          queueNumber: queueItem ? queueItem.queue_number : null,
+          formattedQueueNumber: queueItem ? (queueItem.formatted_number || ('#' + queueItem.queue_number)) : null,
+          queueOffline: queueOffline
         };
         // 손님 본인 폰에만 당일 바우처를 보관 → 창을 닫았다 다시 열어도 QR·설문 버튼 유지
         try { localStorage.setItem(MY_VOUCHER_KEY, JSON.stringify(voucher)); } catch (e) {}
@@ -804,11 +853,54 @@
       return null;
     }
 
+    async function updateVoucherQueueView(v) {
+      const qNumEl = document.getElementById('voucherQueueNumberText');
+      const qBadgeEl = document.getElementById('voucherQueueStatusBadge');
+      const qAlertEl = document.getElementById('voucherQueueOfflineAlert');
+      const qSubText = document.getElementById('voucherQueueSubText');
+      const btnStatus = document.getElementById('btnOpenQueueStatusPage');
+      if (!qNumEl) return;
+
+      if (v.queueOffline || (!v.queueNumber && !v.queueId)) {
+        qNumEl.textContent = '접수 대기 중';
+        qBadgeEl.textContent = '오프라인';
+        qBadgeEl.className = 'text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-700';
+        qAlertEl.classList.remove('hidden');
+        qSubText.classList.add('hidden');
+        btnStatus.classList.add('hidden');
+        return;
+      }
+
+      qNumEl.textContent = v.formattedQueueNumber || ('#' + v.queueNumber);
+      qBadgeEl.textContent = '대기 중';
+      qBadgeEl.className = 'text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-brand-900 text-brand-200 border border-brand-700';
+      qAlertEl.classList.add('hidden');
+      qSubText.classList.remove('hidden');
+      btnStatus.classList.remove('hidden');
+      if (v.queueId) {
+        btnStatus.href = 'queue-status.html?id=' + encodeURIComponent(v.queueId);
+      }
+
+      if (window.BongplayQueue && v.queueId) {
+        try {
+          const res = await BongplayQueue.getCustomerStatus(v.queueId);
+          if (res && res.ok && res.item) {
+            document.getElementById('voucherAheadCountText').textContent = (res.item.ahead_count || 0) + ' 팀';
+            if (res.item.wait_time) {
+              document.getElementById('voucherWaitTimeText').textContent = res.item.wait_time.text || '집계 중';
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
     function showVoucher(v) {
       currentVoucherCode = v.passCode;
       document.getElementById('voucherCodeText').textContent = v.passCode;
       document.getElementById('voucherGuardianText').textContent = v.guardianName;
       document.getElementById('voucherPeopleCountText').textContent = v.peopleText;
+
+      updateVoucherQueueView(v);
 
       const qrEl = document.getElementById('voucherQrCode');
       qrEl.innerHTML = '';

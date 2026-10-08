@@ -51,6 +51,7 @@
   <script src="../assets/config.js"></script>
   <script src="../assets/bongplay-sync.js"></script>
   <script src="../assets/bongplay-id.js"></script>
+  <script src="../assets/bongplay-queue.js"></script>
   <script src="../assets/bongplay-wakelock.js"></script>
   <link rel="stylesheet" href="../assets/print.css">
 </head>
@@ -194,6 +195,144 @@
         </div>
         <div id="statChildrenBreakdown" class="text-[11px] text-emerald-400 font-semibold mt-1 truncate">신장 100cm 미달 체크 필요</div>
       </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- 1.5. QUEUE DESK CONTROL PANEL (ANT-006 / BEN-022)                 -->
+    <!-- ================================================================= -->
+    <div class="bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-lg space-y-4">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/40 flex items-center justify-center font-black">
+            <i data-lucide="megaphone" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h2 class="text-sm sm:text-base font-black text-white flex items-center gap-2">
+              <span>발권 대기열 관제 &amp; 창구 호출</span>
+              <span id="queueDeskActiveBadge" class="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800">
+                1번 창구 배정
+              </span>
+            </h2>
+            <p class="text-[11px] text-slate-400">QR 서약 접수팀을 순서대로 호출하고 즉시 매표 및 발권으로 연계합니다.</p>
+          </div>
+        </div>
+
+        <!-- Desk Controls: Desk No & Pause Toggle & Display Link -->
+        <div class="flex items-center gap-2 flex-wrap text-xs">
+          <!-- Active Desk Selector -->
+          <div class="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 font-bold gap-1">
+            <button type="button" id="btnDeskSelect1" onclick="selectActiveDesk(1)" class="px-2.5 py-1 rounded-lg bg-brand-600 text-white shadow">1번 창구</button>
+            <button type="button" id="btnDeskSelect2" onclick="selectActiveDesk(2)" class="px-2.5 py-1 rounded-lg text-slate-400 hover:text-white">2번 창구</button>
+          </div>
+
+          <!-- Pause Desk Toggle (Requirement 7) -->
+          <button type="button" id="btnToggleDeskPause" onclick="toggleCurrentDeskPause()" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold border border-slate-700 flex items-center gap-1.5 transition">
+            <i data-lucide="pause-circle" class="w-3.5 h-3.5 text-amber-400"></i>
+            <span id="deskPauseLabel">창구 정상 운영</span>
+          </button>
+
+          <!-- Public Display Link -->
+          <a href="queue-display.html" target="_blank" class="px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-300 font-bold border border-slate-800 flex items-center gap-1.5 transition">
+            <i data-lucide="monitor" class="w-3.5 h-3.5 text-sky-400"></i>
+            <span>공개 전광판 ↗</span>
+          </a>
+        </div>
+      </div>
+
+      <!-- Main Queue Calling Control Area -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+        
+        <!-- Left: Call Next Action Box (5 Cols) -->
+        <div class="lg:col-span-5 bg-slate-950/80 rounded-2xl border border-slate-800/80 p-4 flex flex-col justify-between space-y-3">
+          <div>
+            <div class="flex items-center justify-between text-xs text-slate-400 font-semibold mb-2">
+              <span>대기 현황 요약</span>
+              <span id="queueAheadRealtimeBadge" class="text-amber-400 font-bold">대기 0팀</span>
+            </div>
+
+            <div class="flex items-baseline gap-2">
+              <span id="queueDeskWaitCount" class="text-4xl font-black text-white font-mono">0</span>
+              <span class="text-xs text-slate-400 font-bold">팀 대기 중</span>
+            </div>
+            <p id="queueEstTimeDeskText" class="text-xs text-slate-400 mt-1">예상 대기: <b id="queueEstTimeDeskVal" class="text-brand-300">집계 중</b></p>
+          </div>
+
+          <div class="space-y-2">
+            <button type="button" id="btnCallNextQueueTeam" onclick="handleCallNextQueueTeam()" class="w-full py-3.5 bg-gradient-to-r from-brand-600 to-emerald-600 hover:from-brand-500 hover:to-emerald-500 active:scale-[0.99] text-white font-black text-sm rounded-xl shadow-lg shadow-brand-600/30 flex items-center justify-center gap-2 transition disabled:opacity-50">
+              <i data-lucide="bell" class="w-4 h-4"></i>
+              <span>다음 대기팀 호출하기 (Call Next)</span>
+            </button>
+            <p class="text-[10px] text-slate-500 text-center">선착순 원칙: 서약 완료 시각 순으로 원자적 자동 배정</p>
+          </div>
+        </div>
+
+        <!-- Right: Current Called Team Card & Actions (7 Cols) -->
+        <div class="lg:col-span-7 bg-slate-950/80 rounded-2xl border border-slate-800/80 p-4 flex flex-col justify-between space-y-3">
+          
+          <div id="deskCalledEmptyBox" class="flex-1 flex flex-col items-center justify-center text-center py-6 text-slate-500">
+            <i data-lucide="user-check" class="w-8 h-8 text-slate-600 mb-1"></i>
+            <p class="text-xs font-bold text-slate-400">현재 창구에서 호출 중인 팀이 없습니다.</p>
+            <p class="text-[11px] text-slate-600 mt-0.5">[다음 대기팀 호출하기]를 누르면 순번대로 배정됩니다.</p>
+          </div>
+
+          <div id="deskCalledTeamBox" class="hidden flex-1 flex flex-col justify-between space-y-3">
+            <div class="flex items-start justify-between">
+              <div>
+                <div class="flex items-center gap-2">
+                  <span id="deskCalledNumberBadge" class="text-2xl font-black font-mono text-amber-400 tracking-tight">#---</span>
+                  <span id="deskCalledStatusBadge" class="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-700">
+                    호출 중
+                  </span>
+                </div>
+                <h4 id="deskCalledGuardianName" class="text-base font-black text-white mt-1">- 님 일행</h4>
+                <p id="deskCalledDetailsText" class="text-xs text-slate-400">연락처: - · 인원: -명</p>
+              </div>
+
+              <div class="text-right">
+                <span id="deskCalledTimeText" class="text-[11px] text-slate-500">호출 시각: --:--:--</span>
+              </div>
+            </div>
+
+            <!-- Action Buttons for the Called Team -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-800">
+              <button type="button" onclick="handleRecallQueueTeam()" class="py-2 px-2 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs rounded-xl border border-slate-700 flex items-center justify-center gap-1 transition">
+                <i data-lucide="volume-2" class="w-3.5 h-3.5"></i>
+                <span>재호출 🔔</span>
+              </button>
+
+              <button type="button" onclick="handleStartQueueProcessing()" class="py-2 px-2 bg-brand-600 hover:bg-brand-500 text-white font-black text-xs rounded-xl shadow flex items-center justify-center gap-1 transition">
+                <i data-lucide="credit-card" class="w-3.5 h-3.5"></i>
+                <span>발권 시작 🎫</span>
+              </button>
+
+              <button type="button" onclick="handleHoldQueueTeam()" class="py-2 px-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl border border-slate-700 flex items-center justify-center gap-1 transition">
+                <i data-lucide="pause" class="w-3.5 h-3.5 text-amber-400"></i>
+                <span>부재 보류 ⏸️</span>
+              </button>
+
+              <button type="button" onclick="handleCancelQueueTeam()" class="py-2 px-2 bg-slate-900 hover:bg-rose-950 text-rose-400 font-bold text-xs rounded-xl border border-rose-900/60 flex items-center justify-center gap-1 transition">
+                <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                <span>접수 취소 ❌</span>
+              </button>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+      <!-- Bottom Held Teams Drawer Toggle -->
+      <div id="heldTeamsContainer" class="hidden pt-2 border-t border-slate-800/80">
+        <div class="flex items-center justify-between text-xs mb-2">
+          <span class="font-bold text-amber-400 flex items-center gap-1.5">
+            <i data-lucide="alert-circle" class="w-3.5 h-3.5"></i>
+            <span>부재 보류 목록 (<span id="heldTeamsCount">0</span>팀)</span>
+          </span>
+          <span class="text-[11px] text-slate-500">고객이 매표소로 돌아오면 [대기열 복귀]를 눌러주세요.</span>
+        </div>
+        <div id="heldTeamsList" class="flex flex-wrap gap-2"></div>
+      </div>
+
     </div>
 
     <!-- 2. Weekly Day Tabs Navigation -->
@@ -493,6 +632,8 @@
       await checkSafetyInterlock();
       renderDateFilterBar();
       await loadData();
+      selectActiveDesk(1);
+      setInterval(refreshDeskQueueView, 3000);
     });
 
     // 현장 비치용 서약 QR 안내문 (A4) — 손님 서약 화면(consent.html) 주소를 QR 로 인쇄
@@ -603,6 +744,230 @@
       } catch (e) {
         console.warn('Safety interlock check failed:', e);
       }
+    }
+
+    /* ================= 대기열 관제 함수군 (ANT-006 / BEN-022) ================= */
+    let currentDeskNo = 1;
+    let isDeskPaused = false;
+    let currentCalledQueueEntry = null;
+
+    function selectActiveDesk(deskNo) {
+      currentDeskNo = deskNo;
+      document.getElementById('btnDeskSelect1').className = (deskNo === 1)
+        ? 'px-2.5 py-1 rounded-lg bg-brand-600 text-white shadow'
+        : 'px-2.5 py-1 rounded-lg text-slate-400 hover:text-white';
+      document.getElementById('btnDeskSelect2').className = (deskNo === 2)
+        ? 'px-2.5 py-1 rounded-lg bg-sky-600 text-white shadow'
+        : 'px-2.5 py-1 rounded-lg text-slate-400 hover:text-white';
+      document.getElementById('queueDeskActiveBadge').textContent = `${deskNo}번 창구 배정`;
+      document.getElementById('queueDeskActiveBadge').className = (deskNo === 1)
+        ? 'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800'
+        : 'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-sky-950 text-sky-400 border border-sky-800';
+
+      if (window.BongplayQueue && BongplayQueue.store && BongplayQueue.store.desks[deskNo]) {
+        const qId = BongplayQueue.store.desks[deskNo].current_queue_id;
+        currentCalledQueueEntry = qId ? BongplayQueue.store.getEntryById(qId) : null;
+        isDeskPaused = Boolean(BongplayQueue.store.desks[deskNo].is_paused);
+        updateDeskPauseButtonUI();
+      }
+      refreshDeskQueueView();
+    }
+
+    function toggleCurrentDeskPause() {
+      isDeskPaused = !isDeskPaused;
+      if (window.BongplayQueue && BongplayQueue.store) {
+        BongplayQueue.store.setDeskPaused(currentDeskNo, isDeskPaused);
+      }
+      updateDeskPauseButtonUI();
+      refreshDeskQueueView();
+    }
+
+    function updateDeskPauseButtonUI() {
+      const btn = document.getElementById('btnToggleDeskPause');
+      const label = document.getElementById('deskPauseLabel');
+      if (!btn || !label) return;
+      if (isDeskPaused) {
+        btn.className = 'px-3 py-1.5 rounded-xl bg-rose-950 text-rose-300 font-bold border border-rose-800 flex items-center gap-1.5 transition';
+        label.textContent = '창구 일시 중지 중';
+      } else {
+        btn.className = 'px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold border border-slate-700 flex items-center gap-1.5 transition';
+        label.textContent = '창구 정상 운영';
+      }
+    }
+
+    async function handleCallNextQueueTeam() {
+      if (!isSafetyInspectionPassed) {
+        alert('🚨 일일 안전점검 미완료: 개장 전 안전점검을 먼저 승인해야 매표 대기열 호출이 가능합니다.');
+        return;
+      }
+      if (isDeskPaused) {
+        alert('⚠️ 현재 창구가 일시 중지 상태입니다. 중지 해제 후 호출해 주세요.');
+        return;
+      }
+
+      try {
+        const res = await BongplayQueue.callNext(currentDeskNo, 'desk_staff_' + currentDeskNo);
+        if (res && res.ok && res.item) {
+          currentCalledQueueEntry = res.item;
+          refreshDeskQueueView();
+        } else {
+          alert('대기 중인 팀이 없습니다.');
+        }
+      } catch (e) {
+        console.warn('Call next error:', e);
+        alert('호출 처리 중 오류가 발생했습니다.');
+      }
+    }
+
+    async function handleRecallQueueTeam() {
+      if (!currentCalledQueueEntry) return;
+      try {
+        const res = await BongplayQueue.recall(currentCalledQueueEntry.id, currentDeskNo);
+        if (res && res.ok && res.item) {
+          currentCalledQueueEntry = res.item;
+          refreshDeskQueueView();
+          alert(`🔔 ${currentCalledQueueEntry.formatted_number}번 고객님을 재호출했습니다.`);
+        }
+      } catch (e) {
+        console.warn('Recall error:', e);
+      }
+    }
+
+    async function handleStartQueueProcessing() {
+      if (!currentCalledQueueEntry) return;
+      try {
+        const res = await BongplayQueue.startProcessing(currentCalledQueueEntry.id, currentDeskNo);
+        if (res && res.ok && res.item) {
+          currentCalledQueueEntry = res.item;
+          refreshDeskQueueView();
+        }
+      } catch (e) {
+        console.warn('Start processing error:', e);
+      }
+
+      if (currentCalledQueueEntry.consent_id) {
+        openPaymentModal(currentCalledQueueEntry.consent_id);
+      }
+    }
+
+    async function handleHoldQueueTeam() {
+      if (!currentCalledQueueEntry) return;
+      const reason = (prompt('부재 보류 사유를 입력하세요 (예: 호출 3회 부재, 화장실 이동)', '고객 부재') || '').trim();
+      if (!reason) return;
+
+      try {
+        const res = await BongplayQueue.holdNoShow(currentCalledQueueEntry.id, reason);
+        if (res && res.ok) {
+          currentCalledQueueEntry = null;
+          refreshDeskQueueView();
+          alert('⏸️ 해당 팀을 [부재 보류]로 전환했습니다. 대기 순번에서 제외되었습니다.');
+        }
+      } catch (e) {
+        console.warn('Hold error:', e);
+      }
+    }
+
+    async function handleRestoreHeldTeam(queueId) {
+      if (!confirm('부재 보류된 고객을 다시 대기열로 복귀시키겠습니까?')) return;
+      try {
+        const res = await BongplayQueue.restoreHeld(queueId);
+        if (res && res.ok) {
+          refreshDeskQueueView();
+          alert('↩️ 대기열로 정상 복귀되었습니다.');
+        }
+      } catch (e) {
+        console.warn('Restore held error:', e);
+      }
+    }
+
+    async function handleCancelQueueTeam() {
+      if (!currentCalledQueueEntry) return;
+      const reason = (prompt('접수 취소 사유를 입력하세요 (예: 고객 미방문 취소)', '고객 취소 요청') || '').trim();
+      if (!reason) return;
+
+      try {
+        const res = await BongplayQueue.cancelEntry(currentCalledQueueEntry.id, reason);
+        if (res && res.ok) {
+          currentCalledQueueEntry = null;
+          refreshDeskQueueView();
+          alert('❌ 대기 접수가 취소되었습니다.');
+        }
+      } catch (e) {
+        console.warn('Cancel queue error:', e);
+      }
+    }
+
+    function refreshDeskQueueView() {
+      if (!window.BongplayQueue || !BongplayQueue.store) return;
+      const store = BongplayQueue.store;
+      const todayStr = BongplayQueue.getKstDateStr();
+
+      let waitingCount = 0;
+      let heldList = [];
+      store.entries.forEach(it => {
+        if (it.queue_date === todayStr) {
+          if (it.status === BongplayQueue.STATUS.WAITING) waitingCount++;
+          if (it.status === BongplayQueue.STATUS.NO_SHOW) heldList.push(it);
+        }
+      });
+
+      const waitEl = document.getElementById('queueDeskWaitCount');
+      if (waitEl) waitEl.textContent = waitingCount;
+      const badgeEl = document.getElementById('queueAheadRealtimeBadge');
+      if (badgeEl) badgeEl.textContent = `대기 ${waitingCount}팀`;
+
+      const waitTime = BongplayQueue.calculateWaitTime({
+        aheadCount: waitingCount,
+        completedIssuances: store.completedHistory.filter(c => c.queue_date === todayStr),
+        activeDesksCount: (isDeskPaused ? 0 : 1),
+        isDeskPaused: isDeskPaused
+      });
+      const valEl = document.getElementById('queueEstTimeDeskVal');
+      if (valEl) valEl.textContent = waitTime.text || '집계 중';
+
+      const emptyBox = document.getElementById('deskCalledEmptyBox');
+      const teamBox = document.getElementById('deskCalledTeamBox');
+      if (!emptyBox || !teamBox) return;
+
+      if (currentCalledQueueEntry && (currentCalledQueueEntry.status === 'called' || currentCalledQueueEntry.status === 'processing')) {
+        emptyBox.classList.add('hidden');
+        teamBox.classList.remove('hidden');
+
+        document.getElementById('deskCalledNumberBadge').textContent = currentCalledQueueEntry.formatted_number || ('#' + currentCalledQueueEntry.queue_number);
+        document.getElementById('deskCalledStatusBadge').textContent = (currentCalledQueueEntry.status === 'processing') ? '발권 진행 중' : '호출 중';
+        document.getElementById('deskCalledStatusBadge').className = (currentCalledQueueEntry.status === 'processing')
+          ? 'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-blue-950 text-blue-300 border border-blue-700'
+          : 'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-700';
+
+        document.getElementById('deskCalledGuardianName').textContent = (currentCalledQueueEntry.guardian_name || '미입력') + ' 님 일행';
+        document.getElementById('deskCalledDetailsText').textContent = `연락처: ${currentCalledQueueEntry.guardian_phone || '-'} · 인원: ${currentCalledQueueEntry.party_size || 1}명`;
+        document.getElementById('deskCalledTimeText').textContent = '호출: ' + (currentCalledQueueEntry.called_at ? currentCalledQueueEntry.called_at.slice(11, 19) : '-');
+      } else {
+        emptyBox.classList.remove('hidden');
+        teamBox.classList.add('hidden');
+      }
+
+      const heldDrawer = document.getElementById('heldTeamsContainer');
+      const heldCountEl = document.getElementById('heldTeamsCount');
+      const heldListEl = document.getElementById('heldTeamsList');
+      if (heldDrawer && heldCountEl && heldListEl) {
+        if (heldList.length > 0) {
+          heldDrawer.classList.remove('hidden');
+          heldCountEl.textContent = heldList.length;
+          heldListEl.innerHTML = heldList.map(h => `
+            <div class="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs flex items-center gap-2">
+              <span class="font-bold text-amber-400">${h.formatted_number || ('#' + h.queue_number)}</span>
+              <span class="text-white">${escapeHtml(h.guardian_name || '고객')}</span>
+              <span class="text-slate-500 text-[11px]">(${h.hold_reason || '부재'})</span>
+              <button type="button" onclick="handleRestoreHeldTeam('${h.id}')" class="px-2 py-0.5 bg-brand-600 hover:bg-brand-500 text-white font-bold rounded-lg text-[10px]">복귀 ↩️</button>
+            </div>
+          `).join('');
+        } else {
+          heldDrawer.classList.add('hidden');
+        }
+      }
+
+      if (window.lucide) lucide.createIcons();
     }
 
     // 3. Load Consents
@@ -1193,10 +1558,26 @@
       rec.ticket_ids = ticketIds;
       await BongplaySync.upsert('safety_consents', rec);
 
+      // 4) 대기열 발권 완료 반영 (ANT-006: 서버 발권 확정 후 대기열에서 제외)
+      if (window.BongplayQueue) {
+        try {
+          const qEntry = currentCalledQueueEntry || (BongplayQueue.store ? BongplayQueue.store.getEntryByConsentId(rec.id) : null);
+          if (qEntry) {
+            await BongplayQueue.completeIssuance(qEntry.id, order.order_id, ticketIds);
+            if (currentCalledQueueEntry && currentCalledQueueEntry.id === qEntry.id) {
+              currentCalledQueueEntry = null;
+            }
+          }
+        } catch (qErr) {
+          console.warn('Queue completeIssuance error:', qErr);
+        }
+      }
+
       closePaymentModal();
       closeDetailModal();
       updateSummaryStats();
       renderAdminList();
+      refreshDeskQueueView();
 
       alert(`✅ 발권 완료\n\n· 결제: ${methodLabel}${approvalNo ? ' (승인 ' + approvalNo + ')' : ''}\n· 발권: ${ticketIds.length}매 (손목 띠지 교부 후 게이트 안내)\n· 원장: 결제·수납·발권·실적·마감에 자동 반영되었습니다.`);
     }

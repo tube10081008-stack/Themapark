@@ -66,6 +66,7 @@
 | ASIDE-001 | 지오 | `aside/ASIDE-001-institution-directory` (예정) | 착수 시 기록 | 공식 공개 기관 목록, 방법 보고서·본 행 | 9칸 커버리지, CSV는 저장소 밖 대표 전달 | GEO-001 PR 인계 후 착수 |
 | ASIDE-HIST-001 | 지오·대표 | 해당 없음 | 대표 보고 2026-09-29 | 네이버 블로그 자동화 기존 운영 | 대표 운영 성공 보고 기록 | 보고 기준 완료 / 벤 미검증 / 신규 게시 미배정 |
 | COORD-004 | Ben | `ben/COORD-004-chloe-review` | `bb0fcec` | PR #4~#6 이력 통합·작업표·결정문·추가 지시 | 원본 검증·작업행 보존·통합 PR | 검토 및 통합 |
+| ANT-006 | 아난티 | `antigravity/ANT-006-ticket-queue` | `892a061` | 01 운영 대기열 모듈·고객대기화면·공개호출판·서약/매표 UI·제안SQL·테스트 스위트 | QR동의서 접수→대기번호 채번→고객 순서/예상시간 확인→매표소 호출→발권 완료 대기 제외 100% 구현, 10대 단위시험 PASS, 브라우저 4세션 실사용 E2E 전수 PASS(16.31초) | 검증 완료 / 벤 검토 대기 |
 
 새 작업은 이 표에 추가한다. 다른 에이전트의 폴더/브랜치 및 미푸시 변경은 이번 로컬 복제로 확인할 수 없으므로 담당자가 인계해야 한다.
 
@@ -147,3 +148,8 @@ COORD-007 / Ben / ben/COORD-007-live-targets / 기준 ed5a2ce / 운영 대상 �
 
 ## BEN-014 고객 홈페이지 편입
 벤 / ben/BEN-014-customer-homepage / 기준 c826316 / 06_봉플레이_고객홈페이지 및 배포 문서 / 원본 보존 복사·정적 검증·Netlify ZIP 준비 / 진행 중
+
+## BEN-022 발권 대기 시스템 구현 (2026-10-08)
+
+기준 master `892a06143ebe69e64a77761cd5793ab199c9755b`.
+- ANT-006 / 아난티 / `antigravity/ANT-006-ticket-queue` / `01_봉플레이_운영시스템/assets/bongplay-queue.js`, `pages/queue-status.html`, `pages/queue-display.html`, `database/PROPOSED_MIGRATION_ticket_queue.sql`, `tests/ticket_queue.test.js`, `tests/e2e_ticket_queue_flows.js`, `pages/consent.html`, `pages/consent-desk.html`, `index.html` / 9대 불변식 전수 검증, 단위 10건 통과, CDP 헤드리스 4세션 실사용 E2E 6단계 통과(16.31초), 기존 회귀 57건 전수 통과 / 보고서 `docs/qa/ANT-006_발권대기열.md` 작성 및 master 대상 PR 준비 완료.
