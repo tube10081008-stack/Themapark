@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>봉플레이 회계 순환</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800;900&display=swap');
+    * { font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif; box-sizing: border-box; }
+    html, body { max-width: 100vw; overflow-x: hidden; }
+    .num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+    .tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .tbl th { position: sticky; top: 0; background: #0f172a; color: #94a3b8; font-weight: 700; text-align: left; padding: 6px 8px; border-bottom: 1px solid #334155; }
+    .tbl td { padding: 5px 8px; border-bottom: 1px solid #1e293b; vertical-align: top; }
+    .tbl tr.sum td { font-weight: 800; border-top: 1px solid #475569; background: #0f172a; }
+    .step[aria-selected="true"] { background: #f59e0b; color: #0f172a; border-color: #f59e0b; }
+    .inp { background: #020617; border: 1px solid #334155; border-radius: 10px; padding: 7px 10px; color: #f1f5f9; font-size: 13px; width: 100%; }
+    .inp:focus { outline: none; border-color: #f59e0b; }
+    .btn { border-radius: 10px; padding: 7px 12px; font-size: 12px; font-weight: 800; border: 1px solid #334155; background: #1e293b; color: #e2e8f0; }
+    .btn:hover { background: #334155; }
+    .btn-p { background: #f59e0b; color: #0f172a; border-color: #f59e0b; }
+    .btn-p:hover { background: #fbbf24; }
+    .btn-d { border-color: #7f1d1d; color: #fca5a5; }
+    .card { background: #0b1222; border: 1px solid #1e293b; border-radius: 16px; padding: 14px; }
+    .scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    details > summary { cursor: pointer; list-style: none; }
+    details > summary::-webkit-details-marker { display: none; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../assets/bongplay-site.js"></script>
+  <script src="../assets/config.js"></script>
+  <script src="../assets/bongplay-sync.js"></script>
+  <script src="../assets/bongplay-accounting.js"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen">
+
+<header class="sticky top-0 z-40 bg-slate-950/95 backdrop-blur border-b border-slate-800">
+  <div class="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
+    <a href="../index.html" class="btn">← 메인</a>
+    <div class="min-w-0">
+      <p class="font-black text-white text-base leading-tight">회계 순환 자동화</p>
+      <p class="text-[11px] text-slate-500">회계_최소셋 구조 · 거래 → 분개 → 원장 → 시산표 → 결산 → 재무제표 → 마감</p>
+    </div>
+    <div class="ml-auto flex items-center gap-2">
+      <input type="month" id="periodInput" class="inp" style="width:150px">
+      <button class="btn btn-p" id="reloadBtn" title="서버에서 이 달의 주문·결제·마감 기록을 다시 불러옵니다">불러오기</button>
+    </div>
+  </div>
+  <nav class="max-w-6xl mx-auto px-4 pb-3 flex gap-1.5 overflow-x-auto" id="stepNav" role="tablist"></nav>
+</header>
+
+<main class="max-w-6xl mx-auto px-4 py-4 space-y-4">
+  <section id="health" class="card"></section>
+  <section id="view"></section>
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const A = window.BongplayAccounting;
+  const STORE_KEY = 'bongplay_accounting_v1';
+  const $ = id => document.getElementById(id);
+  const fmt = A.fmt;
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const today = A.kstDate(new Date().toISOString());
+
+  /* ---------- 상태 (이 기기 브라우저에 저장 — 백업은 ⑦ 마감 탭) ---------- */
+  function loadState() {
+    try { const s = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); if (s && s.version === 1) return s; } catch (e) {}
+    return { version: 1, manual: [], schedules: [], chartExtra: [], locks: {}, settings: { autoSalesStart: '', closedYears: [], manualSalesDates: [], cardSettleDays: 5 } };
+  }
+  function saveState() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { alert('브라우저 저장소에 쓰지 못했습니다. ⑦ 마감 탭에서 백업 파일을 받아 두세요.\n' + e.message); }
+  }
+  let state = loadState();
+  state.settings = Object.assign({ autoSalesStart: '', closedYears: [], manualSalesDates: [], cardSettleDays: 5 }, state.settings || {});
+
+  /* ---------- ① 원천 데이터: 로컬(POS 기기) + 서버 기간 조회 ---------- */
+  const readLocal = k => { try { const v = JSON.parse(localStorage.getItem(k) || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; } };
+  const source = { items: [], payments: [], closings: [], server: null };
+  function mergeById(a, b) { const m = {}; a.concat(b).forEach(r => { const k = r && (r.id || r.item_id); if (k) m[k] = Object.assign({}, m[k] || {}, r); }); return Object.values(m); }
+  function loadLocalSource() {
+    source.items = mergeById(readLocal('bongplay_order_items'), source.items);
+    source.payments = mergeById(readLocal('bongplay_order_payments'), source.payments);
+    source.closings = mergeById(readLocal('bongplay_closing_records_history').map(c => Object.assign({ id: c.id || c.date }, c)), source.closings);
+  }
+  async function fetchAll(table, filter) {
+    const out = []; const size = 1000;
+    for (let off = 0; off < 20000; off += size) {
+      const r = await BongplaySync.select(table, '?select=*' + filter + '&limit=' + size + '&offset=' + off);
+      if (!r || !r.ok || !Array.isArray(r.data)) return { ok: false, reason: (r && r.reason) || 'error', data: out };
+      out.push(...r.data);
+      if (r.data.length < size) break;
+    }
+    return { ok: true, data: out };
+  }
+  async function loadServer(period) {
+    if (!window.BongplaySync || !BongplaySync.isConfigured()) { source.server = { ok: false, msg: 'Supabase 미설정 — 이 기기에 저장된 데이터만 사용합니다.' }; return; }
+    // 월 경계는 KST 기준 (UTC 저장값을 +09:00 로 비교)
+    const from = encodeURIComponent(period + '-01T00:00:00+09:00');
+    const to = encodeURIComponent(A.addMonths(period, 1) + '-01T00:00:00+09:00');
+    const [it, pa, cl] = await Promise.all([
+      fetchAll('order_items', '&purchased_at=gte.' + from + '&purchased_at=lt.' + to),
+      fetchAll('order_payments', '&paid_at=gte.' + from + '&paid_at=lt.' + to),
+      fetchAll('closing_records', '&date=gte.' + period + '-01&date=lte.' + A.lastDayOf(period))
+    ]);
+    source.items = mergeById(source.items, it.data);
+    source.payments = mergeById(source.payments, pa.data);
+    source.closings = mergeById(source.closings, cl.data);
+    const ok = it.ok && pa.ok && cl.ok;
+    source.server = { ok: ok, at: new Date().toLocaleTimeString('ko-KR'), msg: ok ? `서버 조회 완료 — 품목 ${it.data.length} · 결제 ${pa.data.length} · 마감 ${cl.data.length}` : '서버 조회 일부 실패 (' + [it, pa, cl].filter(x => !x.ok).map(x => x.reason).join(', ') + ') — 로컬 데이터로 계산합니다.' };
+  }
+
+  /* ---------- 장부 조립 ---------- */
+  let books = null;
+  let period = (localStorage.getItem('bongplay_accounting_period') || today.slice(0, 7));
+  const pFrom = () => period + '-01', pTo = () => A.lastDayOf(period);
+  function rebuild() {
+    books = A.assembleBooks(state, source, { today: today, toPeriod: period > today.slice(0, 7) ? period : undefined });
+    render();
+  }
+  const inPeriod = v => v.date >= pFrom() && v.date <= pTo();
+  const isLocked = p => !!(state.locks && state.locks[p]);
+
+  /* ---------- 공통 렌더 조각 ---------- */
+  const acctName = c => { const a = A.findAccount(books.chart, c); return a ? a.name : '미등록'; };
+  function voucherTable(vs, opts) {
+    opts = opts || {};
+    if (!vs.length) return '<p class="text-slate-500 text-sm py-3">전표가 없습니다.</p>';
+    return vs.map(v => {
+      const d = v.lines.reduce((s, l) => s + l.debit, 0), c = v.lines.reduce((s, l) => s + l.credit, 0);
+      const badge = { auto_sales: ['자동·매출', 'bg-sky-900 text-sky-300'], adjust: ['자동·결산', 'bg-violet-900 text-violet-300'], closing: ['마감', 'bg-rose-900 text-rose-300'], manual: ['수기', 'bg-slate-700 text-slate-200'] }[v.source] || ['', ''];
+      return `<details class="border border-slate-800 rounded-xl mb-2 bg-slate-950/40" ${opts.open ? 'open' : ''}>
+        <summary class="px-3 py-2 flex items-center gap-2 flex-wrap text-sm">
+          <span class="text-[10px] font-black px-1.5 py-0.5 rounded ${badge[1]}">${badge[0]}</span>
+          <span class="font-mono text-xs text-slate-400">${esc(v.no)}</span>
+          <span class="text-slate-400 text-xs">${esc(v.date)}</span>
+          <span class="font-bold">${esc(v.title || (v.lines[0] && v.lines[0].memo) || '')}</span>
+          <span class="ml-auto num text-xs ${d === c ? 'text-slate-300' : 'text-rose-400 font-black'}">${fmt(d)}${d === c ? '' : ' ≠ ' + fmt(c)}</span>
+          ${opts.del && v.source === 'manual' && !isLocked(A.periodOf(v.date)) ? `<button class="btn btn-d !py-0.5 !px-2" data-del="${esc(v.no)}">삭제</button>` : ''}
+        </summary>
+        <div class="scroll-x px-2 pb-2"><table class="tbl"><thead><tr><th>증빙</th><th>적요</th><th>계정</th><th class="num">차변</th><th class="num">대변</th><th class="num">부가세액</th><th>거래처</th><th>비고</th></tr></thead><tbody>
+        ${v.lines.map(l => `<tr><td>${esc(l.evidence)}</td><td>${esc(l.memo)}</td><td><span class="font-mono text-slate-400">${esc(l.code)}</span> ${esc(acctName(l.code))}</td><td class="num">${l.debit ? fmt(l.debit) : ''}</td><td class="num">${l.credit ? fmt(l.credit) : ''}</td><td class="num text-slate-400">${l.vat ? fmt(l.vat) : ''}</td><td>${esc(l.partner)}</td><td class="text-slate-400">${esc(l.note)}</td></tr>`).join('')}
+        </tbody></table></div></details>`;
+    }).join('');
+  }
+  const kpi = (label, value, cls) => `<div class="card !p-3"><p class="text-[11px] text-slate-500 font-bold">${label}</p><p class="num text-lg font-black ${cls || 'text-white'}" style="text-align:left">${value}</p></div>`;
+
+  /* ---------- 검증 배너 ---------- */
+  function renderHealth() {
+    const ws = books.warnings;
+    const err = ws.filter(w => w.level === 'error'), warn = ws.filter(w => w.level === 'warn'), info = ws.filter(w => w.level === 'info');
+    const tb = A.trialBalance(books.lines, books.chart, { from: pFrom(), to: pTo() });
+    const color = err.length ? 'text-rose-400' : warn.length ? 'text-amber-300' : 'text-emerald-400';
+    const row = w => `<li class="py-1 border-b border-slate-800/60"><span class="text-[10px] font-black mr-1 ${w.level === 'error' ? 'text-rose-400' : w.level === 'warn' ? 'text-amber-300' : 'text-sky-300'}">${w.level === 'error' ? '오류' : w.level === 'warn' ? '확인' : '제안'}</span>${w.voucher ? `<span class="font-mono text-[11px] text-slate-500 mr-1">${esc(w.voucher)}</span>` : ''}${esc(w.message)}
+      ${w.code === 'DUPLICATE_SALES' ? ` <button class="btn !py-0 !px-2 ml-1" data-keepmanual="${esc(w.voucher)}">이 날은 수기 전표 유지</button>` : ''}</li>`;
+    $('health').innerHTML = `<div class="flex items-center gap-3 flex-wrap">
+      <p class="font-black ${color}">${err.length ? `오류 ${err.length}건` : warn.length ? `확인 필요 ${warn.length}건` : '장부 정상'}</p>
+      <p class="text-xs text-slate-400">${period} 차변 ${fmt(tb.totalDebit)} · 대변 ${fmt(tb.totalCredit)} · ${tb.balanced ? '대차 일치' : '<b class=text-rose-400>대차 불일치</b>'}${isLocked(period) ? ' · <b class="text-rose-300">마감(잠금)된 달</b>' : ''}</p>
+      <p class="text-[11px] text-slate-500 ml-auto">${source.server ? esc(source.server.msg) : '이 기기 데이터 기준'}</p></div>
+      ${ws.length ? `<details class="mt-2" ${err.length ? 'open' : ''}><summary class="text-xs text-slate-400 font-bold">점검 결과 ${ws.length}건 보기 (오류 ${err.length} · 확인 ${warn.length} · 제안 ${info.length})</summary><ul class="mt-1 text-xs text-slate-300">${err.concat(warn, info).map(row).join('')}</ul></details>` : ''}`;
+  }
+
+  /* ---------- 7단계 ---------- */
+  const STEPS = [
+    ['collect', '① 거래 수집'], ['journal', '② 분개'], ['ledger', '③ 원장'], ['tb', '④ 시산표'],
+    ['adjust', '⑤ 결산 수정'], ['fs', '⑥ 재무제표'], ['close', '⑦ 마감·내보내기']
+  ];
+  let step = localStorage.getItem('bongplay_accounting_step') || 'journal';
+  function renderNav() {
+    $('stepNav').innerHTML = STEPS.map(s => `<button class="step btn shrink-0" role="tab" aria-selected="${s[0] === step}" data-step="${s[0]}">${s[1]}</button>`).join('');
+  }
+  const VIEWS = {};
+
+  VIEWS.collect = () => {
+    const its = source.items.filter(i => { const d = A.kstDate(i.purchased_at || i.created_at); return d >= pFrom() && d <= pTo(); });
+    const live = its.filter(i => i.status !== 'cancelled');
+    const pays = source.payments.filter(p => { const d = A.kstDate(p.paid_at || p.created_at); return d >= pFrom() && d <= pTo() && p.status !== 'cancelled'; });
+    const cls = source.closings.filter(c => String(c.date || '').slice(0, 7) === period);
+    const man = state.manual.filter(inPeriod);
+    const byM = {}; pays.forEach(p => { byM[p.method] = (byM[p.method] || 0) + Number(p.amount || 0); });
+    const rules = Object.keys(A.METHOD_RULES).map(m => `<tr><td>${m}</td><td><span class="font-mono text-slate-400">${A.METHOD_RULES[m].code}</span> ${esc(acctName(A.METHOD_RULES[m].code))}</td><td class="num">${fmt(byM[m] || 0)}</td><td class="text-slate-400">${esc(A.METHOD_RULES[m].note)}</td></tr>`).join('');
+    return `<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">${kpi('POS 판매 품목', fmt(live.length) + '건')}${kpi('결제 수납', fmt(pays.length) + '건')}${kpi('마감 기록', fmt(cls.length) + '일')}${kpi('수기 전표', fmt(man.length) + '장')}</div>
+    <div class="card mt-3"><p class="font-black mb-1">자동 분개 규칙 (운영시스템 → 계정)</p>
+      <p class="text-xs text-slate-400 mb-2">매표 데스크·POS 결제가 쌓이면 날짜별로 아래 규칙에 따라 '일일매출 전표'가 자동으로 만들어집니다. 엑셀 V-005·V-008을 손으로 쓰던 작업입니다.</p>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>결제수단</th><th>차변 계정</th><th class="num">${period} 수납액</th><th>설명</th></tr></thead><tbody>${rules}</tbody></table></div>
+      <div class="scroll-x mt-2"><table class="tbl"><thead><tr><th>품목 구분</th><th>대변 계정</th><th>부가세</th></tr></thead><tbody>
+        <tr><td>이용권(ticket*) · 체험/짚코스터(addon_attraction)</td><td><span class="font-mono text-slate-400">401</span> 체험·입장료수입</td><td rowspan="2" class="text-slate-400">결제액은 부가세 포함가 → 세액 = 합계÷11 (원 단위 반올림)을 220 부가세예수금으로, 나머지를 공급가액으로</td></tr>
+        <tr><td>F&amp;B(fnb) · 굿즈(merchandise)</td><td><span class="font-mono text-slate-400">403</span> 매점매출</td></tr>
+        <tr><td colspan="3" class="text-slate-400">발권취소(cancelled)는 제외 · 마감 시재 과부족은 잡이익(410)/잡비(530)로 자동 정리</td></tr></tbody></table></div></div>
+    <div class="card mt-3"><p class="font-black mb-2">설정</p>
+      <div class="grid sm:grid-cols-2 gap-3 text-sm">
+        <label class="block"><span class="text-xs text-slate-400 font-bold">자동 매출 전표 시작일</span><input type="date" class="inp mt-1" id="setAutoStart" value="${esc(state.settings.autoSalesStart)}">
+          <span class="text-[11px] text-slate-500">이 날짜 이전 매출은 엑셀에서 손으로 쓴 전표를 그대로 씁니다 (이중 계상 방지). 비우면 모든 날짜 자동.</span></label>
+        <label class="block"><span class="text-xs text-slate-400 font-bold">카드 미정산 경고 기준(일)</span><input type="number" min="1" class="inp mt-1" id="setCardDays" value="${esc(state.settings.cardSettleDays)}">
+          <span class="text-[11px] text-slate-500">카드매출이 이 기간 넘게 통장에 안 들어오면 경고합니다.</span></label>
+      </div>
+      ${state.settings.manualSalesDates.length ? `<p class="text-xs text-slate-400 mt-2">수기 매출 유지 날짜: ${state.settings.manualSalesDates.map(d => `<span class="font-mono">${esc(d)}</span> <button class="text-rose-300" data-unkeep="${esc(d)}">✕</button>`).join(' · ')}</p>` : ''}
+    </div>`;
+  };
+
+  let tplId = 'purchase';
+  VIEWS.journal = () => {
+    const vs = books.vouchers.filter(inPeriod);
+    const auto = vs.filter(v => v.source === 'auto_sales'), man = vs.filter(v => v.source === 'manual');
+    const groups = {}; A.TEMPLATES.forEach(t => (groups[t.group] = groups[t.group] || []).push(t));
+    const t = A.TEMPLATES.find(x => x.id === tplId) || A.TEMPLATES[0];
+    const field = f => {
+      const [key, label, kind, def] = f;
+      let input;
+      if (kind === 'number') input = `<input type="text" inputmode="numeric" class="inp" data-f="${key}" value="${esc(def || '')}" placeholder="0">`;
+      else if (kind === 'month') input = `<input type="month" class="inp" data-f="${key}" value="${esc(def || period)}">`;
+      else if (kind === 'evidence') input = `<select class="inp" data-f="${key}">${A.EVIDENCE.map(e => `<option ${e === def ? 'selected' : ''}>${e}</option>`).join('')}</select>`;
+      else if (kind === 'pay') input = `<select class="inp" data-f="${key}">${[['bank', '보통예금(통장)'], ['card', '사업용 카드(미지급금)'], ['cash', '현금'], ['payable', '외상(미지급금)']].map(o => `<option value="${o[0]}" ${o[0] === def ? 'selected' : ''}>${o[1]}</option>`).join('')}</select>`;
+      else if (kind.indexOf('account:') === 0) { const ty = kind.split(':')[1]; input = `<select class="inp" data-f="${key}">${books.chart.filter(a => a.type === ty).map(a => `<option value="${a.code}" ${a.code === def ? 'selected' : ''}>${a.code} ${esc(a.name)} (${a.vat})</option>`).join('')}</select>`; }
+      else if (kind.indexOf('select:') === 0) input = `<select class="inp" data-f="${key}">${kind.slice(7).split(',').map(o => { const [v, l] = o.split('='); return `<option value="${v}" ${v === def ? 'selected' : ''}>${esc(l)}</option>`; }).join('')}</select>`;
+      else input = `<input type="text" class="inp" data-f="${key}" value="${esc(def || '')}">`;
+      return `<label class="block"><span class="text-xs text-slate-400 font-bold">${esc(label)}</span>${input}</label>`;
+    };
+    return `<div class="grid lg:grid-cols-5 gap-4">
+      <div class="lg:col-span-2 card">
+        <p class="font-black mb-1">수기 거래 입력</p>
+        <p class="text-xs text-slate-400 mb-3">거래 종류만 고르면 차변·대변·부가세가 자동으로 나뉩니다.</p>
+        <select class="inp mb-2" id="tplSel">${Object.keys(groups).map(g => `<optgroup label="${esc(g)}">${groups[g].map(x => `<option value="${x.id}" ${x.id === t.id ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</optgroup>`).join('')}</select>
+        ${t.hint ? `<p class="text-[11px] text-amber-200/80 mb-2">${esc(t.hint)}</p>` : ''}
+        <div class="space-y-2" id="tplForm">
+          <label class="block"><span class="text-xs text-slate-400 font-bold">거래일</span><input type="date" class="inp" data-f="__date" value="${esc(period === today.slice(0, 7) ? today : pFrom())}"></label>
+          ${t.fields.map(field).join('')}
+        </div>
+        <div id="tplPreview" class="mt-3"></div>
+        <div class="flex gap-2 mt-3"><button class="btn" id="tplPreviewBtn">미리보기</button><button class="btn btn-p" id="tplSaveBtn" ${isLocked(period) ? 'disabled title="마감된 달"' : ''}>전표 저장</button></div>
+      </div>
+      <div class="lg:col-span-3 space-y-3">
+        <div class="card"><p class="font-black mb-2">자동 일일매출 전표 <span class="text-xs text-slate-500 font-bold">${auto.length}장 · POS·매표 결제에서 생성</span></p>${voucherTable(auto)}</div>
+        <div class="card"><div class="flex items-center gap-2 mb-2"><p class="font-black">수기 전표 <span class="text-xs text-slate-500 font-bold">${man.length}장</span></p>
+          <button class="btn ml-auto" id="importBtn">엑셀에서 불러오기</button><input type="file" id="importFile" accept=".xlsx,.xls" class="hidden"></div>
+          <details class="mb-2"><summary class="text-xs text-slate-400 font-bold">또는 엑셀 '전표' 시트에서 A~J 열을 복사해 붙여넣기</summary>
+            <textarea id="pasteBox" class="inp mt-2 font-mono" rows="4" placeholder="V-2026-10-001	2026-10-01	기타	자본금 납입	102	10000000 ..."></textarea>
+            <button class="btn mt-2" id="pasteBtn">붙여넣은 전표 추가</button></details>
+          ${voucherTable(man, { del: true })}</div>
+      </div></div>`;
+  };
+
+  let ledgerCode = '102';
+  VIEWS.ledger = () => {
+    const used = {}; books.lines.forEach(l => { used[l.code] = 1; });
+    const gl = A.generalLedger(books.lines, books.chart, ledgerCode, { from: pFrom(), to: pTo() });
+    return `<div class="card"><div class="flex items-center gap-2 flex-wrap mb-3"><p class="font-black">총계정원장</p>
+      <select class="inp" style="max-width:280px" id="ledgerSel">${books.chart.filter(a => used[a.code]).map(a => `<option value="${a.code}" ${a.code === ledgerCode ? 'selected' : ''}>${a.code} ${esc(a.name)}</option>`).join('')}</select>
+      <span class="text-xs text-slate-500">${gl.debitNature ? '차변 잔액 계정 (자산·비용)' : '대변 잔액 계정 (부채·자본·수익)'}</span></div>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>날짜</th><th>전표</th><th>적요</th><th>거래처</th><th class="num">차변</th><th class="num">대변</th><th class="num">잔액</th></tr></thead><tbody>
+      <tr><td colspan="6" class="text-slate-400">전월 이월</td><td class="num">${fmt(gl.opening)}</td></tr>
+      ${gl.rows.map(r => `<tr><td>${esc(r.date)}</td><td class="font-mono text-[11px] text-slate-400">${esc(r.no)}</td><td>${esc(r.memo)}</td><td>${esc(r.partner)}</td><td class="num">${r.debit ? fmt(r.debit) : ''}</td><td class="num">${r.credit ? fmt(r.credit) : ''}</td><td class="num ${r.balance < 0 ? 'text-rose-400' : ''}">${fmt(r.balance)}</td></tr>`).join('')}
+      <tr class="sum"><td colspan="4">${period} 합계 · 차월 이월</td><td class="num">${fmt(gl.rows.reduce((s, r) => s + r.debit, 0))}</td><td class="num">${fmt(gl.rows.reduce((s, r) => s + r.credit, 0))}</td><td class="num">${fmt(gl.closing)}</td></tr>
+      </tbody></table></div></div>`;
+  };
+
+  let tbMode = 'after';
+  VIEWS.tb = () => {
+    const tb = A.trialBalance(books.lines, books.chart, { from: pFrom(), to: pTo(), excludeSources: tbMode === 'before' ? ['adjust', 'closing'] : ['closing'] });
+    const rows = tb.rows.filter(r => r.debit || r.credit || r.cumulative);
+    return `<div class="card"><div class="flex items-center gap-2 flex-wrap mb-3"><p class="font-black">시산표 ${period}</p>
+      <div class="flex gap-1"><button class="btn ${tbMode === 'before' ? 'btn-p' : ''}" data-tb="before">수정 전</button><button class="btn ${tbMode === 'after' ? 'btn-p' : ''}" data-tb="after">수정 후 (결산분개 반영)</button></div>
+      <span class="ml-auto text-sm font-black ${tb.balanced && tb.complete ? 'text-emerald-400' : 'text-rose-400'}">${tb.balanced && tb.complete ? '대차 일치' : '불일치 — 원장 확인'}</span></div>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>코드</th><th>계정명</th><th>유형</th><th class="num">차변(당월)</th><th class="num">대변(당월)</th><th class="num">잔액(당월)</th><th class="num">기말 누적잔액</th></tr></thead><tbody>
+      ${rows.map(r => `<tr class="${r.unregistered ? 'text-rose-400' : ''}"><td class="font-mono">${esc(r.code)}</td><td>${esc(r.name)}</td><td class="text-slate-400">${esc(r.type)}</td><td class="num">${r.debit ? fmt(r.debit) : ''}</td><td class="num">${r.credit ? fmt(r.credit) : ''}</td><td class="num">${fmt(r.balance)}</td><td class="num text-slate-300">${fmt(r.cumulative)}</td></tr>`).join('')}
+      <tr class="sum"><td colspan="3">합계</td><td class="num">${fmt(tb.totalDebit)}</td><td class="num">${fmt(tb.totalCredit)}</td><td class="num">${fmt(tb.diff)}</td><td></td></tr></tbody></table></div>
+      <p class="text-[11px] text-slate-500 mt-2">잔액 = 차변 − 대변 (회계_최소셋 시산표와 같은 부호). 기말 누적잔액은 개업 이후 ${pTo()}까지의 합계입니다.</p></div>`;
+  };
+
+  VIEWS.adjust = () => {
+    const adj = books.vouchers.filter(v => v.source === 'adjust' && inPeriod(v));
+    const sch = state.schedules || [];
+    const half = Number(period.slice(5)) <= 6 ? '06' : '12';
+    return `<div class="grid lg:grid-cols-2 gap-4">
+      <div class="card"><p class="font-black mb-1">${period} 결산 수정분개 (자동)</p>
+        <p class="text-xs text-slate-400 mb-2">매월 말일자로 자동 생성됩니다. 부가세 정리는 6월·12월 말에 생성됩니다 (다음 정리: ${period.slice(0, 4)}-${half}).</p>${voucherTable(adj)}</div>
+      <div class="card"><p class="font-black mb-1">배분·상각 일정</p>
+        <p class="text-xs text-slate-400 mb-2">'선급 비용'·'비품·시설 취득' 템플릿으로 전표를 저장하면 여기에 자동 등록됩니다.</p>
+        ${sch.length ? `<div class="scroll-x"><table class="tbl"><thead><tr><th>구분</th><th>이름</th><th class="num">총액</th><th>기간</th><th class="num">이번 달</th><th></th></tr></thead><tbody>
+        ${sch.map((s, i) => `<tr class="${s.disabled ? 'opacity-40' : ''}"><td>${s.kind === 'dep' ? '감가상각' : '기간배분'}</td><td>${esc(s.name)}<br><span class="text-[11px] text-slate-500">${s.kind === 'dep' ? `${esc(s.asset_code)} → 524/170` : `190 → ${esc(s.expense_code)}`}</span></td><td class="num">${fmt(s.kind === 'dep' ? s.cost : s.total)}</td><td class="text-xs">${esc(s.start)} ~ ${esc(A.addMonths(s.start, s.months - 1))}<br>${s.months}개월</td><td class="num">${fmt(A.scheduleAmount(s, period))}</td>
+        <td><button class="btn !py-0.5 !px-2" data-togsch="${i}">${s.disabled ? '켜기' : '끄기'}</button> <button class="btn btn-d !py-0.5 !px-2" data-delsch="${i}">삭제</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="text-slate-500 text-sm">등록된 일정이 없습니다.</p>'}
+        <details class="mt-3"><summary class="text-xs text-slate-400 font-bold">이미 저장한 전표에 일정만 추가 (엑셀에서 가져온 연 사용료 등)</summary>
+          <div class="grid grid-cols-2 gap-2 mt-2" id="schForm">
+            <label class="block col-span-2"><span class="text-xs text-slate-400">구분</span><select class="inp" data-s="kind"><option value="amort">기간배분 (선급비용 190 → 비용)</option><option value="dep">감가상각 (자산 → 524/170)</option></select></label>
+            <label class="block"><span class="text-xs text-slate-400">이름</span><input class="inp" data-s="name" placeholder="1년차 시설 사용료"></label>
+            <label class="block"><span class="text-xs text-slate-400">총액(원)</span><input class="inp" data-s="total" inputmode="numeric"></label>
+            <label class="block"><span class="text-xs text-slate-400">비용 계정 / 자산 계정</span><input class="inp" data-s="code" value="510"></label>
+            <label class="block"><span class="text-xs text-slate-400">개월 수</span><input class="inp" data-s="months" value="12" inputmode="numeric"></label>
+            <label class="block col-span-2"><span class="text-xs text-slate-400">시작월</span><input type="month" class="inp" data-s="start" value="${esc(period)}"></label>
+          </div><button class="btn mt-2" id="schAddBtn">일정 추가</button>
+          <p class="text-[11px] text-slate-500 mt-1">주의: 기간배분은 원 전표가 190 선급비용으로 잡혀 있어야 합니다. 비용(510)으로 잡았다면 먼저 그 전표를 190으로 고치세요.</p></details>
+      </div></div>`;
+  };
+
+  VIEWS.fs = () => {
+    const y = period.slice(0, 4);
+    const isM = A.incomeStatement(books.lines, books.chart, pFrom(), pTo());
+    const isY = A.incomeStatement(books.lines, books.chart, y + '-01-01', pTo());
+    const bs = A.balanceSheet(books.lines, books.chart, pTo());
+    const h1 = Number(period.slice(5)) <= 6;
+    const vr = A.vatReport(books.lines, books.chart, h1 ? y + '-01-01' : y + '-07-01', h1 ? y + '-06-30' : y + '-12-31');
+    const mp = A.monthlyPnl(books.lines, books.chart, y).filter(m => m.revenue || m.expense);
+    const isRows = (is) => `${is.revenueRows.map(r => `<tr><td class="pl-4">${esc(r.name)}</td><td class="num">${fmt(r.amount)}</td></tr>`).join('')}<tr class="sum"><td>수익 합계</td><td class="num">${fmt(is.revenue)}</td></tr>
+      ${is.expenseRows.map(r => `<tr><td class="pl-4">${esc(r.name)}</td><td class="num">${fmt(r.amount)}</td></tr>`).join('')}<tr class="sum"><td>비용 합계</td><td class="num">${fmt(is.expense)}</td></tr>
+      <tr class="sum"><td>당기순${is.net >= 0 ? '이익' : '손실'}</td><td class="num ${is.net < 0 ? 'text-rose-400' : 'text-emerald-400'}">${fmt(is.net)}</td></tr>`;
+    const bsRows = (rows) => rows.map(r => `<tr><td class="pl-4">${esc(r.name)}</td><td class="num">${fmt(r.amount)}</td></tr>`).join('');
+    return `<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">${kpi(period + ' 수익', fmt(isM.revenue))}${kpi(period + ' 비용', fmt(isM.expense))}${kpi(period + ' 순손익', fmt(isM.net), isM.net < 0 ? 'text-rose-400' : 'text-emerald-400')}${kpi(y + ' 누적 순손익', fmt(isY.net), isY.net < 0 ? 'text-rose-400' : 'text-emerald-400')}</div>
+    <div class="grid lg:grid-cols-3 gap-4 mt-3">
+      <div class="card"><p class="font-black mb-2">손익계산서 ${period}</p><table class="tbl"><tbody>${isRows(isM)}</tbody></table></div>
+      <div class="card"><p class="font-black mb-2">손익계산서 ${y}-01 ~ ${period}</p><table class="tbl"><tbody>${isRows(isY)}</tbody></table></div>
+      <div class="card"><p class="font-black mb-2">재무상태표 ${pTo()} <span class="text-xs ${bs.balanced ? 'text-emerald-400' : 'text-rose-400'}">${bs.balanced ? '자산 = 부채 + 자본' : '불일치'}</span></p><table class="tbl"><tbody>
+        ${bsRows(bs.assets)}<tr class="sum"><td>자산 총계</td><td class="num">${fmt(bs.totalAssets)}</td></tr>
+        ${bsRows(bs.liabilities)}<tr class="sum"><td>부채 총계</td><td class="num">${fmt(bs.totalLiabilities)}</td></tr>
+        ${bsRows(bs.equity)}<tr><td class="pl-4">미마감 누적손익</td><td class="num">${fmt(bs.unclosedProfit)}</td></tr><tr class="sum"><td>자본 총계</td><td class="num">${fmt(bs.totalEquity)}</td></tr></tbody></table>
+        <p class="text-[11px] text-slate-500 mt-2">감가상각누계액(170)은 자산의 차감 항목이라 음수로 표시됩니다.</p></div>
+    </div>
+    <div class="grid lg:grid-cols-2 gap-4 mt-4">
+      <div class="card"><p class="font-black mb-2">${y}년 월별 손익</p><div class="scroll-x"><table class="tbl"><thead><tr><th>월</th><th class="num">수익</th><th class="num">비용</th><th class="num">순손익</th></tr></thead><tbody>
+        ${mp.map(m => `<tr><td>${m.period}</td><td class="num">${fmt(m.revenue)}</td><td class="num">${fmt(m.expense)}</td><td class="num ${m.net < 0 ? 'text-rose-400' : ''}">${fmt(m.net)}</td></tr>`).join('') || '<tr><td colspan="4" class="text-slate-500">거래 없음</td></tr>'}</tbody></table></div></div>
+      <div class="card"><p class="font-black mb-1">부가세 신고 기초자료 — ${y}년 ${h1 ? '1기 (1~6월)' : '2기 (7~12월)'}</p>
+        <p class="text-[11px] text-slate-500 mb-2">일반과세자 가정 (사업자 유형 확정 전). 신고 전 세무사 검토 필요.</p>
+        <table class="tbl"><tbody>
+        <tr><td>과세 매출 공급가액</td><td class="num">${fmt(vr.salesSupply)}</td></tr>
+        <tr><td>매출세액 (220 계정)</td><td class="num">${fmt(vr.salesTaxBooked)}</td></tr>
+        <tr><td>과세 매입 공급가액 (공제 대상)</td><td class="num">${fmt(vr.purchaseSupply)}</td></tr>
+        <tr><td>매입세액 (135 계정)</td><td class="num">${fmt(vr.purchaseTaxBooked)}</td></tr>
+        <tr class="sum"><td>${vr.payable >= 0 ? '납부 예상세액' : '환급 예상세액'}</td><td class="num">${fmt(Math.abs(vr.payable))}</td></tr>
+        <tr><td class="text-slate-400">참고: 카드·간편결제 매출 / 현금 매출 (자동전표)</td><td class="num text-slate-400">${fmt(vr.cardSales)} / ${fmt(vr.cashSales)}</td></tr>
+        </tbody></table>
+        ${vr.voucherMismatches.length ? `<p class="text-xs text-amber-300 mt-2">H열 부가세액과 세액 계정이 다른 전표: ${vr.voucherMismatches.map(m => esc(m.no)).join(', ')} — 엑셀 시산표의 '매출세액'은 H열 기준이라 이 차이만큼 틀리게 나옵니다.</p>` : ''}</div>
+    </div>`;
+  };
+
+  VIEWS.close = () => {
+    const y = period.slice(0, 4);
+    const err = books.warnings.filter(w => w.level === 'error');
+    const closed = (state.settings.closedYears || []).includes(y);
+    const lockedList = Object.keys(state.locks || {}).sort();
+    return `<div class="grid lg:grid-cols-2 gap-4">
+      <div class="card"><p class="font-black mb-1">월 마감 (잠금)</p>
+        <p class="text-xs text-slate-400 mb-3">잠그면 그 달의 자동 전표가 지금 상태로 고정되고 수기 전표를 바꿀 수 없습니다. 이후 발권취소 등이 생기면 경고만 띄우고, 정정은 다음 달 전표로 합니다.</p>
+        ${isLocked(period) ? `<p class="text-sm mb-2">${period} 은 <b class="text-rose-300">${esc(new Date(state.locks[period].locked_at).toLocaleString('ko-KR'))}</b>에 마감됐습니다.</p><button class="btn btn-d" id="unlockBtn">마감 해제</button>`
+          : `<button class="btn btn-p" id="lockBtn" ${err.length ? 'disabled title="오류를 먼저 해결하세요"' : ''}>${period} 마감하기</button>${err.length ? `<p class="text-xs text-rose-400 mt-2">오류 ${err.length}건이 있어 마감할 수 없습니다.</p>` : ''}`}
+        ${lockedList.length ? `<p class="text-xs text-slate-500 mt-3">마감된 달: ${lockedList.join(', ')}</p>` : ''}
+        <hr class="border-slate-800 my-4">
+        <p class="font-black mb-1">연 마감 (손익 대체)</p>
+        <p class="text-xs text-slate-400 mb-2">${y}년 수익·비용을 0으로 만들고 순손익을 자본금으로 넘깁니다 (개인사업자 기준 — 법인이면 이익잉여금으로 바꿔야 함). 12월 마감 후 실행하세요.</p>
+        <button class="btn ${closed ? 'btn-d' : ''}" id="yearCloseBtn">${closed ? y + '년 연 마감 취소' : y + '년 연 마감 분개 생성'}</button></div>
+      <div class="card"><p class="font-black mb-1">엑셀로 내보내기</p>
+        <p class="text-xs text-slate-400 mb-3">회계_최소셋.xlsx '전표' 시트 A7 칸에 그대로 붙여넣을 수 있는 형식입니다 (A~J 열).</p>
+        <div class="flex flex-wrap gap-2">
+          <button class="btn btn-p" id="copyTsvBtn">${period} 전표 복사 (엑셀 붙여넣기용)</button>
+          <button class="btn" id="csvBtn">${period} 전표 CSV</button>
+          <button class="btn" id="xlsxBtn">${y}년 결산 엑셀 (전표·시산표·손익·재무상태·부가세)</button>
+        </div>
+        <label class="flex items-center gap-2 text-xs text-slate-400 mt-2"><input type="checkbox" id="exportAutoOnly"> 자동 생성 전표만 (엑셀에 이미 있는 수기 전표 제외)</label>
+        <hr class="border-slate-800 my-4">
+        <p class="font-black mb-1">백업 · 복원</p>
+        <p class="text-xs text-slate-400 mb-3">수기 전표·일정·마감 상태는 <b>이 기기 브라우저</b>에만 저장됩니다. 월 마감 때마다 백업 파일을 아카이브 폴더에 보관하세요.</p>
+        <div class="flex flex-wrap gap-2"><button class="btn" id="backupBtn">백업 파일 받기</button><button class="btn" id="restoreBtn">백업에서 복원</button><input type="file" id="restoreFile" accept=".json" class="hidden"></div></div>
+    </div>`;
+  };
+
+  function render() {
+    renderNav();
+    renderHealth();
+    $('view').innerHTML = (VIEWS[step] || VIEWS.journal)();
+  }
+
+  /* ---------- 동작 ---------- */
+  function readTplFields() {
+    const f = {};
+    document.querySelectorAll('#tplForm [data-f]').forEach(el => { f[el.dataset.f] = el.value.replace && el.inputMode === 'numeric' ? el.value.replace(/[,\s원]/g, '') : el.value; });
+    return f;
+  }
+  function tplBuild() {
+    const f = readTplFields();
+    const r = A.buildFromTemplate(tplId, f, books.chart);
+    const date = f.__date;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) throw new Error('거래일을 입력하세요.');
+    return { r: r, date: date };
+  }
+  function download(name, content, type) {
+    const blob = content instanceof Blob ? content : new Blob([content], { type: type || 'text/plain;charset=utf-8' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  }
+  function exportVouchers() {
+    const autoOnly = $('exportAutoOnly') && $('exportAutoOnly').checked;
+    return books.vouchers.filter(inPeriod).filter(v => v.source !== 'closing').filter(v => !autoOnly || v.source !== 'manual');
+  }
+  let xlsxLoading = null;
+  function loadXlsx() {
+    if (window.XLSX) return Promise.resolve(window.XLSX);
+    return xlsxLoading = xlsxLoading || new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'; s.onload = () => ok(window.XLSX); s.onerror = () => { xlsxLoading = null; no(new Error('엑셀 라이브러리를 불러오지 못했습니다 (인터넷 연결 확인).')); }; document.head.appendChild(s); });
+  }
+  function addManual(vouchers, mode) {
+    const locked = vouchers.filter(v => isLocked(A.periodOf(v.date)));
+    if (locked.length) { alert(`마감된 달의 전표 ${locked.length}장은 건너뜁니다: ` + locked.map(v => v.no).join(', ')); }
+    const ok = vouchers.filter(v => !isLocked(A.periodOf(v.date)));
+    if (mode === 'replace') { const nos = {}; ok.forEach(v => { nos[v.no] = 1; }); state.manual = state.manual.filter(v => !nos[v.no]); }
+    state.manual = state.manual.concat(ok.map(v => Object.assign({}, v, { source: 'manual', imported_at: new Date().toISOString() })));
+    saveState(); rebuild();
+    return ok.length;
+  }
+
+  document.addEventListener('click', async (e) => {
+    const t = e.target.closest('button'); if (!t) return;
+    try {
+      if (t.dataset.step) { step = t.dataset.step; localStorage.setItem('bongplay_accounting_step', step); render(); return; }
+      if (t.dataset.tb) { tbMode = t.dataset.tb; render(); return; }
+      if (t.dataset.del) { if (!confirm(t.dataset.del + ' 전표를 삭제할까요?')) return; e.preventDefault(); state.manual = state.manual.filter(v => v.no !== t.dataset.del); saveState(); rebuild(); return; }
+      if (t.dataset.keepmanual) { const v = state.manual.find(x => x.no === t.dataset.keepmanual); if (v && !state.settings.manualSalesDates.includes(v.date)) state.settings.manualSalesDates.push(v.date); saveState(); rebuild(); return; }
+      if (t.dataset.unkeep) { state.settings.manualSalesDates = state.settings.manualSalesDates.filter(d => d !== t.dataset.unkeep); saveState(); rebuild(); return; }
+      if (t.dataset.togsch) { const s = state.schedules[Number(t.dataset.togsch)]; s.disabled = !s.disabled; saveState(); rebuild(); return; }
+      if (t.dataset.delsch) { if (!confirm('일정을 삭제할까요? 이미 마감된 달의 분개는 남습니다.')) return; state.schedules.splice(Number(t.dataset.delsch), 1); saveState(); rebuild(); return; }
+      switch (t.id) {
+        case 'reloadBtn': t.disabled = true; t.textContent = '불러오는 중…'; loadLocalSource(); await loadServer(period); t.disabled = false; t.textContent = '불러오기'; rebuild(); break;
+        case 'tplPreviewBtn': { const { r } = tplBuild(); $('tplPreview').innerHTML = voucherTable([{ no: '(미리보기)', date: readTplFields().__date, source: 'manual', title: r.title, lines: r.lines }], { open: true }) + (r.schedule ? `<p class="text-xs text-violet-300">저장하면 ${r.schedule.kind === 'dep' ? '감가상각' : '기간배분'} 일정(${r.schedule.months}개월, ${r.schedule.start}~)이 함께 등록됩니다.</p>` : ''); break; }
+        case 'tplSaveBtn': {
+          const { r, date } = tplBuild();
+          if (isLocked(A.periodOf(date))) throw new Error(A.periodOf(date) + ' 은 마감된 달입니다.');
+          const no = A.nextManualNo(state.manual, date);
+          state.manual.push({ no: no, date: date, source: 'manual', title: r.title, lines: r.lines, created_at: new Date().toISOString() });
+          if (r.schedule) state.schedules.push(Object.assign({ id: no.replace(/[^0-9A-Za-z]/g, ''), from_voucher: no }, r.schedule));
+          saveState(); rebuild(); alert(no + ' 저장했습니다.'); break; }
+        case 'importBtn': $('importFile').click(); break;
+        case 'pasteBtn': { const p = A.parseMinisetRows(A.parseTsv($('pasteBox').value)); if (p.errors.length) alert(p.errors.join('\n')); if (!p.vouchers.length) throw new Error('전표를 찾지 못했습니다. A열 전표번호, E열 계정코드(3자리)가 있어야 합니다.'); const n = addManual(p.vouchers, 'replace'); alert(n + '장 추가했습니다 (같은 전표번호는 교체).'); break; }
+        case 'schAddBtn': {
+          const g = k => (document.querySelector(`#schForm [data-s="${k}"]`) || {}).value || '';
+          const kind = g('kind'), total = Number(g('total').replace(/[,\s원]/g, '')), months = Number(g('months'));
+          if (!g('name') || !total || !months || !/^\d{4}-\d{2}$/.test(g('start'))) throw new Error('이름·총액·개월 수·시작월을 입력하세요.');
+          const s = kind === 'dep' ? { kind: 'dep', name: g('name'), asset_code: g('code') || '160', cost: total, salvage: 0, months: months, start: g('start') }
+            : { kind: 'amort', name: g('name'), expense_code: g('code') || '510', prepaid_code: '190', total: total, months: months, start: g('start') };
+          s.id = 'm' + Date.now().toString(36); state.schedules.push(s); saveState(); rebuild(); break; }
+        case 'lockBtn': if (!confirm(period + ' 을 마감할까요? 자동 전표가 현재 상태로 고정됩니다.')) return;
+          state.locks[period] = { locked_at: new Date().toISOString(), snapshot: A.lockSnapshot(books, period) }; saveState(); rebuild(); break;
+        case 'unlockBtn': if (!confirm(period + ' 마감을 해제할까요? 자동 전표가 최신 원천 데이터로 다시 계산됩니다.')) return;
+          delete state.locks[period]; saveState(); rebuild(); break;
+        case 'yearCloseBtn': { const y = period.slice(0, 4); const ys = state.settings.closedYears;
+          if (ys.includes(y)) { if (!confirm(y + '년 연 마감을 취소할까요?')) return; state.settings.closedYears = ys.filter(x => x !== y); }
+          else { if (!confirm(y + '년 수익·비용을 자본금으로 대체하는 마감분개를 만들까요?')) return; ys.push(y); }
+          saveState(); rebuild(); break; }
+        case 'copyTsvBtn': { const tsv = A.toTsv(A.toMinisetRows(exportVouchers())); await navigator.clipboard.writeText(tsv); alert('복사했습니다. 엑셀 전표 시트의 빈 행 A열을 클릭하고 붙여넣으세요 (Ctrl+V).'); break; }
+        case 'csvBtn': download(`봉플레이_전표_${period}.csv`, A.toCsv([A.MINISET_HEADER].concat(A.toMinisetRows(exportVouchers())))); break;
+        case 'xlsxBtn': await exportWorkbook(); break;
+        case 'backupBtn': download(`봉플레이_회계백업_${today}.json`, JSON.stringify(state, null, 2), 'application/json'); break;
+        case 'restoreBtn': $('restoreFile').click(); break;
+      }
+    } catch (err) { alert(err.message || String(err)); }
+  });
+
+  document.addEventListener('change', async (e) => {
+    const el = e.target;
+    try {
+      if (el.id === 'periodInput' && el.value) { period = el.value; localStorage.setItem('bongplay_accounting_period', period); rebuild(); loadServer(period).then(rebuild); }
+      if (el.id === 'tplSel') { tplId = el.value; render(); }
+      if (el.id === 'ledgerSel') { ledgerCode = el.value; render(); }
+      if (el.id === 'setAutoStart') { state.settings.autoSalesStart = el.value; saveState(); rebuild(); }
+      if (el.id === 'setCardDays') { state.settings.cardSettleDays = Math.max(1, Number(el.value) || 5); saveState(); rebuild(); }
+      if (el.id === 'importFile' && el.files[0]) {
+        const X = await loadXlsx();
+        const wb = X.read(await el.files[0].arrayBuffer(), { type: 'array' });
+        const sheet = n => wb.Sheets[n] ? X.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: '' }) : null;
+        const vr = sheet('전표'); if (!vr) throw new Error("'전표' 시트를 찾지 못했습니다. 회계_최소셋 형식 파일인지 확인하세요.");
+        const p = A.parseMinisetRows(vr);
+        const chartRows = sheet('계정과목'); if (chartRows) { state.chartExtra = A.parseChartRows(chartRows); }
+        if (!confirm(`엑셀에서 전표 ${p.vouchers.length}장${chartRows ? `, 계정과목 ${state.chartExtra.length}개` : ''}를 찾았습니다.\n같은 전표번호는 엑셀 내용으로 교체합니다. 진행할까요?`)) { el.value = ''; return; }
+        if (p.errors.length) alert(p.errors.join('\n'));
+        const n = addManual(p.vouchers, 'replace'); el.value = '';
+        alert(n + '장 불러왔습니다. 자동 매출과 겹치는 날이 있으면 상단 점검 결과에서 정리하세요.');
+      }
+      if (el.id === 'restoreFile' && el.files[0]) {
+        const s = JSON.parse(await el.files[0].text());
+        if (!s || s.version !== 1 || !Array.isArray(s.manual)) throw new Error('봉플레이 회계 백업 파일이 아닙니다.');
+        if (!confirm(`백업(수기 전표 ${s.manual.length}장)으로 현재 장부를 교체할까요?`)) return;
+        state = s; saveState(); el.value = ''; rebuild();
+      }
+    } catch (err) { alert(err.message || String(err)); if (el.type === 'file') el.value = ''; }
+  });
+
+  async function exportWorkbook() {
+    const X = await loadXlsx();
+    const y = period.slice(0, 4), from = y + '-01-01', to = pTo();
+    const wb = X.utils.book_new();
+    const add = (name, rows, widths) => { const ws = X.utils.aoa_to_sheet(rows); if (widths) ws['!cols'] = widths.map(w => ({ wch: w })); X.utils.book_append_sheet(wb, ws, name); };
+    const vs = books.vouchers.filter(v => v.date >= from && v.date <= to);
+    add('전표', [A.MINISET_HEADER.concat(['구분'])].concat(vs.flatMap(v => v.lines.map(l => [v.no, v.date, l.evidence, l.memo, Number(l.code), l.debit || null, l.credit || null, l.vat || null, l.partner, l.note,
+      { auto_sales: '자동매출', adjust: '결산수정', closing: '마감', manual: '수기' }[v.source] || v.source]))), [16, 11, 10, 28, 8, 13, 13, 11, 16, 24, 9]);
+    const tb = A.trialBalance(books.lines, books.chart, { from: from, to: to, excludeSources: ['closing'] });
+    add('시산표', [['코드', '계정명', '유형', '차변', '대변', '잔액', '기말 누적잔액']].concat(tb.rows.filter(r => r.debit || r.credit || r.cumulative).map(r => [Number(r.code), r.name, r.type, r.debit, r.credit, r.balance, r.cumulative]),
+      [['합계', '', '', tb.totalDebit, tb.totalCredit, tb.diff, '']]), [8, 24, 8, 14, 14, 14, 14]);
+    const mp = A.monthlyPnl(books.lines, books.chart, y);
+    const isY = A.incomeStatement(books.lines, books.chart, from, to);
+    add('손익계산서', [[`${y}-01-01 ~ ${to}`, '금액']].concat(isY.revenueRows.map(r => [r.name, r.amount]), [['수익 합계', isY.revenue]], isY.expenseRows.map(r => [r.name, r.amount]), [['비용 합계', isY.expense], ['당기순손익', isY.net], [], ['월', '수익', '비용', '순손익']],
+      mp.map(m => [m.period, m.revenue, m.expense, m.net])), [26, 14, 14, 14]);
+    const bs = A.balanceSheet(books.lines, books.chart, to);
+    add('재무상태표', [[`${to} 현재`, '금액']].concat(bs.assets.map(r => [r.name, r.amount]), [['자산 총계', bs.totalAssets]], bs.liabilities.map(r => [r.name, r.amount]), [['부채 총계', bs.totalLiabilities]],
+      bs.equity.map(r => [r.name, r.amount]), [['미마감 누적손익', bs.unclosedProfit], ['자본 총계', bs.totalEquity], ['부채와 자본 총계', bs.totalLiabilities + bs.totalEquity]]), [26, 14]);
+    const vat = [['1기 (1~6월)', y + '-01-01', y + '-06-30'], ['2기 (7~12월)', y + '-07-01', y + '-12-31']].map(h => [h[0], A.vatReport(books.lines, books.chart, h[1], h[2])]);
+    add('부가세', [['구분', '과세매출 공급가액', '매출세액', '과세매입 공급가액', '매입세액', '납부(환급) 예상', '카드매출', '현금매출']].concat(vat.map(([n, r]) => [n, r.salesSupply, r.salesTaxBooked, r.purchaseSupply, r.purchaseTaxBooked, r.payable, r.cardSales, r.cashSales])),
+      [12, 16, 12, 16, 12, 14, 12, 12]);
+    add('점검', [['수준', '코드', '전표', '내용']].concat(books.warnings.map(w => [w.level, w.code, w.voucher || '', w.message])), [8, 22, 16, 90]);
+    X.writeFile(wb, `봉플레이_결산_${y}_${period.slice(5)}월까지.xlsx`);
+  }
+
+  /* ---------- 시작 ---------- */
+  $('periodInput').value = period;
+  loadLocalSource();
+  rebuild();
+  if (window.BongplaySync && BongplaySync.isConfigured()) loadServer(period).then(rebuild);
+})();
+</script>
+</body>
+</html>
