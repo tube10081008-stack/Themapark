@@ -119,3 +119,90 @@ v1 은 벤 검토 중이므로 계약 문서를 고치지 않고 여기 기록�
   - C2 호출 응답 대기 시간·자동 보류
   - C3 부재 복귀 맨 뒤 합류
   - C4 예상시간 제안값(N_MIN 5, 최근 20건·7영업일, P25~P75) 조정 절차
+
+## 8. ANT-006 구현 대조 검토 (2026-10-09)
+
+### 8.1 대상과 방법
+
+| 대상 | 브랜치 | 전체 SHA | 비고 |
+|---|---|---|---|
+| 아난티 구현 | `antigravity/ANT-006-ticket-queue` | `0ea7b61d16e64ce023c0e4b55763b1cac450599b` | master `892a061` 위 2커밋. **CLAUDE-011 계약 커밋 `6f633c2` 는 이력에 없다** (계약을 보지 않고 BEN-022 지시만으로 구현) |
+| 지오 시험표 | `aside/GEO-008-ticket-queue-qa` | `3269a4df4b72e9fcd790f3270ad856efe52e54b5` | master 기준 실행 전 시험표. 모든 항목이 "구현 인계 대기" |
+| 기준 | `master` | `892a06143ebe69e64a77761cd5793ab199c9755b` | |
+
+- 두 브랜치는 저장소 밖 임시 폴더에 detached 로 꺼내 **읽기만** 했다. 다른 담당의 파일은 수정하지 않았다.
+- ANT-006 자체 시험 `node --test 01_봉플레이_운영시스템/tests/ticket_queue.test.js` 는 **10/10 통과**했다. 다만 이 시험은 브라우저 메모리 저장소(`InMemoryQueueStore`)만 검사하고 제안 SQL 은 실행하지 않는다.
+- **SQL 재현**: `ant006-review/repro-sql.mjs`
+  - 제안 SQL `PROPOSED_MIGRATION_ticket_queue.sql` 을 PGlite 0.5.8 (PostgreSQL 18.3, 메모리 안, 세션 timezone UTC)에서 그대로 실행했다.
+  - `anon` 역할로도 호출했다.
+  - 운영 DB·Supabase 에는 접속하지 않았다.
+- **클라이언트 재현**: `ant006-review/repro-client.cjs` 가 `bongplay-queue.js` 를 Node 에서 불러 서버 RPC 실패를 주입한다.
+
+### 8.2 구현 결함 (계약 명칭과 무관하게 BEN-022 지시 또는 정합성 위반)
+
+| ID | 심각도 | 결함 | 재현 조건과 결과 | BEN-022 근거 | 수정 요청 |
+|---|---|---|---|---|---|
+| D1 | 치명 | 직원 RPC 를 누구나 실행할 수 있다 | R1: `anon` 이 `call_next_queue_team`·`cancel_queue_team`·`complete_queue_issuance` 등 7개 모두 실행 가능 (`has_function_privilege=true`). anon 호출로 실제 호출이 성공하고 보호자 이름까지 반환된다. 원인: `GRANT … TO authenticated` 만 있고 `REVOKE … FROM PUBLIC` 이 없다 (Postgres 기본값은 PUBLIC 실행 허용, Supabase 기본 권한도 anon 포함). 함수 안에 직원 코드 검증도 없다. 또 01 앱은 Supabase 로그인 없이 anon 키만 쓰므로, `authenticated` 전용이면 직원 화면이 운영에서 동작하지 않는다 | "직원 변경 권한은 서버에서 검증한다" | 직원 RPC 마다 `p_access_code` 를 받아 `private.verify_access_code` 로 검증한다. `REVOKE ALL ON FUNCTION … FROM PUBLIC` 을 넣는다. anon 에는 고객·공개 RPC 만 허용한다 |
+| D2 | 치명 | 공개 호출판이 내부 id 를 노출하고, 그 id 로 취소할 수 있다 | R9: `get_queue_public_display` 항목에 `id`·`status`·`called_at` 이 포함된다. 노출된 id 로 anon 이 `cancel_queue_team` 을 실행해 **다른 팀이 취소**된다 | "공개 호출판은 번호와 창구만 표시" | 호출판은 `queue_number`/`formatted_number`·`desk_no` 만 반환한다. 취소는 D1·D12 수정과 함께 막는다 |
+| D3 | 높음 | 서버 실패 시 클라이언트가 번호를 만들어 공식 번호처럼 보여 준다 | 온라인 상태에서 RPC 가 오류를 반환하거나 예외를 던지면 `enqueueConsent` 가 `InMemoryQueueStore` 로 넘어가 `ok:true, source:'local_store'`, `#001`·`#002` 를 반환한다. `consent.html` 은 `source` 를 확인하지 않고 표시한다. 직원 `callNext` 등도 같은 방식으로 로컬에서 "성공" 한다 (서버와 화면 상태가 갈라짐). 원인 사례: RPC 미적용, 권한 거부, 동의서 upsert 가 outbox 에만 있어 FK 위반 | "클라이언트 시계나 배열 위치로 번호를 만들지 않는다", "로컬 저장 성공을 서버 접수로 간주하지 않음", "오프라인 접수는 접수 전송 대기" | 운영 경로에서 로컬 저장소 대체를 제거한다. 서버 응답이 아니면 "접수 전송 대기" 를 표시한다. 시험용 저장소는 명시적 시험 모드에서만 쓴다. 직원 조작 실패는 실패로 표시한다 |
+| D4 | 높음 | 발권 완료가 원장 확정과 상태를 확인하지 않는다 | R5: `complete_queue_issuance` 가 `waiting` 항목과 존재하지 않는 주문 id 로도 `issued` 가 된다. `canceled` 항목도 `issued` 가 된다. 화면(`consent-desk.html`)은 `ticket_ledger` upsert 를 await 하지 않고, outbox `queued` 여부도 보지 않고 완료를 호출한다 | "발권 완료는 서버의 발권 원장 확정 후 반영", "실패·부분 성공·재시도의 복구" | 서버에서 상태 `processing` 을 확인하고, 주문·수납·`ticket_ledger` 의 서버 존재를 검증한 뒤에만 전이한다 (계약 §7). 원장 쓰기의 서버 확정을 기다린 뒤 완료를 호출한다. 실패하면 `processing` 을 유지한다 |
+| D5 | 높음 | 부재 복귀가 맨 뒤가 아니라 원래 자리로 간다 | R3: A(#001) 호출 → 보류 → 복귀하면 A 의 앞선 팀이 0, 다음 호출에서 A 가 다시 먼저 호출된다. C 의 앞선 팀 수에도 A 가 포함된다. 순서 키가 `queue_number` 뿐이다 | "부재 복귀는 직원의 명시적 조작으로 맨 뒤에 합류" | 정렬 키(`order_key` 등)를 따로 두고 복귀 시 새 값을 부여한다. 호출 순서와 앞선 팀 수를 이 키로 계산한다. 감사 기록을 남긴다 |
+| D6 | 높음 | 취소가 상태를 확인하지 않아 발권 완료 건을 덮어쓴다 | R6: `issued` 항목에 `cancel_queue_team` → `canceled` 가 된다 (발권 기록은 그대로 남아 대기 기록과 원장이 어긋남) | 상태 전이 정합성 | 허용 상태를 `waiting`/`called`/`no_show` (+사유가 있으면 `processing`)로 제한한다 |
+| D7 | 높음 | 같은 창구에 여러 팀이 동시에 호출되고, 직원 조작에 버전·요청 멱등성이 없다 | R4: 같은 `desk_no=1` 로 `call_next` 를 2회 하면 2팀이 모두 `called`. `start/hold/restore/cancel/complete` 에 기대 버전과 `request_id` 가 없어 응답 유실 재시도·두 단말 동시 조작을 구분하지 못한다. 다음 팀 선택 자체는 `FOR UPDATE SKIP LOCKED` 로 같은 팀이 두 번 선택되지 않는다 (이 부분은 적합) | "여러 직원 단말이 같은 팀을 동시에 호출·발권하지 못하도록 서버 경합 처리" | 창구당 활성 1팀 검사, `p_expected_version` 비교, `p_request_id` 결과 재생 (계약 §9.2) |
+| D8 | 중간 | 저장 시각이 9시간 앞으로 밀린다 | R2: 세션 timezone UTC 에서 `enqueued_at - now() = 9.000시간`. `TIMEZONE('Asia/Seoul', NOW())` 는 KST 벽시계(timestamp without tz)인데, 이를 `timestamptz` 에 넣으면 UTC 로 해석된다. 처리시간 차이는 영향이 없지만 호출판·감사·보고 시각이 모두 틀린다 | "갱신 시각" 표시 | 저장은 `now()` 로 하고, 영업일만 `(now() AT TIME ZONE 'Asia/Seoul')::date` 로 계산한다 |
+| D9 | 높음 | 같은 동의서가 다시 접수되면 새 번호가 생긴다 | R7: 같은 `cst_2` 에 다른 멱등키 → `#006` 새 번호. `consent_id` 유일 제약이 없다. 또 `consent.html` 은 (master 와 같이) 제출마다 `cst_`+`Date.now()` 로 새 동의서 id 를 만들고, 멱등키가 그 id 를 포함하므로 새로고침 후 재제출이 곧 새 접수가 된다 | "같은 접수 요청의 재시도·응답 유실·새로고침에는 같은 결과" | `unique(consent_id)` 를 둔다. 제출 시도별 요청 id·동의서 id 를 전송 전에 로컬 보관하고 재사용한다 (계약 §4) |
+| D10 | 중간 | 멱등키를 다른 동의서에 재사용해도 기존 결과를 돌려준다 | R8: 키 `k1` + `cst_9` → `cst_1` 의 `#001` 을 `duplicate:true` 로 반환한다 | 멱등성 정합성 | 같은 키·다른 동의서면 거부한다 (`IDEMPOTENCY_KEY_REUSED`) |
+| D11 | 중간 | 예상시간이 단일값이고, 창구 수·정지·부재를 서버가 반영하지 않는다 | R10: 서버 함수는 `ahead × 평균 ÷ 60` 으로 "약 20분" 단일값을 낸다. 창구 수와 정지 입력이 없다. 정지는 직원 브라우저 메모리(`setDeskPaused`)에만 있어 고객 화면은 "발권 일시 중지" 를 받을 수 없다. 표본은 `called_at→issued` 라 호출 후 이동·부재 시간이 섞이고, 보류 후 복귀 건도 표본에 들어간다. 앞선 팀 0이면 정지 중에도 "곧 호출 예정" 이다 | "범위로 표시", "창구 정지 시 발권 일시 중지", "부재·취소·업무중지 시간을 표본에 섞지 않는다" | 서버 창구 상태 테이블을 둔다. 처리 시작→발권 구간을 표본으로 쓴다. 보류·정지 경험 건을 제외한다. 범위(P25~P75 등)와 일시 중지를 서버 응답에 포함한다 (계약 §10) |
+| D12 | 중간 | 고객 조회 키가 행 id(앞부분 예측 가능 + 무작위 6자리 hex = 24비트)이고 만료·요청 제한이 없다 | `q_YYYYMMDD_NNNN_xxxxxx`. 번호 순서와 날짜가 노출되어 남는 탐색 공간이 약 1,677만이다. 요청 제한이 없다. D2 로 id 가 공개되기도 한다 | "추측 불가능한 조회 토큰과 만료·요청 제한" | 128비트 이상 토큰(저장은 해시), 영업일 만료, 요청 제한 (계약 §11) |
+| D13 | 중간 | 직원 대기 목록·보류 목록·창구 정지가 단말 메모리에만 있다 | `consent-desk.html` 의 `refreshDeskQueueView` 가 `BongplayQueue.store.entries`(로컬)로 대기 수·보류 목록을 그린다. 서버 직원 목록 RPC 가 없다. 그래서 다른 단말이 호출·보류한 팀이 보이지 않고, 그 팀은 이 단말에서 복귀할 수 없다 | "여러 직원 단말", "연결 단절 시 오래된 정보를 실시간처럼 표시하지 않는다" | 직원 목록 RPC(마스킹)를 추가한다. 화면은 서버 목록과 `server_time` 으로 그린다 |
+| D14 | 낮음 | 같은 멱등키 동시 요청 경쟁 | 멱등키 조회(80행)가 advisory lock(98행)보다 앞에 있다. 동시 2건이면 둘째가 유일 제약 예외로 오류가 난다 (같은 결과가 아님). PGlite 는 단일 연결이라 재현하지 못했고 코드 경로로만 확인했다 | 응답 유실·재시도 | 락 획득 뒤 재조회, 또는 `INSERT … ON CONFLICT DO NOTHING` 후 재조회 |
+| D15 | 낮음 | 번호 유일키·락에 `site_id` 가 없다 | `UNIQUE(queue_date, queue_number)`, 락 키 `ticket_queue_<date>` | "시설·KST 영업일별 번호" | 키와 락에 `site_id` 를 포함한다 |
+
+### 8.3 계약 차이 (어느 쪽으로 맞출지 벤 결정 대상)
+
+| 항목 | 계약 v1 | ANT-006 | 의견 |
+|---|---|---|---|
+| 상태 이름 | `serving`/`held`/`cancelled`, 종료 `closed` | `processing`/`no_show`/`canceled`, 종료 상태 없음 | 이름은 어느 쪽이든 된다. 영업일 종료 처리(`closed`)가 없다. 날짜로 걸러지기는 하지만 전날 미처리 건의 마감·감사가 없다 |
+| RPC 구성 | `queue_*` 10종, `{ok, error:{code}}` | 이름 다름, `error` 문자열, 재호출 `recall` 추가 | 재호출 추가는 타당하다. 오류 코드 체계는 맞추는 편이 시험·화면에 유리하다 |
+| 접수 | 동의서 저장 + 번호를 단일 RPC 로 (제안 A1) | 동의서 upsert(outbox 가능) 후 별도 enqueue (FK) | 2단계면 D3·D9 의 원인인 중간 상태 처리가 필요하다 |
+| 고객 조회 | HMAC 토큰 | 행 id | D12 |
+| 순서 | `order_key` 분리 | `queue_number` 단일 | D5 수정에 필요 |
+| 직원 목록 | `queue_staff_list` | 없음 | D13 |
+| 표시 번호 | 숫자 | `#001` 형식 추가 | 문제없음 |
+
+### 8.4 GEO-008 시험표와의 관계
+
+GEO-008 은 구현 전 master 기준 시험표라 실행 결과가 없다. 위 결함이 실사용 시험에서 걸릴 항목:
+
+| 결함 | GEO-008 항목 |
+|---|---|
+| D9 | Q-02 |
+| D5 | A-05 |
+| D1·D2·D12 | V-02, V-03, V-04, V-06 |
+| D7 | S-02, S-03 |
+| D4·D3 | F-01 ~ F-04 |
+| D11 | E-03 |
+| D13 | S-01, S-04 |
+
+아래 기대값은 벤 결정에 따라 갱신해야 한다.
+- A-05 의 "복귀 위치 규칙" 은 BEN-022 기준 **맨 뒤** 다.
+- E 항목의 범위 표시도 같다.
+
+### 8.5 적합 확인
+
+- KST 영업일 계산은 정확하다 (`TIMEZONE('Asia/Seoul', NOW())::DATE`).
+- 일별 채번은 advisory lock 안에서 한다.
+- 다음 팀 선택에 `FOR UPDATE SKIP LOCKED` 를 쓴다.
+- 앞선 팀 수 집계 대상 상태(waiting/called/processing)는 계약과 같다. 단 순서 키 문제는 D5 다.
+- 오프라인 감지 시 번호를 주지 않는다 (`navigator.onLine` 거짓일 때). 다만 온라인 실패 경로는 D3 이다.
+- 고객 상태 응답에 이름·전화가 없다.
+- 표본 부족 시 "집계 중" 을 표시하고, 표본 범위 20~1800초를 거른다.
+- ANT-006 자체 시험 10/10 통과.
+
+### 8.6 미실행
+
+- Supabase 실제 환경에서의 권한·RLS·기본 권한 확인 (PGlite 는 PUBLIC 기본 실행 권한까지만 재현)
+- 실제 동시 연결 경합 (D14)
+- 브라우저 화면 시험
+- 운영 DB 적용·배포
+- CLAUDE-011 적합성 시험(`contract.test.mjs`)을 ANT-006 에 대해 실행하지 않았다. 상태·API 이름이 달라 어댑터가 필요하고, 그 전에 8.3 의 맞춤 방향 결정이 필요하다
