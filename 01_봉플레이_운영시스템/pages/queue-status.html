@@ -186,17 +186,19 @@
 
   <script>
     let currentQueueId = null;
+    let currentCustomerToken = null;
     let pollInterval = null;
     let audioContext = null;
 
     document.addEventListener('DOMContentLoaded', function () {
       if (window.lucide) lucide.createIcons();
 
-      // URL 파라미터 또는 localStorage에서 queue_id 확인
+      // URL 파라미터 또는 localStorage에서 token / queue_id 확인
       const urlParams = new URLSearchParams(window.location.search);
+      currentCustomerToken = urlParams.get('token') || localStorage.getItem('bongplay_my_queue_token');
       currentQueueId = urlParams.get('id') || localStorage.getItem('bongplay_my_queue_id');
 
-      if (!currentQueueId) {
+      if (!currentCustomerToken && !currentQueueId) {
         // 최근 바우처에서 consent_id 확인
         const rawVoucher = localStorage.getItem('bongplay_my_voucher');
         if (rawVoucher) {
@@ -204,7 +206,10 @@
             const v = JSON.parse(rawVoucher);
             if (v.consentId) {
               const entry = BongplayQueue.store.getEntryByConsentId(v.consentId);
-              if (entry) currentQueueId = entry.id;
+              if (entry) {
+                currentQueueId = entry.id;
+                currentCustomerToken = entry.customer_token || null;
+              }
             }
           } catch (e) {}
         }
@@ -239,7 +244,8 @@
     }
 
     async function refreshQueueStatus(userClicked) {
-      if (!currentQueueId) {
+      const lookupKey = currentCustomerToken || currentQueueId;
+      if (!lookupKey) {
         document.getElementById('queueNumberBig').textContent = '#---';
         document.getElementById('statusGuidanceText').textContent = '등록된 대기 접수 정보가 없습니다. 서약서 작성을 먼저 완료해 주세요.';
         return;
@@ -252,12 +258,21 @@
       }
 
       try {
-        const res = await BongplayQueue.getCustomerStatus(currentQueueId);
+        const res = await BongplayQueue.getCustomerStatus(lookupKey);
         if (!res || !res.ok || !res.item) {
           return;
         }
 
         const item = res.item;
+        if (item.customer_token && !currentCustomerToken) {
+          currentCustomerToken = item.customer_token;
+          localStorage.setItem('bongplay_my_queue_token', item.customer_token);
+        }
+        if (item.id && !currentQueueId) {
+          currentQueueId = item.id;
+          localStorage.setItem('bongplay_my_queue_id', item.id);
+        }
+
         renderQueueView(item);
 
         const nowStr = BongplayQueue.getKstTimeStr();

@@ -99,7 +99,7 @@ function createLocalServer() {
             site_id: body.p_site_id
           });
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify(resData.item));
+          return res.end(JSON.stringify(resData));
         }
 
         if (endpoint.startsWith('call_next_queue_team')) {
@@ -145,9 +145,22 @@ function createLocalServer() {
         }
 
         if (endpoint.startsWith('get_customer_queue_status')) {
-          const resData = BongplayQueue.store.getCustomerQueueStatus(body.p_queue_id);
+          const key = body.p_customer_token || body.p_token || body.p_queue_id;
+          const resData = BongplayQueue.store.getCustomerQueueStatus(key);
           res.writeHead(200, { 'Content-Type': 'application/json' });
           return res.end(JSON.stringify(resData));
+        }
+
+        if (endpoint.startsWith('get_staff_queue_list')) {
+          const resData = BongplayQueue.store.getStaffQueueList(body.p_date);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify(resData));
+        }
+
+        if (endpoint.startsWith('set_desk_pause_status')) {
+          BongplayQueue.store.setDeskPaused(body.p_desk_no, body.p_is_paused);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ ok: true, desk_no: body.p_desk_no, is_paused: body.p_is_paused }));
         }
 
         if (endpoint.startsWith('get_queue_public_display')) {
@@ -470,7 +483,7 @@ async function runE2E() {
       aheadCountText = await statusSession.evalCode(`
         document.getElementById('aheadCountText')?.textContent?.trim()
       `);
-      if (statusPillText === '대기 중') break;
+      if (statusPillText === '대기 중' && aheadCountText && aheadCountText !== '- 팀') break;
     }
 
     assert.equal(statusPillText, '대기 중', '고객 화면 상태가 "대기 중"이어야 함');

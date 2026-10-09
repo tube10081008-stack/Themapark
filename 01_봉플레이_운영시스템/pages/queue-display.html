@@ -282,6 +282,12 @@
 
       const calledTeams = data.called_teams || [];
       const deskOccupancy = { 1: null, 2: null };
+      const deskStatusMap = {};
+      if (Array.isArray(data.desks)) {
+        data.desks.forEach(d => {
+          deskStatusMap[d.desk_no] = d.is_paused;
+        });
+      }
 
       // 각 창구별 최신 호출 팀 매핑
       calledTeams.forEach(team => {
@@ -299,6 +305,8 @@
         const timeEl = document.getElementById('deskTime_' + deskNo);
 
         const currentTeam = deskOccupancy[deskNo];
+        const isPaused = deskStatusMap[deskNo] === true;
+
         if (currentTeam) {
           numEl.textContent = currentTeam.formatted_number || ('#' + currentTeam.queue_number);
           statusEl.textContent = (currentTeam.status === 'processing') ? '발권 진행 중' : '호출 중';
@@ -318,9 +326,9 @@
             called_at: currentTeam.called_at
           };
         } else {
-          numEl.textContent = '-';
-          statusEl.textContent = '호출 대기 중';
-          timeEl.textContent = '대기 순번 호출 대기';
+          numEl.textContent = isPaused ? '일시중지' : '-';
+          statusEl.textContent = isPaused ? '발권 일시 중지' : '호출 대기 중';
+          timeEl.textContent = isPaused ? '창구 점검 및 정지 상태' : '대기 순번 호출 대기';
           prevCalledMap[deskNo] = null;
         }
       });

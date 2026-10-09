@@ -800,7 +800,12 @@
             const qRes = await BongplayQueue.enqueueConsent(consentRecord);
             if (qRes && qRes.ok && qRes.item) {
               queueItem = qRes.item;
-              try { localStorage.setItem('bongplay_my_queue_id', queueItem.id); } catch (e) {}
+              try {
+                localStorage.setItem('bongplay_my_queue_id', queueItem.id);
+                if (queueItem.customer_token) {
+                  localStorage.setItem('bongplay_my_queue_token', queueItem.customer_token);
+                }
+              } catch (e) {}
             } else if (qRes && qRes.offline) {
               queueOffline = true;
             }
@@ -818,6 +823,7 @@
           peopleText: `${children.length + 1}명 (성인 1 · 아이 ${children.length})`,
           date: dateStr,
           queueId: queueItem ? queueItem.id : null,
+          customerToken: queueItem ? queueItem.customer_token : null,
           queueNumber: queueItem ? queueItem.queue_number : null,
           formattedQueueNumber: queueItem ? (queueItem.formatted_number || ('#' + queueItem.queue_number)) : null,
           queueOffline: queueOffline
@@ -877,13 +883,14 @@
       qAlertEl.classList.add('hidden');
       qSubText.classList.remove('hidden');
       btnStatus.classList.remove('hidden');
-      if (v.queueId) {
-        btnStatus.href = 'queue-status.html?id=' + encodeURIComponent(v.queueId);
+      const tokenOrId = v.customerToken || v.queueId;
+      if (tokenOrId) {
+        btnStatus.href = 'queue-status.html?' + (v.customerToken ? 'token=' + encodeURIComponent(v.customerToken) : 'id=' + encodeURIComponent(v.queueId));
       }
 
-      if (window.BongplayQueue && v.queueId) {
+      if (window.BongplayQueue && tokenOrId) {
         try {
-          const res = await BongplayQueue.getCustomerStatus(v.queueId);
+          const res = await BongplayQueue.getCustomerStatus(tokenOrId);
           if (res && res.ok && res.item) {
             document.getElementById('voucherAheadCountText').textContent = (res.item.ahead_count || 0) + ' 팀';
             if (res.item.wait_time) {

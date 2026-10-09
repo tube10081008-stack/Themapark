@@ -136,6 +136,14 @@ test('ANT-006 / BEN-022 발권 대기열 시스템 전수 검증', async (t) => 
     assert.equal(call1.item.desk_no, 1);
     assert.equal(call2.item.desk_no, 2);
 
+    // [Fix 4] 창구당 1팀 점유 가드 검증: 1번 창구가 처리 중인 상태에서 추가 호출 시 거부
+    const callOccupied = store.callNext(1, 'staff_1');
+    assert.equal(callOccupied.ok, false);
+    assert.equal(callOccupied.error, 'DESK_ALREADY_OCCUPIED');
+
+    // 1번 창구 발권 완료 처리 후 창구 슬롯 반환
+    store.completeIssuance(call1.item.id, 'ord_done_1', ['tkt_done_1']);
+
     // 더 이상 대기팀이 없을 때 추가 호출 시 empty_queue 반환
     const call3 = store.callNext(1, 'staff_1');
     assert.equal(call3.ok, false);
@@ -232,9 +240,13 @@ test('ANT-006 / BEN-022 발권 대기열 시스템 전수 검증', async (t) => 
     assert.equal(restoreRes.ok, true);
     assert.equal(restoreRes.item.status, BongplayQueue.STATUS.WAITING);
 
-    // 2번 팀 기준: 1번 팀이 대기열로 복귀했으므로 다시 1팀으로 반영
+    // [Fix 5 반영] 2번 팀 기준: 1번 팀이 복귀했지만 맨 뒤(order_key=3)로 배치되었으므로, 2번 팀의 앞선 대기팀 수는 0팀(2번 팀이 1순위) 유지!
     aheadForT2 = BongplayQueue.computeAheadCount(store.entries, t2.item.queue_number, dateStr);
-    assert.equal(aheadForT2, 1, '복귀 시 다시 앞선 대기팀 수에 포함');
+    assert.equal(aheadForT2, 0, '복귀한 1번 팀은 2번 팀 뒤로 가므로 2번 팀의 앞선 대기팀 수는 0이어야 함');
+
+    // 1번 팀 기준: 2번 팀이 앞에 있으므로 앞선 대기팀 수는 1팀
+    const aheadForT1 = BongplayQueue.computeAheadCount(store.entries, t1.item.queue_number, dateStr);
+    assert.equal(aheadForT1, 1, '맨 뒤로 복귀한 1번 팀 기준으로는 2번 팀이 앞에 있으므로 1팀');
   });
 
   // ---------------------------------------------------------------------------
@@ -270,9 +282,11 @@ test('ANT-006 / BEN-022 발권 대기열 시스템 전수 검증', async (t) => 
     assert.equal(waitCalc2.text, '발권 일시 중지');
     assert.equal(waitCalc2.minutes, null);
 
-    // 7-3. 표본 3건 이상 & 정상 운영 -> 실제 평균 계산
+    // 7-3. 표본 3건 이상 & 정상 운영 -> 실제 평균 계산 및 범위 제공
     // 평균 (120 + 150 + 130) / 3 = 133.3초 (약 2.22분/팀)
-    // 3팀 대기 / 1개 창구 -> (3 * 133.3) / 60 = 6.66분 -> 올림 7분
+    // 3팀 대기 / 1개 창구:
+    // min: ceil((3 * 133.3 * 0.8) / 60) = ceil(5.33) = 6분
+    // max: ceil((3 * 133.3 * 1.3) / 60) = ceil(8.66) = 9분 -> '약 6~9분'
     const waitCalc3 = BongplayQueue.calculateWaitTime({
       aheadCount: 3,
       completedIssuances: [
@@ -284,8 +298,9 @@ test('ANT-006 / BEN-022 발권 대기열 시스템 전수 검증', async (t) => 
       isDeskPaused: false
     });
     assert.equal(waitCalc3.code, 'ESTIMATED');
-    assert.equal(waitCalc3.text, '약 7분');
-    assert.equal(waitCalc3.minutes, 7);
+    assert.equal(waitCalc3.text, '약 6~9분');
+    assert.equal(waitCalc3.min_minutes, 6);
+    assert.equal(waitCalc3.max_minutes, 9);
 
     // 7-4. 내 앞 대기팀이 0인 경우 -> "곧 호출 예정"
     const waitCalc4 = BongplayQueue.calculateWaitTime({
@@ -378,6 +393,202 @@ test('ANT-006 / BEN-022 발권 대기열 시스템 전수 검증', async (t) => 
     assert.equal(calledPublic.guardian_phone, undefined, '공개 전광판에 연락처가 노출되어서는 안 됨');
     assert.equal(calledPublic.children, undefined, '공개 전광판에 자녀 정보가 노출되어서는 안 됨');
     assert.equal(calledPublic.household_id, undefined, '공개 전광판에 가구ID가 노출되어서는 안 됨');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 10. [R1 Fix 1] 서버 RPC 실패 시 로컬 임의 채번 폴백 원천 차단
+  // ---------------------------------------------------------------------------
+  await t.test('10. [R1 Fix 1] 서버 실패 시 로컬 가짜 번호 채번 차단 및 에러 전파 검증', async () => {
+    // 10-1. normalizeRpcResult 검증
+    const errRes1 = BongplayQueue.normalizeRpcResult({ ok: false, status: 500, error: 'DB_CONNECTION_FAILED' });
+    assert.equal(errRes1.ok, false);
+    assert.equal(errRes1.error, 'DB_CONNECTION_FAILED');
+
+    const errRes2 = BongplayQueue.normalizeRpcResult({ data: { ok: false, error: 'DESK_ALREADY_OCCUPIED' } });
+    assert.equal(errRes2.ok, false);
+    assert.equal(errRes2.error, 'DESK_ALREADY_OCCUPIED');
+
+    // 10-2. mock Supabase / BongplaySync RPC에서 에러 응답 시 enqueueConsent가 로컬 임의 번호를 만들지 않는지 검증
+    global.window = global;
+    global.window.BongplaySync = {
+      isOnline: () => true,
+      rpc: async (fn, params) => {
+        return { ok: false, error: 'QUEUE_CLOSED_FOR_TODAY', message: '금일 접수 마감' };
+      }
+    };
+
+    const consentData = {
+      id: 'cst_test_rpc_fail',
+      guardian_name: '테스터',
+      guardian_phone: '010-1234-5678',
+      children: []
+    };
+
+    const res = await BongplayQueue.enqueueConsent(consentData);
+    assert.equal(res.ok, false, '서버 RPC 실패 시 ok는 반드시 false여야 함');
+    assert.equal(res.error, 'QUEUE_CLOSED_FOR_TODAY');
+    assert.equal(res.item, undefined, '서버 실패 시 가짜 대기 번호/아이템이 생성되어서는 안 됨');
+
+    // 원복
+    delete global.window.BongplaySync;
+  });
+
+  // ---------------------------------------------------------------------------
+  // 11. [R1 Fix 2 & 4] customer_token 발급, 멱등키 재사용 차단, 발권완료 건 취소 차단
+  // ---------------------------------------------------------------------------
+  await t.test('11. [R1 Fix 2 & 4] customer_token 128비트 발급, 멱등키 타 동의서 재사용 차단, 발권완료 건 취소 차단', () => {
+    const store = BongplayQueue.createStore();
+    const dateStr = BongplayQueue.getKstDateStr();
+
+    // 11-1. customer_token 발급 및 조회 검증
+    const enq = store.enqueue({ consent_id: 'cst_token_1', guardian_name: '고객토큰' });
+    assert.ok(enq.item.customer_token, 'customer_token이 생성되어야 함');
+    assert.equal(typeof enq.item.customer_token, 'string');
+    assert.ok(enq.item.customer_token.length >= 32, 'customer_token은 128비트 이상(32자 이상)');
+
+    const foundByToken = store.getEntryByCustomerToken(enq.item.customer_token);
+    assert.equal(foundByToken.id, enq.item.id);
+
+    // 11-2. 멱등키가 다른 동의서에 재사용된 경우 IDEMPOTENCY_KEY_REUSED 에러 반환
+    const key = BongplayQueue.generateIdempotencyKey(dateStr, 'cst_token_1', '010-0000-0000');
+    const reuseRes = store.enqueue({
+      consent_id: 'cst_token_DIFFERENT', // 다른 동의서 ID
+      guardian_name: '다른고객',
+      idempotency_key: enq.item.idempotency_key // 첫 번째 접수의 멱등키 재사용
+    });
+    assert.equal(reuseRes.ok, false);
+    assert.equal(reuseRes.error, 'IDEMPOTENCY_KEY_REUSED', '동일 멱등키로 다른 동의서 접수 시도 시 거부되어야 함');
+
+    // 11-3. 발권 완료(issued) 건에 대한 취소 시도 차단
+    store.callNext(1, 'staff_1');
+    store.completeIssuance(enq.item.id, 'ord_99', ['tkt_99']);
+    const cancelRes = store.cancelEntry(enq.item.id, '단순 변심');
+    assert.equal(cancelRes.ok, false);
+    assert.equal(cancelRes.error, 'CANNOT_CANCEL_ISSUED', '발권 완료 건은 대기열에서 취소할 수 없음');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 12. [R1 Fix 3] 발권 완료 증명 (order_id, ticket_ids 필수) 및 창구 슬롯 반환 검증
+  // ---------------------------------------------------------------------------
+  await t.test('12. [R1 Fix 3] 발권 완료 시 order_id / ticket_ids 무결성 증명 필수 검증', () => {
+    const store = BongplayQueue.createStore();
+    const enq = store.enqueue({ consent_id: 'cst_proof_1' });
+    store.callNext(1, 'staff_1');
+
+    // order_id 누락 시 실패
+    const fail1 = store.completeIssuance(enq.item.id, '', ['tkt_1']);
+    assert.equal(fail1.ok, false);
+    assert.equal(fail1.error, 'ORDER_ID_REQUIRED');
+
+    // ticket_ids 빈 배열 시 실패
+    const fail2 = store.completeIssuance(enq.item.id, 'ord_1', []);
+    assert.equal(fail2.ok, false);
+    assert.equal(fail2.error, 'TICKETS_REQUIRED');
+
+    // 정상 완료 시 성공 및 창구 슬롯 반환
+    const succ = store.completeIssuance(enq.item.id, 'ord_valid', ['tkt_1', 'tkt_2']);
+    assert.equal(succ.ok, true);
+    assert.equal(succ.item.status, BongplayQueue.STATUS.ISSUED);
+    assert.equal(store.desks[1].current_queue_id, null, '발권 완료 시 데스크의 current_queue_id가 해제되어야 함');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 13. [R1 Fix 5] 부재 복귀 시 order_key 맨 뒤 재할당 (Back of the Line, 새치기 차단)
+  // ---------------------------------------------------------------------------
+  await t.test('13. [R1 Fix 5] 부재 보류 후 복귀 시 대기열 맨 뒤(order_key = max + 1)로 재배치 검증', () => {
+    const store = BongplayQueue.createStore();
+    const dateStr = BongplayQueue.getKstDateStr();
+
+    // 3개 팀 순차 접수: 팀1 (q=1, order=1), 팀2 (q=2, order=2), 팀3 (q=3, order=3)
+    const t1 = store.enqueue({ consent_id: 'cst_seq_1', queue_date: dateStr }).item;
+    const t2 = store.enqueue({ consent_id: 'cst_seq_2', queue_date: dateStr }).item;
+    const t3 = store.enqueue({ consent_id: 'cst_seq_3', queue_date: dateStr }).item;
+
+    // 1번 창구에서 팀1 호출 후 부재 처리
+    store.callNext(1, 'staff_1');
+    store.holdNoShow(t1.id, '부재');
+
+    // 1번 창구에서 팀2 호출
+    const callT2 = store.callNext(1, 'staff_1');
+    assert.equal(callT2.item.id, t2.id);
+
+    // 팀1이 창구에 도착하여 복귀 요청
+    const restoreT1 = store.restoreHeld(t1.id, 'staff_1', '고객 창구 방문 복귀');
+    assert.equal(restoreT1.ok, true);
+    assert.equal(restoreT1.item.status, BongplayQueue.STATUS.WAITING);
+
+    // [핵심 검증]: 팀1의 원래 queue_number는 1번이지만, order_key는 팀3(order_key=3)보다 큰 4가 되어야 함!
+    const updatedT1 = store.getEntryById(t1.id);
+    assert.equal(updatedT1.queue_number, 1, '고객의 고유 대기번호는 1번 유지');
+    assert.ok(updatedT1.order_key > t3.order_key, 'order_key는 팀3보다 커야 함 (대기열 맨 뒤 배치)');
+    assert.equal(updatedT1.restored_by, 'staff_1');
+    assert.equal(updatedT1.restore_reason, '고객 창구 방문 복귀');
+
+    // 팀1 기준 앞선 대기팀 수: 팀2(처리중) + 팀3(대기중) = 2팀
+    const aheadForT1 = BongplayQueue.computeAheadCount(store.entries, updatedT1.queue_number, dateStr);
+    assert.equal(aheadForT1, 2, '복귀한 팀1은 팀2, 팀3 뒤에 있으므로 앞선 대기팀 수는 2팀이어야 함');
+
+    // 팀2 발권 완료
+    store.completeIssuance(t2.id, 'ord_t2', ['tkt_t2']);
+
+    // [핵심 검증]: 다음 호출 시 복귀한 팀1이 아니라 팀3이 먼저 호출되어야 함 (새치기 원천 차단!)
+    const nextCall = store.callNext(1, 'staff_1');
+    assert.equal(nextCall.ok, true);
+    assert.equal(nextCall.item.id, t3.id, '복귀한 1번 팀이 새치기하지 않고 3번 팀이 먼저 호출되어야 함');
+
+    // 팀3 발권 완료
+    store.completeIssuance(t3.id, 'ord_t3', ['tkt_t3']);
+
+    // 이제 마지막으로 팀1이 호출됨
+    const finalCall = store.callNext(1, 'staff_1');
+    assert.equal(finalCall.ok, true);
+    assert.equal(finalCall.item.id, t1.id, '팀3 처리 후에 비로소 복귀한 1번 팀이 호출됨');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 14. [R1 Fix 6] 창구 정지 연동 및 표본 이상치 필터링 (20초~1800초 유효)
+  // ---------------------------------------------------------------------------
+  await t.test('14. [R1 Fix 6] 창구 정지 연동 및 발권 처리 표본 이상치(20초 미만, 30분 초과) 필터링 검증', () => {
+    // 14-1. 이상치 필터링: 10초(비정상 즉시종료), 3600초(장기 미처리)는 제외되어야 함
+    const outlierData = [
+      { duration_seconds: 10 },    // 이상치: 제외 (< 20s)
+      { duration_seconds: 100 },   // 정상: 100s
+      { duration_seconds: 120 },   // 정상: 120s
+      { duration_seconds: 4000 },  // 이상치: 제외 (> 1800s)
+    ];
+
+    // 정상 표본이 2건뿐이므로 minSampleCount(3) 미달 -> CALCULATING
+    const waitOutlier = BongplayQueue.calculateWaitTime({
+      aheadCount: 2,
+      completedIssuances: outlierData,
+      activeDesksCount: 1,
+      isDeskPaused: false
+    });
+    assert.equal(waitOutlier.code, 'CALCULATING', '이상치 2건을 제외하면 유효 표본이 2건이므로 "집계 중" 반환');
+    assert.equal(waitOutlier.sampleCount, 2);
+
+    // 14-2. 정상 표본 1건 추가 (총 3건)
+    outlierData.push({ duration_seconds: 140 }); // 정상: 140s
+    // 유효 표본 3건: 100s, 120s, 140s -> 평균 120s (2분/팀)
+    const waitValid = BongplayQueue.calculateWaitTime({
+      aheadCount: 2,
+      completedIssuances: outlierData,
+      activeDesksCount: 1,
+      isDeskPaused: false
+    });
+    assert.equal(waitValid.code, 'ESTIMATED');
+    assert.equal(waitValid.sampleCount, 3);
+    assert.ok(waitValid.text.startsWith('약 '));
+
+    // 14-3. 활성 창구 수가 0이면 무조건 PAUSED
+    const waitNoDesk = BongplayQueue.calculateWaitTime({
+      aheadCount: 2,
+      completedIssuances: outlierData,
+      activeDesksCount: 0,
+      isDeskPaused: false
+    });
+    assert.equal(waitNoDesk.code, 'PAUSED');
+    assert.equal(waitNoDesk.text, '발권 일시 중지');
   });
 
 });

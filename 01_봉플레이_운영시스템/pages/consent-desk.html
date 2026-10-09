@@ -773,13 +773,13 @@
       refreshDeskQueueView();
     }
 
-    function toggleCurrentDeskPause() {
+    async function toggleCurrentDeskPause() {
       isDeskPaused = !isDeskPaused;
-      if (window.BongplayQueue && BongplayQueue.store) {
-        BongplayQueue.store.setDeskPaused(currentDeskNo, isDeskPaused);
+      if (window.BongplayQueue) {
+        await BongplayQueue.setDeskPauseStatus(currentDeskNo, isDeskPaused);
       }
       updateDeskPauseButtonUI();
-      refreshDeskQueueView();
+      await refreshDeskQueueView();
     }
 
     function updateDeskPauseButtonUI() {
@@ -809,9 +809,9 @@
         const res = await BongplayQueue.callNext(currentDeskNo, 'desk_staff_' + currentDeskNo);
         if (res && res.ok && res.item) {
           currentCalledQueueEntry = res.item;
-          refreshDeskQueueView();
+          await refreshDeskQueueView();
         } else {
-          alert('대기 중인 팀이 없습니다.');
+          alert(res && res.message ? res.message : '대기 중인 팀이 없습니다.');
         }
       } catch (e) {
         console.warn('Call next error:', e);
@@ -825,7 +825,7 @@
         const res = await BongplayQueue.recall(currentCalledQueueEntry.id, currentDeskNo);
         if (res && res.ok && res.item) {
           currentCalledQueueEntry = res.item;
-          refreshDeskQueueView();
+          await refreshDeskQueueView();
           alert(`🔔 ${currentCalledQueueEntry.formatted_number}번 고객님을 재호출했습니다.`);
         }
       } catch (e) {
@@ -839,7 +839,7 @@
         const res = await BongplayQueue.startProcessing(currentCalledQueueEntry.id, currentDeskNo);
         if (res && res.ok && res.item) {
           currentCalledQueueEntry = res.item;
-          refreshDeskQueueView();
+          await refreshDeskQueueView();
         }
       } catch (e) {
         console.warn('Start processing error:', e);
@@ -859,7 +859,7 @@
         const res = await BongplayQueue.holdNoShow(currentCalledQueueEntry.id, reason);
         if (res && res.ok) {
           currentCalledQueueEntry = null;
-          refreshDeskQueueView();
+          await refreshDeskQueueView();
           alert('⏸️ 해당 팀을 [부재 보류]로 전환했습니다. 대기 순번에서 제외되었습니다.');
         }
       } catch (e) {
@@ -868,12 +868,14 @@
     }
 
     async function handleRestoreHeldTeam(queueId) {
-      if (!confirm('부재 보류된 고객을 다시 대기열로 복귀시키겠습니까?')) return;
+      if (!confirm('부재 보류된 고객을 다시 대기열로 복귀시키겠습니까? (규칙에 따라 대기열 맨 뒤로 복귀합니다)')) return;
       try {
-        const res = await BongplayQueue.restoreHeld(queueId);
+        const res = await BongplayQueue.restoreHeld(queueId, 'desk_staff_' + currentDeskNo, '고객 창구 방문 복귀');
         if (res && res.ok) {
-          refreshDeskQueueView();
-          alert('↩️ 대기열로 정상 복귀되었습니다.');
+          await refreshDeskQueueView();
+          alert('↩️ 대기열 맨 뒤로 정상 복귀되었습니다.');
+        } else {
+          alert('복귀 처리 실패: ' + (res?.message || '잠시 후 다시 시도해 주세요.'));
         }
       } catch (e) {
         console.warn('Restore held error:', e);
@@ -886,30 +888,52 @@
       if (!reason) return;
 
       try {
-        const res = await BongplayQueue.cancelEntry(currentCalledQueueEntry.id, reason);
+        const res = await BongplayQueue.cancelEntry(currentCalledQueueEntry.id, reason, 'desk_staff_' + currentDeskNo);
         if (res && res.ok) {
           currentCalledQueueEntry = null;
-          refreshDeskQueueView();
+          await refreshDeskQueueView();
           alert('❌ 대기 접수가 취소되었습니다.');
+        } else {
+          alert('접수 취소 실패: ' + (res?.message || '발권 완료 건은 취소할 수 없습니다.'));
         }
       } catch (e) {
         console.warn('Cancel queue error:', e);
       }
     }
 
-    function refreshDeskQueueView() {
-      if (!window.BongplayQueue || !BongplayQueue.store) return;
-      const store = BongplayQueue.store;
-      const todayStr = BongplayQueue.getKstDateStr();
-
+    async function refreshDeskQueueView() {
+      if (!window.BongplayQueue) return;
       let waitingCount = 0;
       let heldList = [];
-      store.entries.forEach(it => {
-        if (it.queue_date === todayStr) {
-          if (it.status === BongplayQueue.STATUS.WAITING) waitingCount++;
-          if (it.status === BongplayQueue.STATUS.NO_SHOW) heldList.push(it);
+
+      try {
+        // [Fix 6] 서버 관제 목록 RPC 조회
+        const staffListRes = await BongplayQueue.getStaffQueueList();
+        if (staffListRes && staffListRes.ok) {
+          waitingCount = staffListRes.waiting_count || 0;
+          heldList = staffListRes.held_teams || [];
+
+          if (Array.isArray(staffListRes.called_teams)) {
+            const myDeskTeam = staffListRes.called_teams.find(t => t.desk_no === currentDeskNo);
+            if (myDeskTeam) {
+              currentCalledQueueEntry = myDeskTeam;
+            } else if (currentCalledQueueEntry && currentCalledQueueEntry.desk_no === currentDeskNo) {
+              currentCalledQueueEntry = null;
+            }
+          }
+        } else if (BongplayQueue.store) {
+          // 오프라인 / 로컬 테스트 fallback
+          const todayStr = BongplayQueue.getKstDateStr();
+          BongplayQueue.store.entries.forEach(it => {
+            if (it.queue_date === todayStr) {
+              if (it.status === BongplayQueue.STATUS.WAITING) waitingCount++;
+              if (it.status === BongplayQueue.STATUS.NO_SHOW) heldList.push(it);
+            }
+          });
         }
-      });
+      } catch (err) {
+        console.warn('Failed to query staff queue list:', err);
+      }
 
       const waitEl = document.getElementById('queueDeskWaitCount');
       if (waitEl) waitEl.textContent = waitingCount;
@@ -918,7 +942,6 @@
 
       const waitTime = BongplayQueue.calculateWaitTime({
         aheadCount: waitingCount,
-        completedIssuances: store.completedHistory.filter(c => c.queue_date === todayStr),
         activeDesksCount: (isDeskPaused ? 0 : 1),
         isDeskPaused: isDeskPaused
       });
@@ -1494,6 +1517,12 @@
         .map(p => `${(BongplayID.getPaymentMethod(p.method) || {}).short || p.method} ${p.amount.toLocaleString()}원`)
         .join(' + ');
 
+      // [Fix 3] 현재 호출된 대기열 팀과 결제 대상 서약서 일치 여부 검증
+      if (currentCalledQueueEntry && currentCalledQueueEntry.consent_id && currentCalledQueueEntry.consent_id !== rec.id) {
+        alert(`❌ 현재 호출된 대기열 팀(${currentCalledQueueEntry.formatted_number || currentCalledQueueEntry.queue_number})과 결제 대상 서약서가 일치하지 않습니다.`);
+        return;
+      }
+
       if (!confirm(`${methodLabel} 으로 결제 완료 처리합니다.\n(실물 단말기 승인이 끝났는지 확인하십시오)`)) return;
 
       const now = new Date().toISOString();
@@ -1524,16 +1553,17 @@
         return;
       }
 
-      // 2) 발권 원장 (ticket_ledger) — 입장권 계열 1매씩, 단가 포함
+      // 2) 발권 원장 (ticket_ledger) — 입장권 계열 1매씩, 단가 포함 (Fix 3: await로 서버 원장 확정)
       const ticketIds = Array.isArray(rec.ticket_ids) ? rec.ticket_ids.slice() : [];
       let seq = ticketIds.length;
+      const ledgerPromises = [];
       pricing.items.filter(it => it.product_category === 'ticket').forEach(it => {
         const unitPaid = Math.round(it.paid_amount / it.quantity);
         for (let i = 0; i < it.quantity; i++) {
           seq++;
           const tId = BongplayID.generateTicketId(rec.visit_id, seq);
           ticketIds.push(tId);
-          BongplaySync.upsert('ticket_ledger', {
+          ledgerPromises.push(BongplaySync.upsert('ticket_ledger', {
             ticket_id: tId,
             site_id: 'bongplay_bonghwa',
             visit_id: rec.visit_id,
@@ -1547,29 +1577,41 @@
             payment_method: primaryMethod,
             issued_at: now,
             status: 'active'
-          });
+          }));
         }
       });
 
-      // 3) 서약서 상태 갱신
+      const ledgerResults = await Promise.all(ledgerPromises);
+      const ledgerFailed = ledgerResults.some(r => r && r.success === false);
+      if (ledgerFailed) {
+        alert('❌ 발권 원장(ticket_ledger) 저장 중 실패가 발생했습니다. 대기열 상태를 유지합니다.');
+        return;
+      }
+
+      // 3) 서약서 상태 갱신 (Fix 3: await 및 결과 확인)
       rec.isIssued = true;
       rec.is_issued = true;
       rec.ticket_issued_at = rec.ticket_issued_at || now;
       rec.ticket_ids = ticketIds;
-      await BongplaySync.upsert('safety_consents', rec);
+      const consentSyncRes = await BongplaySync.upsert('safety_consents', rec);
+      if (consentSyncRes && consentSyncRes.success === false) {
+        alert('❌ 서약서 발권 상태 갱신에 실패했습니다. 대기열 상태를 유지합니다.');
+        return;
+      }
 
       // 4) 대기열 발권 완료 반영 (ANT-006: 서버 발권 확정 후 대기열에서 제외)
       if (window.BongplayQueue) {
-        try {
-          const qEntry = currentCalledQueueEntry || (BongplayQueue.store ? BongplayQueue.store.getEntryByConsentId(rec.id) : null);
-          if (qEntry) {
-            await BongplayQueue.completeIssuance(qEntry.id, order.order_id, ticketIds);
-            if (currentCalledQueueEntry && currentCalledQueueEntry.id === qEntry.id) {
-              currentCalledQueueEntry = null;
-            }
+        const qEntry = currentCalledQueueEntry || (BongplayQueue.store ? BongplayQueue.store.getEntryByConsentId(rec.id) : null);
+        if (qEntry) {
+          const qRes = await BongplayQueue.completeIssuance(qEntry.id, order.order_id, ticketIds);
+          if (!qRes || !qRes.ok) {
+            alert('⚠️ 결제 및 원장은 저장되었으나 대기열 완료 갱신에 실패했습니다: ' + (qRes?.message || '잠시 후 다시 시도해 주세요.'));
+            // 대기열 슬롯을 유지하여 재시도 가능하도록 함
+            return;
           }
-        } catch (qErr) {
-          console.warn('Queue completeIssuance error:', qErr);
+          if (currentCalledQueueEntry && currentCalledQueueEntry.id === qEntry.id) {
+            currentCalledQueueEntry = null;
+          }
         }
       }
 

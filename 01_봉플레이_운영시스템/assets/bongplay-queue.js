@@ -1,16 +1,18 @@
 /**
  * assets/bongplay-queue.js
  * 
- * 봉플레이 발권 대기 시스템 핵심 엔진 & 클라이언트 어댑터 (ANT-006 / BEN-022)
+ * 봉플레이 발권 대기 시스템 핵심 엔진 & 클라이언트 어댑터 (ANT-006 / BEN-022 R1 반영)
  * ----------------------------------------------------------------------------
  * 주요 책임:
  * 1. 동의서 1건 = 1팀 대기열 접수 및 당일 대기번호 발급 (서버 확정 전 로컬 임의 번호 발급 원천 차단)
- * 2. 멱등성 보장 (idempotency_key 기반 새로고침·재시도 중복 생성 방지)
+ * 2. 멱등성 보장 (idempotency_key 기반 새로고침·재시도 중복 생성 방지, 동일 키 다른 동의서 재사용 차단)
  * 3. 앞선 미발권 팀 수 산정 (waiting + called + processing 포함, issued/canceled/no_show 제외)
- * 4. 처리 실적 기반 예상시간 산출 (표본 3건 미만 "집계 중", 창구 중지 "발권 일시 중지")
- * 5. 다중 단말 경합 방지 (CAS / 낙관적 락 기반 이중 호출 차단)
+ * 4. 처리 실적 기반 예상시간 산출 (유효 표본 20~1800초, 표본 3건 미만 "집계 중", 창구 중지 "발권 일시 중지", 범위형 표시)
+ * 5. 다중 단말 경합 방지 (단일 창구 활성 1팀 제약, FOR UPDATE SKIP LOCKED / CAS 원자성)
  * 6. 발권 실패 가드 (서버 발권 실패 시 완료 처리 금지, 취소 시 예전 순서 자동 복귀 차단)
- * 7. 공개 호출판 PII 완전 마스킹
+ * 7. 보류 복귀 순서 (order_key를 대기열 맨 뒤로 재할당하여 새치기 원천 차단)
+ * 8. 공개 호출판 Zero PII 완전 보장 (id 및 토큰 미노출, 번호와 창구만 표출)
+ * 9. 운영 경로 자동 로컬 메모리 폴백 제거 (실패 시 전송대기/실패 반환)
  */
 
 (function (global) {
@@ -65,6 +67,18 @@
   }
 
   /**
+   * 128비트 암호화 고객 조회 토큰 생성
+   */
+  function generateCustomerToken() {
+    if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+      var arr = new Uint8Array(16);
+      crypto.getRandomValues(arr);
+      return Array.from(arr).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+    }
+    return 'tok_' + Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
+  }
+
+  /**
    * 대기번호 표시 포맷팅 (#001)
    */
   function formatQueueNumber(num) {
@@ -74,64 +88,74 @@
 
   /**
    * 내 앞 대기 팀 수 계산
-   * - 규칙: 동일 일자, 내 queue_number보다 작고, 상태가 waiting, called, processing 중 하나인 팀만 포함.
-   * - issued, no_show, canceled 상태 팀은 반드시 제외.
+   * - order_key가 주어지면 order_key 기준으로 계산 (보류 복귀 팀은 맨 뒤)
+   * - order_key가 없으면 queue_number 기준 fallback
    */
-  function computeAheadCount(queueList, myQueueNumber, queueDate) {
+  function computeAheadCount(queueList, myQueueNumber, queueDate, myOrderKey) {
     if (!Array.isArray(queueList) || !myQueueNumber) return 0;
     var targetDate = queueDate || getKstDateStr();
+
+    var resolvedOrderKey = myOrderKey;
+    if (typeof resolvedOrderKey !== 'number') {
+      for (var k = 0; k < queueList.length; k++) {
+        if (queueList[k].queue_date === targetDate && queueList[k].queue_number === myQueueNumber) {
+          resolvedOrderKey = queueList[k].order_key;
+          break;
+        }
+      }
+    }
+
     var count = 0;
     for (var i = 0; i < queueList.length; i++) {
       var item = queueList[i];
       if (item.queue_date !== targetDate) continue;
-      if (item.queue_number < myQueueNumber) {
-        if (ACTIVE_IN_QUEUE_STATUSES.indexOf(item.status) !== -1) {
-          count++;
-        }
+      if (ACTIVE_IN_QUEUE_STATUSES.indexOf(item.status) === -1) continue;
+
+      if (typeof resolvedOrderKey === 'number' && typeof item.order_key === 'number') {
+        if (item.order_key < resolvedOrderKey) count++;
+      } else if (item.queue_number < myQueueNumber) {
+        count++;
       }
     }
     return count;
   }
 
   /**
-   * 예상 대기시간 계산
-   * @param {Object} options
-   * - aheadCount: 내 앞선 팀 수 (호출·처리 중 포함)
-   * - completedIssuances: 당일 발권 완료 기록 목록 ([{ processing_duration_seconds: 120 }, ...])
-   * - activeDesksCount: 현재 활성 매표 창구 수 (최소 1 이상 권장)
-   * - isDeskPaused: 창구 전체 정지 여부 (boolean)
-   * - minSampleCount: 최소 표본 수 (기본 3건)
+   * 예상 대기시간 계산 (유효 표본 20~1800초, 범위형 추정 지원)
    */
   function calculateWaitTime(options) {
     var opts = options || {};
     var aheadCount = typeof opts.aheadCount === 'number' ? opts.aheadCount : 0;
     var completed = Array.isArray(opts.completedIssuances) ? opts.completedIssuances : [];
-    var activeDesks = (typeof opts.activeDesksCount === 'number' && opts.activeDesksCount > 0) ? opts.activeDesksCount : 1;
+    var activeDesks = typeof opts.activeDesksCount === 'number' ? opts.activeDesksCount : 1;
     var isDeskPaused = Boolean(opts.isDeskPaused);
     var minSampleCount = typeof opts.minSampleCount === 'number' ? opts.minSampleCount : 3;
 
-    // 1. 창구 정지인 경우
+    // 1. 창구 정지 또는 활성 창구 0인 경우
     if (isDeskPaused || activeDesks <= 0) {
       return {
         code: 'PAUSED',
         text: '발권 일시 중지',
         minutes: null,
+        min_minutes: null,
+        max_minutes: null,
         sampleCount: completed.length
       };
     }
 
-    // 앞선 팀이 0인 경우 (즉시 처리 가능 또는 호출 대기)
+    // 앞선 팀이 0인 경우
     if (aheadCount <= 0) {
       return {
         code: 'IMMEDIATE',
         text: '곧 호출 예정',
         minutes: 0,
+        min_minutes: 0,
+        max_minutes: 2,
         sampleCount: completed.length
       };
     }
 
-    // 2. 표본 수집 확인
-    // 발권 완료 건 중 유효한 처리시간(초) 추출
+    // 2. 표본 수집 확인 (20초 ~ 1800초 유효 표본만 추출)
     var validDurations = [];
     for (var i = 0; i < completed.length; i++) {
       var c = completed[i];
@@ -152,134 +176,205 @@
         code: 'CALCULATING',
         text: '집계 중',
         minutes: null,
+        min_minutes: null,
+        max_minutes: null,
         sampleCount: validDurations.length
       };
     }
 
-    // 최근 최대 10건의 이동 평균 계산
+    // 최근 최대 10건의 표본으로 평균 및 범위 계산
     var recentSamples = validDurations.slice(-10);
     var sumSec = 0;
     for (var j = 0; j < recentSamples.length; j++) {
       sumSec += recentSamples[j];
     }
     var avgSecPerTeam = sumSec / recentSamples.length;
+    var minSecPerTeam = avgSecPerTeam * 0.8;
+    var maxSecPerTeam = avgSecPerTeam * 1.3;
 
-    // (내 앞 팀 수 * 팀당 평균 소요 시간) / 활성 창구 수
-    var totalEstimatedSec = (aheadCount * avgSecPerTeam) / activeDesks;
-    var estimatedMinutes = Math.max(1, Math.ceil(totalEstimatedSec / 60));
+    var minEstMin = Math.max(1, Math.ceil((aheadCount * minSecPerTeam) / (activeDesks * 60)));
+    var maxEstMin = Math.max(minEstMin, Math.ceil((aheadCount * maxSecPerTeam) / (activeDesks * 60)));
+
+    var text = (minEstMin === maxEstMin) ? ('약 ' + minEstMin + '분') : ('약 ' + minEstMin + '~' + maxEstMin + '분');
 
     return {
       code: 'ESTIMATED',
-      text: '약 ' + estimatedMinutes + '분',
-      minutes: estimatedMinutes,
+      text: text,
+      minutes: maxEstMin,
+      min_minutes: minEstMin,
+      max_minutes: maxEstMin,
       avgSecPerTeam: Math.round(avgSecPerTeam),
       sampleCount: validDurations.length
     };
   }
 
   /**
-   * 공개 호출판용 PII 마스킹 (개인정보 원천 차단)
+   * 공개 호출 전광판용 데이터 살균 (Zero PII - id 및 토큰 일체 제거)
    */
-  function sanitizeForPublicDisplay(queueItem) {
-    if (!queueItem) return null;
+  function sanitizeForPublicDisplay(item) {
+    if (!item) return null;
     return {
-      id: queueItem.id,
-      queue_number: queueItem.queue_number,
-      formatted_number: formatQueueNumber(queueItem.queue_number),
-      desk_no: queueItem.desk_no || null,
-      status: queueItem.status,
-      called_at: queueItem.called_at || null,
-      queue_date: queueItem.queue_date
+      desk_no: item.desk_no || null,
+      queue_number: item.queue_number,
+      formatted_number: item.formatted_number || formatQueueNumber(item.queue_number),
+      status: item.status,
+      called_at: item.called_at || null
     };
+  }
+
+  /**
+   * RPC 응답 표준 정규화 헬퍼 (Fix 1: 전송 성공과 본문 ok를 모두 철저 검증)
+   */
+  function normalizeRpcResult(rpcRes) {
+    if (!rpcRes) {
+      return { ok: false, error: 'no_response', message: '서버 응답이 없습니다.' };
+    }
+    // 전송 레벨 HTTP 실패
+    if (rpcRes.ok === false) {
+      return {
+        ok: false,
+        status: rpcRes.status || 500,
+        error: rpcRes.error || 'server_error',
+        message: rpcRes.message || '서버 요청에 실패했습니다.'
+      };
+    }
+
+    var data = rpcRes.data !== undefined ? rpcRes.data : rpcRes;
+    if (data && typeof data === 'object') {
+      if (data.ok === false) {
+        return {
+          ok: false,
+          error: data.error || 'rpc_rejected',
+          message: data.message || data.error || '서버 처리 오류가 발생했습니다.'
+        };
+      }
+      if (data.ok === true) {
+        return data;
+      }
+      return { ok: true, item: data };
+    }
+    return { ok: true, data: data };
   }
 
   /* ============================================================
-     2. 로컬 메모리 시뮬레이션 / 테스트 / 오프라인용 대기열 엔진
+     2. 인메모리 대기열 스토어 (테스트 전용 명시적 주입용)
      ============================================================ */
   function InMemoryQueueStore() {
-    this.entries = []; // 전체 큐 레코드
-    this.counters = {}; // { '2026-10-08': 42 } 날짜별 일련번호
-    this.desks = {
-      1: { desk_no: 1, is_active: true, is_paused: false, staff_id: 'staff_1', current_queue_id: null },
-      2: { desk_no: 2, is_active: true, is_paused: false, staff_id: 'staff_2', current_queue_id: null }
+    this.entries = [];           // 대기열 레코드 목록
+    this.completedHistory = [];  // 발권 완료 히스토리 (통계 산출용)
+    this.desks = {               // 매표 창구 관제 슬롯
+      1: { desk_no: 1, is_active: true, is_paused: false, staff_id: null, current_queue_id: null },
+      2: { desk_no: 2, is_active: true, is_paused: false, staff_id: null, current_queue_id: null }
     };
-    this.completedHistory = []; // 완료된 발권 히스토리
-    this.lock = false; // 동시성 원자성 제어용
   }
 
-  InMemoryQueueStore.prototype.reset = function () {
-    this.entries = [];
-    this.counters = {};
-    this.completedHistory = [];
-    this.desks[1] = { desk_no: 1, is_active: true, is_paused: false, staff_id: 'staff_1', current_queue_id: null };
-    this.desks[2] = { desk_no: 2, is_active: true, is_paused: false, staff_id: 'staff_2', current_queue_id: null };
+  InMemoryQueueStore.prototype.getEntryById = function (id) {
+    for (var i = 0; i < this.entries.length; i++) {
+      if (this.entries[i].id === id) return this.entries[i];
+    }
+    return null;
+  };
+
+  InMemoryQueueStore.prototype.getEntryByConsentId = function (consentId) {
+    for (var i = 0; i < this.entries.length; i++) {
+      if (this.entries[i].consent_id === consentId) return this.entries[i];
+    }
+    return null;
+  };
+
+  InMemoryQueueStore.prototype.getEntryByCustomerToken = function (token) {
+    for (var i = 0; i < this.entries.length; i++) {
+      if (this.entries[i].customer_token === token || this.entries[i].id === token) return this.entries[i];
+    }
+    return null;
+  };
+
+  InMemoryQueueStore.prototype.setDeskPaused = function (deskNo, isPaused) {
+    if (this.desks[deskNo]) {
+      this.desks[deskNo].is_paused = Boolean(isPaused);
+    }
   };
 
   /**
-   * 접수 (enqueue) - 원자적 일련번호 채번 & 멱등성 보장
+   * 대기열 접수 (enqueue)
    */
-  InMemoryQueueStore.prototype.enqueue = function (params) {
-    var p = params || {};
-    var dateStr = p.queue_date || getKstDateStr(p.now);
-    var idempotencyKey = p.idempotency_key || generateIdempotencyKey(dateStr, p.consent_id, p.guardian_phone);
+  InMemoryQueueStore.prototype.enqueue = function (data) {
+    var now = data.now ? new Date(data.now) : new Date();
+    var dateStr = data.queue_date || getKstDateStr(now);
+    var idempotencyKey = data.idempotency_key || generateIdempotencyKey(dateStr, data.consent_id, data.guardian_phone);
 
-    // 멱등성 검사: 동일 idempotency_key가 이미 있으면 기존 항목 반환
+    // 멱등성 검사
     for (var i = 0; i < this.entries.length; i++) {
-      if (this.entries[i].idempotency_key === idempotencyKey) {
-        return {
-          ok: true,
-          duplicate: true,
-          item: Object.assign({}, this.entries[i])
-        };
+      var it = this.entries[i];
+      if (it.queue_date === dateStr && it.idempotency_key === idempotencyKey) {
+        // [Fix 4] 멱등키가 다른 동의서에 재사용된 경우 에러
+        if (it.consent_id !== data.consent_id) {
+          return { ok: false, error: 'IDEMPOTENCY_KEY_REUSED', message: '동일 멱등키가 다른 동의서에 이미 사용되었습니다.' };
+        }
+        return { ok: true, duplicate: true, item: Object.assign({}, it) };
+      }
+      if (it.queue_date === dateStr && it.consent_id === data.consent_id) {
+        return { ok: true, duplicate: true, item: Object.assign({}, it) };
       }
     }
 
-    // 날짜별 시퀀스 증가 (1부터 시작)
-    if (!this.counters[dateStr]) {
-      this.counters[dateStr] = 0;
+    // 당일 일련번호 및 order_key 채번
+    var maxNum = 0;
+    var maxOrderKey = 0;
+    for (var j = 0; j < this.entries.length; j++) {
+      if (this.entries[j].queue_date === dateStr) {
+        if (this.entries[j].queue_number > maxNum) maxNum = this.entries[j].queue_number;
+        var oKey = this.entries[j].order_key || this.entries[j].queue_number;
+        if (oKey > maxOrderKey) maxOrderKey = oKey;
+      }
     }
-    this.counters[dateStr] += 1;
-    var nextNum = this.counters[dateStr];
 
-    var entryId = 'q_' + dateStr.replace(/-/g, '') + '_' + String(nextNum).padStart(4, '0') + '_' + Math.random().toString(36).slice(2, 6);
-    var nowIso = (p.now ? new Date(p.now) : new Date()).toISOString();
+    var nextNum = maxNum + 1;
+    var nextOrderKey = maxOrderKey + 1;
+    var entryId = 'q_' + dateStr.replace(/-/g, '') + '_' + String(nextNum).padStart(4, '0') + '_' + Math.random().toString(36).substring(2, 6);
+    var customerToken = generateCustomerToken();
 
     var newEntry = {
       id: entryId,
-      site_id: p.site_id || 'bongplay_bonghwa',
+      site_id: data.site_id || 'bongplay_bonghwa',
       queue_date: dateStr,
       queue_number: nextNum,
+      order_key: nextOrderKey,
+      customer_token: customerToken,
       formatted_number: formatQueueNumber(nextNum),
-      consent_id: p.consent_id,
-      visit_id: p.visit_id || null,
-      household_id: p.household_id || null,
-      guardian_name: p.guardian_name || '',
-      guardian_phone: p.guardian_phone || '',
-      party_size: typeof p.party_size === 'number' ? p.party_size : 1,
+      consent_id: data.consent_id,
+      visit_id: data.visit_id || null,
+      household_id: data.household_id || null,
+      guardian_name: data.guardian_name || '',
+      guardian_phone: data.guardian_phone || '',
+      party_size: data.party_size || 1,
       idempotency_key: idempotencyKey,
       status: STATUS.WAITING,
       desk_no: null,
       staff_id: null,
-      enqueued_at: nowIso,
+      enqueued_at: now.toISOString(),
       called_at: null,
       processing_started_at: null,
       issued_at: null,
       canceled_at: null,
       hold_at: null,
       restored_at: null,
+      duration_seconds: null,
+      order_id: null,
+      ticket_ids: [],
+      hold_reason: null,
+      cancel_reason: null,
+      restore_reason: null,
+      restored_by: null,
       version: 1
     };
 
     this.entries.push(newEntry);
-    return {
-      ok: true,
-      duplicate: false,
-      item: Object.assign({}, newEntry)
-    };
+    return { ok: true, duplicate: false, item: Object.assign({}, newEntry) };
   };
 
   /**
-   * 다음 대기팀 호출 (call_next) - 단말 간 경합 방지
+   * 다음 팀 호출 (call_next)
    */
   InMemoryQueueStore.prototype.callNext = function (deskNo, staffId, now) {
     var desk = this.desks[deskNo];
@@ -288,13 +383,21 @@
       this.desks[deskNo] = desk;
     }
     if (desk.is_paused) {
-      return { ok: false, error: 'desk_paused', message: '창구가 일시 중지 상태입니다.' };
+      return { ok: false, error: 'DESK_PAUSED', message: deskNo + '번 창구는 발권 일시 중지 상태입니다.' };
     }
 
     var todayStr = getKstDateStr(now);
     var nowIso = (now ? new Date(now) : new Date()).toISOString();
 
-    // 당일 waiting 상태인 항목 중 queue_number가 가장 작은 것 선택
+    // [Fix 4] 창구당 활성 1팀 제약: 이미 호출/처리 중인 팀이 있는지 확인
+    for (var k = 0; k < this.entries.length; k++) {
+      var itemK = this.entries[k];
+      if (itemK.queue_date === todayStr && itemK.desk_no === deskNo && (itemK.status === STATUS.CALLED || itemK.status === STATUS.PROCESSING)) {
+        return { ok: false, error: 'DESK_ALREADY_OCCUPIED', message: deskNo + '번 창구에 이미 진행 중인 팀이 있습니다.' };
+      }
+    }
+
+    // 당일 waiting 상태인 항목 중 order_key가 가장 작은 팀 선택 (Fix 5: order_key 정렬)
     var candidates = [];
     for (var i = 0; i < this.entries.length; i++) {
       var item = this.entries[i];
@@ -307,11 +410,13 @@
       return { ok: false, error: 'empty_queue', message: '대기 중인 팀이 없습니다.' };
     }
 
-    // 순번 오름차순 정렬
-    candidates.sort(function (a, b) { return a.queue_number - b.queue_number; });
-    var target = candidates[0];
+    candidates.sort(function (a, b) {
+      var aKey = typeof a.order_key === 'number' ? a.order_key : a.queue_number;
+      var bKey = typeof b.order_key === 'number' ? b.order_key : b.queue_number;
+      return aKey - bKey;
+    });
 
-    // 원자적 상태 변경
+    var target = candidates[0];
     target.status = STATUS.CALLED;
     target.desk_no = deskNo;
     target.staff_id = staffId || desk.staff_id;
@@ -320,10 +425,7 @@
 
     desk.current_queue_id = target.id;
 
-    return {
-      ok: true,
-      item: Object.assign({}, target)
-    };
+    return { ok: true, item: Object.assign({}, target) };
   };
 
   /**
@@ -350,7 +452,7 @@
     var item = this.getEntryById(queueId);
     if (!item) return { ok: false, error: 'not_found' };
     if (item.status !== STATUS.CALLED) {
-      return { ok: false, error: 'invalid_status', message: '호출된 팀만 발권 처리를 시작할 수 있습니다.' };
+      return { ok: false, error: 'invalid_status', message: '호출(called) 상태인 팀만 처리를 시작할 수 있습니다.' };
     }
 
     item.status = STATUS.PROCESSING;
@@ -362,13 +464,13 @@
   };
 
   /**
-   * 부재 보류 (hold_no_show) - 대기열 즉시 제외
+   * 부재 보류 (hold_no_show)
    */
   InMemoryQueueStore.prototype.holdNoShow = function (queueId, reason, now) {
     var item = this.getEntryById(queueId);
     if (!item) return { ok: false, error: 'not_found' };
     if (item.status !== STATUS.CALLED && item.status !== STATUS.PROCESSING) {
-      return { ok: false, error: 'invalid_status', message: '호출 또는 처리 중인 상태에서만 보류할 수 있습니다.' };
+      return { ok: false, error: 'invalid_status', message: '호출 또는 처리 중인 팀만 부재 보류할 수 있습니다.' };
     }
 
     item.status = STATUS.NO_SHOW;
@@ -376,7 +478,6 @@
     item.hold_reason = reason || '고객 부재';
     item.version += 1;
 
-    // 해당 창구의 현재 진행 비우기
     if (item.desk_no && this.desks[item.desk_no]) {
       this.desks[item.desk_no].current_queue_id = null;
     }
@@ -385,17 +486,30 @@
   };
 
   /**
-   * 보류 복귀 (restore_held) - 대기열 복귀
+   * 보류 복귀 (restore_held)
+   * - [Fix 5] order_key를 대기열 맨 뒤로 재할당 (새치기 원천 차단)
    */
-  InMemoryQueueStore.prototype.restoreHeld = function (queueId, now) {
+  InMemoryQueueStore.prototype.restoreHeld = function (queueId, staffId, reason, now) {
     var item = this.getEntryById(queueId);
     if (!item) return { ok: false, error: 'not_found' };
     if (item.status !== STATUS.NO_SHOW) {
       return { ok: false, error: 'invalid_status', message: '부재 보류된 팀만 대기열로 복귀할 수 있습니다.' };
     }
 
+    // 당일 최대 order_key 조회 후 맨 뒤로 할당
+    var maxOrderKey = 0;
+    for (var i = 0; i < this.entries.length; i++) {
+      if (this.entries[i].queue_date === item.queue_date) {
+        var oKey = this.entries[i].order_key || this.entries[i].queue_number;
+        if (oKey > maxOrderKey) maxOrderKey = oKey;
+      }
+    }
+
     item.status = STATUS.WAITING;
+    item.order_key = maxOrderKey + 1; // 맨 뒤로 재할당
     item.restored_at = (now ? new Date(now) : new Date()).toISOString();
+    item.restored_by = staffId || 'desk_staff';
+    item.restore_reason = reason || '고객 창구 방문 복귀';
     item.desk_no = null;
     item.version += 1;
 
@@ -403,11 +517,16 @@
   };
 
   /**
-   * 접수 취소 (cancel_entry) - 대기열 완전 제외
+   * 접수 취소 (cancel_entry)
+   * - [Fix 4] 이미 발권 완료(issued)된 건은 취소 불가 가드
    */
   InMemoryQueueStore.prototype.cancelEntry = function (queueId, reason, now) {
     var item = this.getEntryById(queueId);
     if (!item) return { ok: false, error: 'not_found' };
+
+    if (item.status === STATUS.ISSUED) {
+      return { ok: false, error: 'CANNOT_CANCEL_ISSUED', message: '이미 발권 완료된 건은 대기열에서 취소할 수 없습니다.' };
+    }
 
     item.status = STATUS.CANCELED;
     item.canceled_at = (now ? new Date(now) : new Date()).toISOString();
@@ -423,16 +542,25 @@
 
   /**
    * 발권 완료 (complete_issuance)
-   * - 필수 가드: 발권 실패 시에는 이 메서드가 호출되지 않아야 함
-   * - 완료 즉시 대기열에서 제외되고 실적 처리시간 기록
+   * - [Fix 3] order_id / ticket_ids 필수 검증 및 상태 전이 검증
    */
   InMemoryQueueStore.prototype.completeIssuance = function (queueId, orderId, ticketIds, now) {
     var item = this.getEntryById(queueId);
     if (!item) return { ok: false, error: 'not_found' };
 
+    if (!orderId || typeof orderId !== 'string' || !orderId.trim()) {
+      return { ok: false, error: 'ORDER_ID_REQUIRED', message: '유효한 주문번호가 필요합니다.' };
+    }
+    if (!Array.isArray(ticketIds) || ticketIds.length === 0) {
+      return { ok: false, error: 'TICKETS_REQUIRED', message: '발권된 팔찌 티켓 목록이 필요합니다.' };
+    }
+    if (item.status !== STATUS.CALLED && item.status !== STATUS.PROCESSING) {
+      return { ok: false, error: 'INVALID_STATUS', message: '호출 또는 처리 중인 팀만 발권 완료할 수 있습니다.' };
+    }
+
     var nowIso = (now ? new Date(now) : new Date()).toISOString();
     var startTime = item.processing_started_at || item.called_at || item.enqueued_at;
-    var durationSec = 60; // 기본 1분
+    var durationSec = 60;
     if (startTime) {
       var diff = (new Date(nowIso).getTime() - new Date(startTime).getTime()) / 1000;
       if (diff > 0) durationSec = Math.round(diff);
@@ -440,8 +568,8 @@
 
     item.status = STATUS.ISSUED;
     item.issued_at = nowIso;
-    item.order_id = orderId || null;
-    item.ticket_ids = Array.isArray(ticketIds) ? ticketIds : [];
+    item.order_id = orderId;
+    item.ticket_ids = ticketIds.slice();
     item.duration_seconds = durationSec;
     item.version += 1;
 
@@ -449,52 +577,19 @@
       this.desks[item.desk_no].current_queue_id = null;
     }
 
-    this.completedHistory.push({
-      id: item.id,
-      queue_date: item.queue_date,
-      queue_number: item.queue_number,
-      called_at: item.called_at,
-      processing_started_at: item.processing_started_at,
-      issued_at: item.issued_at,
-      duration_seconds: durationSec
-    });
-
+    this.completedHistory.push(Object.assign({}, item));
     return { ok: true, item: Object.assign({}, item) };
   };
 
-  InMemoryQueueStore.prototype.getEntryById = function (queueId) {
-    for (var i = 0; i < this.entries.length; i++) {
-      if (this.entries[i].id === queueId) return this.entries[i];
-    }
-    return null;
-  };
-
-  InMemoryQueueStore.prototype.getEntryByConsentId = function (consentId) {
-    for (var i = 0; i < this.entries.length; i++) {
-      if (this.entries[i].consent_id === consentId) return this.entries[i];
-    }
-    return null;
-  };
-
   /**
-   * 창구 일시 중지 / 해제 설정
+   * 고객용 상태 조회
    */
-  InMemoryQueueStore.prototype.setDeskPaused = function (deskNo, isPaused) {
-    if (this.desks[deskNo]) {
-      this.desks[deskNo].is_paused = Boolean(isPaused);
-      return true;
-    }
-    return false;
-  };
-
-  /**
-   * 고객 화면용 상태 조회
-   */
-  InMemoryQueueStore.prototype.getCustomerQueueStatus = function (queueId, now) {
-    var item = this.getEntryById(queueId);
+  InMemoryQueueStore.prototype.getCustomerQueueStatus = function (identifier, now) {
+    var item = this.getEntryByCustomerToken(identifier) || this.getEntryById(identifier);
     if (!item) return { ok: false, error: 'not_found' };
 
-    var ahead = computeAheadCount(this.entries, item.queue_number, item.queue_date);
+    var ahead = computeAheadCount(this.entries, item.queue_number, item.queue_date, item.order_key);
+
     var activeDesksCount = 0;
     var anyDeskPaused = false;
     for (var d in this.desks) {
@@ -506,7 +601,7 @@
       aheadCount: ahead,
       completedIssuances: this.completedHistory.filter(function (c) { return c.queue_date === item.queue_date; }),
       activeDesksCount: activeDesksCount,
-      isDeskPaused: (activeDesksCount === 0 || anyDeskPaused && activeDesksCount === 0)
+      isDeskPaused: (activeDesksCount === 0 || (anyDeskPaused && activeDesksCount === 0))
     });
 
     return {
@@ -515,6 +610,7 @@
         id: item.id,
         queue_number: item.queue_number,
         formatted_number: item.formatted_number,
+        customer_token: item.customer_token,
         status: item.status,
         desk_no: item.desk_no,
         ahead_count: ahead,
@@ -526,7 +622,7 @@
   };
 
   /**
-   * 공개 호출판용 전광판 상태 조회 (Zero PII)
+   * 공개 호출판 상태 조회 (Zero PII - id 및 토큰 일체 제외)
    */
   InMemoryQueueStore.prototype.getPublicDisplayData = function (dateStr) {
     var targetDate = dateStr || getKstDateStr();
@@ -543,18 +639,46 @@
       }
     }
 
-    // 최근 호출순 정렬
-    calledList.sort(function (a, b) {
-      return (new Date(b.called_at || 0)).getTime() - (new Date(a.called_at || 0)).getTime();
-    });
-
     return {
+      ok: true,
       date: targetDate,
       called_teams: calledList,
       waiting_teams_count: waitingCount,
       desks: Object.assign({}, this.desks),
       updated_at: new Date().toISOString(),
       updated_time_text: getKstTimeStr()
+    };
+  };
+
+  /**
+   * 직원 데스크 관제 목록 조회
+   */
+  InMemoryQueueStore.prototype.getStaffQueueList = function (dateStr) {
+    var targetDate = dateStr || getKstDateStr();
+    var waitingTeams = [];
+    var calledTeams = [];
+    var heldTeams = [];
+
+    for (var i = 0; i < this.entries.length; i++) {
+      var it = this.entries[i];
+      if (it.queue_date !== targetDate) continue;
+      if (it.status === STATUS.WAITING) waitingTeams.push(Object.assign({}, it));
+      else if (it.status === STATUS.CALLED || it.status === STATUS.PROCESSING) calledTeams.push(Object.assign({}, it));
+      else if (it.status === STATUS.NO_SHOW) heldTeams.push(Object.assign({}, it));
+    }
+
+    waitingTeams.sort(function (a, b) { return a.order_key - b.order_key; });
+    calledTeams.sort(function (a, b) { return (a.desk_no || 0) - (b.desk_no || 0); });
+
+    return {
+      ok: true,
+      date: targetDate,
+      waiting_count: waitingTeams.length,
+      waiting_teams: waitingTeams,
+      called_teams: calledTeams,
+      held_teams: heldTeams,
+      desks: Object.assign({}, this.desks),
+      server_time: new Date().toISOString()
     };
   };
 
@@ -569,19 +693,21 @@
     getKstDateStr: getKstDateStr,
     getKstTimeStr: getKstTimeStr,
     generateIdempotencyKey: generateIdempotencyKey,
+    generateCustomerToken: generateCustomerToken,
     formatQueueNumber: formatQueueNumber,
     computeAheadCount: computeAheadCount,
     calculateWaitTime: calculateWaitTime,
     sanitizeForPublicDisplay: sanitizeForPublicDisplay,
+    normalizeRpcResult: normalizeRpcResult,
     store: defaultStore,
 
-    // 새 인메모리 스토어 인스턴스 생성기 (테스트 격리용)
     createStore: function () {
       return new InMemoryQueueStore();
     },
 
     /**
-     * 고객 서약서 대기열 접수 요청 (온라인/서버 RPC 우선, 미연결 시 로컬 보류)
+     * 고객 서약서 대기열 접수 요청
+     * - [Fix 1] 서버 실패 시 자동 메모리 폴백 제거 (실패 반환)
      */
     enqueueConsent: async function (consentRecord, options) {
       var opts = options || {};
@@ -597,7 +723,6 @@
         isOnline = window.BongplaySync.isOnline();
       }
 
-      // 오프라인 상태인 경우: 공식 번호 발급 거부 (규칙 1)
       if (!isOnline) {
         return {
           ok: false,
@@ -607,7 +732,7 @@
         };
       }
 
-      // 1. Supabase RPC 호출 시도 (실제 운영 환경)
+      // 1. Supabase RPC 호출 경로
       if (typeof window !== 'undefined' && window.BongplaySync && typeof window.BongplaySync.rpc === 'function') {
         try {
           var rpcRes = await window.BongplaySync.rpc('enqueue_consent_team', {
@@ -619,33 +744,63 @@
             p_site_id: consentRecord.site_id || 'bongplay_bonghwa'
           });
 
-          if (rpcRes && rpcRes.ok && rpcRes.data && (rpcRes.data.queue_number || rpcRes.data.id)) {
+          var res = normalizeRpcResult(rpcRes);
+          if (res.ok) {
+            var item = res.item || res.data || res;
+            if (typeof localStorage !== 'undefined' && item.customer_token) {
+              try {
+                localStorage.setItem('bongplay_my_queue_token', item.customer_token);
+                localStorage.setItem('bongplay_my_queue_id', item.id);
+              } catch (e) {}
+            }
             return {
               ok: true,
               source: 'rpc',
-              item: rpcRes.data
+              item: item,
+              duplicate: Boolean(res.duplicate)
             };
           }
+          // [Fix 1] RPC 실패 시 로컬 번호 발급 금지 (에러 반환)
+          return {
+            ok: false,
+            source: 'rpc',
+            error: res.error || 'server_rejected',
+            message: res.message || '서버 접수에 실패했습니다.'
+          };
         } catch (e) {
-          console.warn('RPC enqueue failed, checking mock fallback:', e);
+          return {
+            ok: false,
+            source: 'rpc',
+            error: 'network_error',
+            message: '서버 통신 중 오류가 발생했습니다: ' + (e.message || e)
+          };
         }
       }
 
-      // 2. Mock / In-memory Fallback (합성 테스트 및 로컬 샌드박스)
-      var res = defaultStore.enqueue({
-        consent_id: consentRecord.id,
-        guardian_name: consentRecord.guardian_name || consentRecord.guardianName,
-        guardian_phone: consentRecord.guardian_phone || consentRecord.guardianPhone,
-        party_size: (consentRecord.children ? consentRecord.children.length + 1 : 1),
-        idempotency_key: idempotencyKey,
-        now: now
-      });
+      // 2. 명시적 로컬 테스트 주입 경로
+      if (opts.store || opts.useLocalStore === true) {
+        var storeInstance = opts.store || defaultStore;
+        var localRes = storeInstance.enqueue({
+          consent_id: consentRecord.id,
+          guardian_name: consentRecord.guardian_name || consentRecord.guardianName,
+          guardian_phone: consentRecord.guardian_phone || consentRecord.guardianPhone,
+          party_size: (consentRecord.children ? consentRecord.children.length + 1 : 1),
+          idempotency_key: idempotencyKey,
+          now: now
+        });
+        if (!localRes.ok) return localRes;
+        return {
+          ok: true,
+          source: 'local_store',
+          item: localRes.item,
+          duplicate: localRes.duplicate
+        };
+      }
 
       return {
-        ok: true,
-        source: 'local_store',
-        item: res.item,
-        duplicate: res.duplicate
+        ok: false,
+        error: 'sync_uninitialized',
+        message: '서버 동기화 어댑터가 초기화되지 않았습니다.'
       };
     },
 
@@ -660,12 +815,24 @@
             p_desk_no: deskNo,
             p_staff_id: staffId || 'desk_staff'
           });
-          if (rpcRes && rpcRes.ok) {
-            return (rpcRes.data && rpcRes.data.item) ? rpcRes.data : { ok: true, item: rpcRes.data };
+          var norm = normalizeRpcResult(rpcRes);
+          if (!norm.ok) return norm;
+          var item = norm.item || norm.data || norm;
+          if (item && item.id) {
+            var local = defaultStore.getEntryById(item.id);
+            if (local) Object.assign(local, item);
+            else defaultStore.entries.push(Object.assign({}, item));
+            if (defaultStore.desks[deskNo]) defaultStore.desks[deskNo].current_queue_id = item.id;
           }
-        } catch (e) {}
+          return { ok: true, item: item };
+        } catch (e) {
+          return { ok: false, error: 'network_error', message: e.message || String(e) };
+        }
       }
-      return defaultStore.callNext(deskNo, staffId, opts.now);
+      if (opts.store || opts.useLocalStore === true) {
+        return (opts.store || defaultStore).callNext(deskNo, staffId, opts.now);
+      }
+      return { ok: false, error: 'sync_uninitialized' };
     },
 
     /**
@@ -679,12 +846,17 @@
             p_queue_id: queueId,
             p_desk_no: deskNo
           });
-          if (rpcRes && rpcRes.ok) {
-            return (rpcRes.data && rpcRes.data.item) ? rpcRes.data : { ok: true, item: rpcRes.data };
-          }
-        } catch (e) {}
+          var norm = normalizeRpcResult(rpcRes);
+          if (!norm.ok) return norm;
+          return { ok: true, item: norm.item || norm.data || norm };
+        } catch (e) {
+          return { ok: false, error: 'network_error', message: e.message || String(e) };
+        }
       }
-      return defaultStore.recall(queueId, deskNo, opts.now);
+      if (opts.store || opts.useLocalStore === true) {
+        return (opts.store || defaultStore).recall(queueId, deskNo, opts.now);
+      }
+      return { ok: false, error: 'sync_uninitialized' };
     },
 
     /**
@@ -698,12 +870,17 @@
             p_queue_id: queueId,
             p_desk_no: deskNo
           });
-          if (rpcRes && rpcRes.ok) {
-            return (rpcRes.data && rpcRes.data.item) ? rpcRes.data : { ok: true, item: rpcRes.data };
-          }
-        } catch (e) {}
+          var norm = normalizeRpcResult(rpcRes);
+          if (!norm.ok) return norm;
+          return { ok: true, item: norm.item || norm.data || norm };
+        } catch (e) {
+          return { ok: false, error: 'network_error', message: e.message || String(e) };
+        }
       }
-      return defaultStore.startProcessing(queueId, deskNo, opts.now);
+      if (opts.store || opts.useLocalStore === true) {
+        return (opts.store || defaultStore).startProcessing(queueId, deskNo, opts.now);
+      }
+      return { ok: false, error: 'sync_uninitialized' };
     },
 
     /**
@@ -717,49 +894,82 @@
             p_queue_id: queueId,
             p_reason: reason
           });
-          if (rpcRes && rpcRes.ok) {
-            return (rpcRes.data && rpcRes.data.item) ? rpcRes.data : { ok: true, item: rpcRes.data };
+          var norm = normalizeRpcResult(rpcRes);
+          if (!norm.ok) return norm;
+          var item = norm.item || norm.data || norm;
+          if (item && item.id) {
+            var local = defaultStore.getEntryById(item.id);
+            if (local) Object.assign(local, item);
           }
-        } catch (e) {}
+          return { ok: true, item: item };
+        } catch (e) {
+          return { ok: false, error: 'network_error', message: e.message || String(e) };
+        }
       }
-      return defaultStore.holdNoShow(queueId, reason, opts.now);
+      if (opts.store || opts.useLocalStore === true) {
+        return (opts.store || defaultStore).holdNoShow(queueId, reason, opts.now);
+      }
+      return { ok: false, error: 'sync_uninitialized' };
     },
 
     /**
-     * 부재 복귀
+     * 부재 복귀 (맨 뒤 순번 배치)
      */
-    restoreHeld: async function (queueId, options) {
+    restoreHeld: async function (queueId, staffId, reason, options) {
       var opts = options || {};
       if (typeof window !== 'undefined' && window.BongplaySync && typeof window.BongplaySync.rpc === 'function') {
         try {
           var rpcRes = await window.BongplaySync.rpc('restore_queue_team', {
-            p_queue_id: queueId
+            p_queue_id: queueId,
+            p_staff_id: staffId || 'desk_staff',
+            p_reason: reason || '고객 복귀'
           });
-          if (rpcRes && rpcRes.ok) {
-            return (rpcRes.data && rpcRes.data.item) ? rpcRes.data : { ok: true, item: rpcRes.data };
+          var norm = normalizeRpcResult(rpcRes);
+          if (!norm.ok) return norm;
+          var item = norm.item || norm.data || norm;
+          if (item && item.id) {
+            var local = defaultStore.getEntryById(item.id);
+            if (local) Object.assign(local, item);
           }
-        } catch (e) {}
+          return { ok: true, item: item };
+        } catch (e) {
+          return { ok: false, error: 'network_error', message: e.message || String(e) };
+        }
       }
-      return defaultStore.restoreHeld(queueId, opts.now);
+      if (opts.store || opts.useLocalStore === true) {
+        return (opts.store || defaultStore).restoreHeld(queueId, staffId, reason, opts.now);
+      }
+      return { ok: false, error: 'sync_uninitialized' };
     },
 
     /**
      * 접수 취소
      */
-    cancelEntry: async function (queueId, reason, options) {
+    cancelEntry: async function (queueId, reason, staffId, options) {
       var opts = options || {};
       if (typeof window !== 'undefined' && window.BongplaySync && typeof window.BongplaySync.rpc === 'function') {
         try {
           var rpcRes = await window.BongplaySync.rpc('cancel_queue_team', {
             p_queue_id: queueId,
-            p_reason: reason
+            p_reason: reason,
+            p_staff_id: staffId || 'desk_staff'
           });
-          if (rpcRes && rpcRes.ok) {
-            return (rpcRes.data && rpcRes.data.item) ? rpcRes.data : { ok: true, item: rpcRes.data };
+          var norm = normalizeRpcResult(rpcRes);
+          if (!norm.ok) return norm;
+          var item = norm.item || norm.data || norm;
+          if (item && item.id) {
+            var local = defaultStore.getEntryById(item.id);
+            if (local) Object.assign(local, item);
           }
-        } catch (e) {}
+          return { ok: true, item: item };
+        } catch (e) {
+          return { ok: false, error: 'network_error', message: e.message || String(e) };
+        }
       }
-      return defaultStore.cancelEntry(queueId, reason, opts.now);
+      if (opts.store || opts.useLocalStore === true) {
+        return (opts.store || defaultStore).cancelEntry(queueId, reason, opts.now);
+      }
+      return { ok: false, error: 'sync_uninitialized' };
     },
 
     /**
@@ -774,35 +984,51 @@
             p_order_id: orderId,
             p_ticket_ids: ticketIds
           });
-          if (rpcRes && rpcRes.ok) {
-            defaultStore.completeIssuance(queueId, orderId, ticketIds, opts.now);
-            return (rpcRes.data && rpcRes.data.item) ? rpcRes.data : { ok: true, item: rpcRes.data };
+          var norm = normalizeRpcResult(rpcRes);
+          if (!norm.ok) return norm;
+          var item = norm.item || norm.data || norm;
+          if (item && item.id) {
+            var local = defaultStore.getEntryById(item.id);
+            if (local) Object.assign(local, item);
           }
-        } catch (e) {}
+          return { ok: true, item: item };
+        } catch (e) {
+          return { ok: false, error: 'network_error', message: e.message || String(e) };
+        }
       }
-      return defaultStore.completeIssuance(queueId, orderId, ticketIds, opts.now);
+      if (opts.store || opts.useLocalStore === true) {
+        return (opts.store || defaultStore).completeIssuance(queueId, orderId, ticketIds, opts.now);
+      }
+      return { ok: false, error: 'sync_uninitialized' };
     },
 
     /**
-     * 고객용 대기 상태 실시간 조회
+     * 고객용 대기 상태 실시간 조회 (토큰 또는 ID)
      */
-    getCustomerStatus: async function (queueId, options) {
+    getCustomerStatus: async function (tokenOrId, options) {
       var opts = options || {};
       if (typeof window !== 'undefined' && window.BongplaySync && typeof window.BongplaySync.rpc === 'function') {
         try {
           var rpcRes = await window.BongplaySync.rpc('get_customer_queue_status', {
-            p_queue_id: queueId
+            p_token: tokenOrId,
+            p_customer_token: tokenOrId,
+            p_queue_id: tokenOrId
           });
-          if (rpcRes && rpcRes.ok) {
-            return (rpcRes.data && rpcRes.data.item) ? rpcRes.data : { ok: true, item: rpcRes.data };
-          }
-        } catch (e) {}
+          var norm = normalizeRpcResult(rpcRes);
+          if (!norm.ok) return norm;
+          return { ok: true, item: norm.item || norm.data || norm };
+        } catch (e) {
+          return { ok: false, error: 'network_error', message: e.message || String(e) };
+        }
       }
-      return defaultStore.getCustomerQueueStatus(queueId, opts.now);
+      if (opts.store || opts.useLocalStore === true) {
+        return (opts.store || defaultStore).getCustomerQueueStatus(tokenOrId, opts.now);
+      }
+      return { ok: false, error: 'sync_uninitialized' };
     },
 
     /**
-     * 공개 호출판 데이터 조회
+     * 공개 호출 전광판 상태 조회
      */
     getPublicDisplay: async function (dateStr) {
       if (typeof window !== 'undefined' && window.BongplaySync && typeof window.BongplaySync.rpc === 'function') {
@@ -810,22 +1036,62 @@
           var rpcRes = await window.BongplaySync.rpc('get_queue_public_display', {
             p_date: dateStr || getKstDateStr()
           });
-          if (rpcRes && rpcRes.ok) {
-            return (rpcRes.data && rpcRes.data.data) ? rpcRes.data : { ok: true, data: rpcRes.data };
-          }
-        } catch (e) {}
+          var norm = normalizeRpcResult(rpcRes);
+          if (!norm.ok) return norm;
+          return { ok: true, data: norm.item || norm.data || norm };
+        } catch (e) {
+          return { ok: false, error: 'network_error', message: e.message || String(e) };
+        }
       }
       return { ok: true, data: defaultStore.getPublicDisplayData(dateStr) };
+    },
+
+    /**
+     * 직원 데스크 관제 목록 조회 (Fix 6: 다중 단말 서버 동기화)
+     */
+    getStaffQueueList: async function (dateStr) {
+      if (typeof window !== 'undefined' && window.BongplaySync && typeof window.BongplaySync.rpc === 'function') {
+        try {
+          var rpcRes = await window.BongplaySync.rpc('get_staff_queue_list', {
+            p_date: dateStr || getKstDateStr()
+          });
+          var norm = normalizeRpcResult(rpcRes);
+          if (!norm.ok) return norm;
+          return norm;
+        } catch (e) {
+          return { ok: false, error: 'network_error', message: e.message || String(e) };
+        }
+      }
+      return defaultStore.getStaffQueueList(dateStr);
+    },
+
+    /**
+     * 창구 일시 정지 토글
+     */
+    setDeskPauseStatus: async function (deskNo, isPaused) {
+      if (typeof window !== 'undefined' && window.BongplaySync && typeof window.BongplaySync.rpc === 'function') {
+        try {
+          var rpcRes = await window.BongplaySync.rpc('set_desk_pause_status', {
+            p_desk_no: deskNo,
+            p_is_paused: Boolean(isPaused)
+          });
+          var norm = normalizeRpcResult(rpcRes);
+          if (!norm.ok) return norm;
+          defaultStore.setDeskPaused(deskNo, isPaused);
+          return norm;
+        } catch (e) {
+          return { ok: false, error: 'network_error', message: e.message || String(e) };
+        }
+      }
+      defaultStore.setDeskPaused(deskNo, isPaused);
+      return { ok: true, desk_no: deskNo, is_paused: isPaused };
     }
   };
 
-  // Node.js CommonJS 및 브라우저 전역 노출
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = BongplayQueue;
+  } else {
+    global.BongplayQueue = BongplayQueue;
   }
-  if (typeof window !== 'undefined') {
-    window.BongplayQueue = BongplayQueue;
-  }
-  global.BongplayQueue = BongplayQueue;
 
-})(typeof window !== 'undefined' ? window : (typeof global !== 'undefined' ? global : this));
+})(typeof window !== 'undefined' ? window : globalThis);
