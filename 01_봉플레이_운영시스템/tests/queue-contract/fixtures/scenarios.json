@@ -1,0 +1,136 @@
+{
+  "contract": "docs/design/CLAUDE-011_발권대기열_계약.md (v1)",
+  "note": "합성 동의서·SENTINEL 값만 사용. t 는 기준시각(2026-10-10T10:00:00+09:00)에서 지난 초. args 의 \"$이름\" 은 앞 단계 save 로 저장한 값. expect 는 부분 일치, expect_keys_only 는 응답 키 집합 제한.",
+  "base_time": "2026-10-10T01:00:00Z",
+  "staff_code": "SENTINEL-STAFF-CODE",
+  "scenarios": [
+    {
+      "id": "S1_numbering_and_submit_idempotency",
+      "steps": [
+        { "t": 0, "op": "submit", "args": { "clientRequestId": "11111111-1111-4111-8111-111111111111", "consent": { "consent_id": "cst_A", "guardian_phone": "010-0000-0001", "guardian_name": "SENTINEL-A" } }, "expect": { "ok": true, "created": true, "queue_no": 1, "status": "waiting", "business_date": "2026-10-10" }, "save": { "tokA": "lookup_token" } },
+        { "t": 2, "op": "submit", "args": { "clientRequestId": "11111111-1111-4111-8111-111111111111", "consent": { "consent_id": "cst_A", "guardian_phone": "010-0000-0001", "guardian_name": "SENTINEL-A" } }, "expect": { "ok": true, "created": false, "queue_no": 1, "lookup_token": "$tokA" }, "why": "응답 유실 후 재시도 → 같은 결과" },
+        { "t": 3, "op": "submit", "args": { "clientRequestId": "22222222-2222-4222-8222-222222222222", "consent": { "consent_id": "cst_A", "guardian_phone": "010-0000-0001", "guardian_name": "SENTINEL-A" } }, "expect": { "ok": true, "created": false, "queue_no": 1 }, "why": "새로고침으로 요청 id 가 새로 만들어져도 같은 동의서면 같은 항목" },
+        { "t": 4, "op": "submit", "args": { "clientRequestId": "11111111-1111-4111-8111-111111111111", "consent": { "consent_id": "cst_X", "guardian_phone": "010-0000-0009" } }, "expect": { "ok": false, "error": { "code": "IDEMPOTENCY_KEY_REUSED" } } },
+        { "t": 5, "op": "submit", "args": { "clientRequestId": "33333333-3333-4333-8333-333333333333", "consent": { "consent_id": "cst_B", "guardian_phone": "010-0000-0001", "guardian_name": "SENTINEL-B" } }, "expect": { "ok": true, "created": true, "queue_no": 2 }, "why": "같은 전화번호라도 다른 동의서는 차단하지 않음" },
+        { "t": 6, "op": "staffList", "args": {}, "expect": { "ok": true, "entries": [{ "queue_no": 1, "same_phone_active_count": 2 }, { "queue_no": 2, "same_phone_active_count": 2 }] } }
+      ]
+    },
+    {
+      "id": "S2_ahead_count_hold_rejoin",
+      "steps": [
+        { "t": 0, "op": "submit", "args": { "clientRequestId": "a0000000-0000-4000-8000-000000000001", "consent": { "consent_id": "cst_1" } }, "save": { "tok1": "lookup_token" } },
+        { "t": 1, "op": "submit", "args": { "clientRequestId": "a0000000-0000-4000-8000-000000000002", "consent": { "consent_id": "cst_2" } }, "save": { "tok2": "lookup_token" } },
+        { "t": 2, "op": "submit", "args": { "clientRequestId": "a0000000-0000-4000-8000-000000000003", "consent": { "consent_id": "cst_3" } }, "save": { "tok3": "lookup_token" } },
+        { "t": 3, "op": "myStatus", "args": { "token": "$tok3" }, "expect": { "ok": true, "queue_no": 3, "status": "waiting", "ahead_count": 2 } },
+        { "t": 4, "op": "setCounter", "args": { "counterId": "K1", "state": "open", "requestId": "r-open-K1" }, "expect": { "ok": true } },
+        { "t": 5, "op": "callNext", "args": { "counterId": "K1", "requestId": "r-call-1" }, "expect": { "ok": true, "queue_no": 1, "status": "called", "counter_id": "K1" }, "save": { "ref1": "entry_ref", "v1": "version" } },
+        { "t": 6, "op": "myStatus", "args": { "token": "$tok3" }, "expect": { "ahead_count": 2 }, "why": "called 는 앞선 팀에 포함" },
+        { "t": 7, "op": "transition", "args": { "entryRef": "$ref1", "expectedVersion": "$v1", "action": "start_serving", "requestId": "r-serve-1" }, "expect": { "ok": true, "status": "serving" }, "save": { "v1": "version" } },
+        { "t": 8, "op": "myStatus", "args": { "token": "$tok3" }, "expect": { "ahead_count": 2 }, "why": "serving 도 포함" },
+        { "t": 9, "op": "recordLedger", "args": { "orderId": "ord_1", "rec": { "consent_id": "cst_1", "total": 15000, "paid": 15000, "tickets_expected": 1, "tickets_active": 1 } } },
+        { "t": 300, "op": "issueComplete", "args": { "entryRef": "$ref1", "expectedVersion": "$v1", "orderId": "ord_1", "requestId": "r-issue-1" }, "expect": { "ok": true, "status": "issued" } },
+        { "t": 301, "op": "myStatus", "args": { "token": "$tok3" }, "expect": { "ahead_count": 1 }, "why": "issued 는 제외" },
+        { "t": 302, "op": "callNext", "args": { "counterId": "K1", "requestId": "r-call-2" }, "expect": { "ok": true, "queue_no": 2 }, "save": { "ref2": "entry_ref", "v2": "version" } },
+        { "t": 400, "op": "transition", "args": { "entryRef": "$ref2", "expectedVersion": "$v2", "action": "hold", "requestId": "r-hold-2", "reason": "호출 무응답" }, "expect": { "ok": true, "status": "held" }, "save": { "v2": "version" } },
+        { "t": 401, "op": "myStatus", "args": { "token": "$tok3" }, "expect": { "ahead_count": 0 }, "why": "held 는 제외" },
+        { "t": 402, "op": "myStatus", "args": { "token": "$tok2" }, "expect": { "status": "held", "eta": { "state": "not_applicable" } } },
+        { "t": 500, "op": "transition", "args": { "entryRef": "$ref2", "expectedVersion": "$v2", "action": "rejoin", "requestId": "r-rejoin-2", "reason": "고객 복귀" }, "expect": { "ok": true, "status": "waiting", "queue_no": 2 }, "why": "번호 유지" },
+        { "t": 501, "op": "myStatus", "args": { "token": "$tok2" }, "expect": { "queue_no": 2, "ahead_count": 1 }, "why": "맨 뒤 합류 → 3번 뒤" },
+        { "t": 502, "op": "myStatus", "args": { "token": "$tok3" }, "expect": { "ahead_count": 0 } },
+        { "t": 503, "op": "callNext", "args": { "counterId": "K1", "requestId": "r-call-3" }, "expect": { "ok": true, "queue_no": 3 }, "why": "복귀 팀보다 3번이 먼저 호출" },
+        { "t": 504, "op": "auditFor", "args": { "entryRef": "$ref2", "to": "waiting", "from": "held" }, "expect": { "found": true, "has_order_keys": true } }
+      ]
+    },
+    {
+      "id": "S3_multi_counter_contention_and_request_replay",
+      "steps": [
+        { "t": 0, "op": "submit", "args": { "clientRequestId": "b0000000-0000-4000-8000-000000000001", "consent": { "consent_id": "cst_b1" } } },
+        { "t": 1, "op": "setCounter", "args": { "counterId": "K1", "state": "open", "requestId": "r-K1" } },
+        { "t": 1, "op": "setCounter", "args": { "counterId": "K2", "state": "open", "requestId": "r-K2" } },
+        { "t": 2, "op": "callNext", "args": { "counterId": "K1", "requestId": "r-c1" }, "expect": { "ok": true, "queue_no": 1, "counter_id": "K1" }, "save": { "ref": "entry_ref", "v": "version" } },
+        { "t": 2, "op": "callNext", "args": { "counterId": "K2", "requestId": "r-c2" }, "expect": { "ok": false, "error": { "code": "QUEUE_EMPTY" } }, "why": "같은 팀이 두 창구에 호출되지 않음" },
+        { "t": 3, "op": "callNext", "args": { "counterId": "K1", "requestId": "r-c3" }, "expect": { "ok": false, "error": { "code": "COUNTER_BUSY" } } },
+        { "t": 4, "op": "callNext", "args": { "counterId": "K1", "requestId": "r-c1" }, "expect": { "ok": true, "queue_no": 1, "counter_id": "K1" }, "why": "같은 request_id 재요청은 처음 결과" },
+        { "t": 5, "op": "transition", "args": { "entryRef": "$ref", "expectedVersion": "$v", "action": "start_serving", "requestId": "r-s1" }, "expect": { "ok": true, "status": "serving" } },
+        { "t": 5, "op": "transition", "args": { "entryRef": "$ref", "expectedVersion": "$v", "action": "start_serving", "requestId": "r-s2" }, "expect": { "ok": false, "error": { "code": "VERSION_CONFLICT", "current_status": "serving" } }, "why": "다른 단말이 같은 버전으로 동시에 조작" },
+        { "t": 6, "op": "transition", "args": { "entryRef": "$ref", "expectedVersion": "$v", "action": "start_serving", "requestId": "r-s1" }, "expect": { "ok": true, "status": "serving" }, "why": "응답 유실 재시도는 같은 성공" },
+        { "t": 7, "op": "setCounter", "args": { "counterId": "K3", "state": "paused", "requestId": "r-K3" } },
+        { "t": 8, "op": "callNext", "args": { "counterId": "K3", "requestId": "r-c4" }, "expect": { "ok": false, "error": { "code": "COUNTER_NOT_OPEN" } } }
+      ]
+    },
+    {
+      "id": "S4_issue_requires_server_ledger_and_retry",
+      "steps": [
+        { "t": 0, "op": "submit", "args": { "clientRequestId": "c0000000-0000-4000-8000-000000000001", "consent": { "consent_id": "cst_c1" } }, "save": { "tok": "lookup_token" } },
+        { "t": 1, "op": "setCounter", "args": { "counterId": "K1", "state": "open", "requestId": "r-K1" } },
+        { "t": 2, "op": "callNext", "args": { "counterId": "K1", "requestId": "r-call" }, "save": { "ref": "entry_ref", "v": "version" } },
+        { "t": 3, "op": "transition", "args": { "entryRef": "$ref", "expectedVersion": "$v", "action": "start_serving", "requestId": "r-serve" }, "save": { "v": "version" } },
+        { "t": 60, "op": "issueComplete", "args": { "entryRef": "$ref", "expectedVersion": "$v", "orderId": "ord_c1", "requestId": "r-issue" }, "expect": { "ok": false, "error": { "code": "LEDGER_NOT_CONFIRMED", "missing": ["order"], "retryable": true } }, "why": "원장이 outbox 에만 있음" },
+        { "t": 61, "op": "myStatus", "args": { "token": "$tok" }, "expect": { "status": "serving" } },
+        { "t": 62, "op": "recordLedger", "args": { "orderId": "ord_c1", "rec": { "consent_id": "cst_c1", "total": 36000, "paid": 36000, "tickets_expected": 2, "tickets_active": 1 } } },
+        { "t": 63, "op": "issueComplete", "args": { "entryRef": "$ref", "expectedVersion": "$v", "orderId": "ord_c1", "requestId": "r-issue" }, "expect": { "ok": false, "error": { "code": "LEDGER_NOT_CONFIRMED", "missing": ["tickets"] } }, "why": "부분 성공: 티켓 1매 누락" },
+        { "t": 64, "op": "recordLedger", "args": { "orderId": "ord_c1", "rec": { "consent_id": "cst_c1", "total": 36000, "paid": 36000, "tickets_expected": 2, "tickets_active": 2 } } },
+        { "t": 65, "op": "issueComplete", "args": { "entryRef": "$ref", "expectedVersion": "$v", "orderId": "ord_c1", "requestId": "r-issue" }, "expect": { "ok": true, "status": "issued" }, "why": "같은 request_id 재시도 성공" },
+        { "t": 66, "op": "issueComplete", "args": { "entryRef": "$ref", "expectedVersion": "$v", "orderId": "ord_c1", "requestId": "r-issue" }, "expect": { "ok": true, "status": "issued" }, "why": "응답 유실 재시도는 같은 결과" },
+        { "t": 67, "op": "issueComplete", "args": { "entryRef": "$ref", "expectedVersion": "$v", "orderId": "ord_c1", "requestId": "r-issue-other-device" }, "expect": { "ok": false, "error": { "code": "INVALID_TRANSITION", "current_status": "issued" } } },
+        { "t": 68, "op": "recordLedger", "args": { "orderId": "ord_c1", "rec": { "consent_id": "cst_c1", "total": 36000, "paid": 0, "tickets_expected": 2, "tickets_active": 0 } }, "why": "발권 취소(원장 변경) 모사" },
+        { "t": 69, "op": "myStatus", "args": { "token": "$tok" }, "expect": { "status": "issued", "eta": { "state": "not_applicable" } }, "why": "발권 취소만으로 대기 순서에 자동 복귀하지 않음" },
+        { "t": 70, "op": "submit", "args": { "clientRequestId": "c0000000-0000-4000-8000-000000000002", "consent": { "consent_id": "cst_c2" } }, "save": { "tok2": "lookup_token" } },
+        { "t": 71, "op": "callNext", "args": { "counterId": "K1", "requestId": "r-call-2" }, "save": { "ref2": "entry_ref", "v2": "version" } },
+        { "t": 72, "op": "transition", "args": { "entryRef": "$ref2", "expectedVersion": "$v2", "action": "start_serving", "requestId": "r-serve-2" }, "save": { "v2": "version" } },
+        { "t": 73, "op": "recordLedger", "args": { "orderId": "ord_other", "rec": { "consent_id": "cst_c1", "total": 15000, "paid": 15000, "tickets_expected": 1, "tickets_active": 1 } } },
+        { "t": 74, "op": "issueComplete", "args": { "entryRef": "$ref2", "expectedVersion": "$v2", "orderId": "ord_other", "requestId": "r-issue-2" }, "expect": { "ok": false, "error": { "code": "LEDGER_NOT_CONFIRMED", "missing": ["order"] } }, "why": "다른 동의서의 주문으로 완료 금지" },
+        { "t": 75, "op": "recordLedger", "args": { "orderId": "ord_c2", "rec": { "consent_id": "cst_c2", "total": 15000, "paid": 10000, "tickets_expected": 1, "tickets_active": 1 } } },
+        { "t": 76, "op": "issueComplete", "args": { "entryRef": "$ref2", "expectedVersion": "$v2", "orderId": "ord_c2", "requestId": "r-issue-2b" }, "expect": { "ok": false, "error": { "code": "LEDGER_NOT_CONFIRMED", "missing": ["payment"] } } }
+      ]
+    },
+    {
+      "id": "S5_cancel_and_invalid_transitions",
+      "steps": [
+        { "t": 0, "op": "submit", "args": { "clientRequestId": "d0000000-0000-4000-8000-000000000001", "consent": { "consent_id": "cst_d1" } }, "save": { "tok": "lookup_token" } },
+        { "t": 1, "op": "cancelSelf", "args": { "token": "$tok", "requestId": "r-cs" }, "expect": { "ok": true, "status": "cancelled" } },
+        { "t": 2, "op": "cancelSelf", "args": { "token": "$tok", "requestId": "r-cs" }, "expect": { "ok": true, "status": "cancelled" }, "why": "같은 요청 재시도" },
+        { "t": 3, "op": "staffList", "args": {}, "save": { "ref": "entries.0.entry_ref", "v": "entries.0.version" } },
+        { "t": 4, "op": "transition", "args": { "entryRef": "$ref", "expectedVersion": "$v", "action": "rejoin", "requestId": "r-rj" }, "expect": { "ok": false, "error": { "code": "INVALID_TRANSITION", "current_status": "cancelled" } } },
+        { "t": 5, "op": "submit", "args": { "clientRequestId": "d0000000-0000-4000-8000-000000000002", "consent": { "consent_id": "cst_d2" } } },
+        { "t": 6, "op": "setCounter", "args": { "counterId": "K1", "state": "open", "requestId": "r-K1" } },
+        { "t": 7, "op": "callNext", "args": { "counterId": "K1", "requestId": "r-c" }, "save": { "ref2": "entry_ref", "v2": "version" } },
+        { "t": 8, "op": "transition", "args": { "entryRef": "$ref2", "expectedVersion": "$v2", "action": "start_serving", "requestId": "r-s" }, "save": { "v2": "version" } },
+        { "t": 9, "op": "transition", "args": { "entryRef": "$ref2", "expectedVersion": "$v2", "action": "cancel", "requestId": "r-x" }, "expect": { "ok": false, "error": { "code": "VALIDATION_FAILED" } }, "why": "serving 취소는 사유 필수" },
+        { "t": 10, "op": "transition", "args": { "entryRef": "$ref2", "expectedVersion": "$v2", "action": "issue", "requestId": "r-y" }, "expect": { "ok": false, "error": { "code": "VALIDATION_FAILED" } }, "why": "발권 완료는 transition 이 아니라 issueComplete 로만" }
+      ]
+    },
+    {
+      "id": "S6_auth_and_privacy",
+      "steps": [
+        { "t": 0, "op": "submit", "args": { "clientRequestId": "e0000000-0000-4000-8000-000000000001", "consent": { "consent_id": "cst_e1", "guardian_name": "SENTINEL-NAME", "guardian_phone": "010-0000-0077", "children": [{ "name": "SENTINEL-CHILD" }], "signature_data": "SENTINEL-SIG" } }, "expect_keys_only": ["ok", "created", "queue_no", "business_date", "status", "lookup_token", "server_time", "token_expires_at"], "save": { "tok": "lookup_token" } },
+        { "t": 1, "op": "myStatus", "args": { "token": "$tok" }, "expect_keys_only": ["ok", "queue_no", "status", "ahead_count", "eta", "counter_label", "server_time", "stale_after_seconds"], "expect_no_text": ["SENTINEL-NAME", "010-0000-0077", "SENTINEL-CHILD", "SENTINEL-SIG", "cst_e1"] },
+        { "t": 2, "op": "myStatus", "args": { "token": "tok_guess_1" }, "expect": { "ok": false, "error": { "code": "TOKEN_INVALID" } }, "why": "번호·추측 토큰으로 조회 불가" },
+        { "t": 3, "op": "staffList", "args": { "accessCode": "WRONG" }, "expect": { "ok": false, "error": { "code": "UNAUTHORIZED" } } },
+        { "t": 4, "op": "callNext", "args": { "accessCode": "WRONG", "counterId": "K1", "requestId": "r-w" }, "expect": { "ok": false, "error": { "code": "UNAUTHORIZED" } } },
+        { "t": 5, "op": "setCounter", "args": { "counterId": "K1", "state": "open", "requestId": "r-K1" } },
+        { "t": 6, "op": "callNext", "args": { "counterId": "K1", "requestId": "r-c" } },
+        { "t": 7, "op": "publicBoard", "args": {}, "expect": { "ok": true, "called": [{ "queue_no": 1, "counter_label": "K1" }] }, "expect_no_text": ["SENTINEL-NAME", "010-0000-0077", "SENTINEL-CHILD", "SENTINEL-SIG", "cst_e1"], "expect_item_keys_only": { "called": ["queue_no", "counter_label"] } }
+      ]
+    },
+    {
+      "id": "S7_business_day_close_and_reset",
+      "steps": [
+        { "t": 0, "op": "submit", "args": { "clientRequestId": "f0000000-0000-4000-8000-000000000001", "consent": { "consent_id": "cst_f1" } }, "save": { "tok": "lookup_token" } },
+        { "t": 1, "op": "submit", "args": { "clientRequestId": "f0000000-0000-4000-8000-000000000002", "consent": { "consent_id": "cst_f2" } } },
+        { "t": 2, "op": "closeDay", "args": { "businessDate": "2026-10-10", "requestId": "r-close" }, "expect": { "ok": true, "closed_count": 2 } },
+        { "t": 3, "op": "myStatus", "args": { "token": "$tok" }, "expect": { "status": "closed" } },
+        { "t": 4, "op": "submit", "args": { "clientRequestId": "f0000000-0000-4000-8000-000000000003", "consent": { "consent_id": "cst_f3" } }, "expect": { "ok": false, "error": { "code": "QUEUE_CLOSED" } } },
+        { "t": 86400, "op": "submit", "args": { "clientRequestId": "f0000000-0000-4000-8000-000000000004", "consent": { "consent_id": "cst_f4" } }, "expect": { "ok": true, "queue_no": 1, "business_date": "2026-10-11" }, "why": "다음 영업일 번호는 1부터" },
+        { "t": 86401, "op": "myStatus", "args": { "token": "$tok" }, "expect": { "ok": false, "error": { "code": "TOKEN_INVALID" } }, "why": "토큰은 해당 영업일까지" }
+      ]
+    },
+    {
+      "id": "S8_kst_business_date_boundary",
+      "steps": [
+        { "t": 50399, "op": "submit", "args": { "clientRequestId": "90000000-0000-4000-8000-000000000001", "consent": { "consent_id": "cst_g1" } }, "expect": { "queue_no": 1, "business_date": "2026-10-10" }, "why": "23:59:59 KST" },
+        { "t": 50400, "op": "submit", "args": { "clientRequestId": "90000000-0000-4000-8000-000000000002", "consent": { "consent_id": "cst_g2" } }, "expect": { "queue_no": 1, "business_date": "2026-10-11" }, "why": "00:00:00 KST = 15:00Z. UTC 날짜(10-10) 기준이면 2번이 되므로 실패해야 함" }
+      ]
+    }
+  ]
+}
