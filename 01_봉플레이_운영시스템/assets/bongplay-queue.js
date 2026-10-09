@@ -262,6 +262,10 @@
   function InMemoryQueueStore() {
     this.entries = [];           // 대기열 레코드 목록
     this.completedHistory = [];  // 발권 완료 히스토리 (통계 산출용)
+    this.rateLimits = {};        // [R2 Fix 1] 토큰별 요청 빈도 제한 기록
+    this.orderPayments = [];     // [R2 Fix 4] 주문 결제 원장 모의 저장소
+    this.safetyConsents = [];    // [R2 Fix 4] 안전 서약서 원장 모의 저장소
+    this.ticketLedger = [];      // [R2 Fix 4] 티켓 발권 원장 모의 저장소
     this.desks = {               // 매표 창구 관제 슬롯
       1: { desk_no: 1, is_active: true, is_paused: false, staff_id: null, current_queue_id: null },
       2: { desk_no: 2, is_active: true, is_paused: false, staff_id: null, current_queue_id: null }
@@ -282,9 +286,13 @@
     return null;
   };
 
+  /**
+   * [R2 Fix 1] 고객 비밀 토큰 전용 조회 (공개 ID 우회 원천 차단)
+   */
   InMemoryQueueStore.prototype.getEntryByCustomerToken = function (token) {
+    if (!token || typeof token !== 'string') return null;
     for (var i = 0; i < this.entries.length; i++) {
-      if (this.entries[i].customer_token === token || this.entries[i].id === token) return this.entries[i];
+      if (this.entries[i].customer_token === token) return this.entries[i];
     }
     return null;
   };
@@ -542,11 +550,30 @@
 
   /**
    * 발권 완료 (complete_issuance)
-   * - [Fix 3] order_id / ticket_ids 필수 검증 및 상태 전이 검증
+   * - [R2 Fix 4] 멱등성 재시도 검증: 동일 order_id 로 이미 완료된 경우 동일 성공 결과 반환
+   * - [R2 Fix 4] 주문 결제 확정(order_payments), 서약서(safety_consents), 티켓(ticket_ledger) 전체 원장 대사
    */
-  InMemoryQueueStore.prototype.completeIssuance = function (queueId, orderId, ticketIds, now) {
+  InMemoryQueueStore.prototype.completeIssuance = function (queueId, orderId, ticketIds, now, options) {
+    var opts = options || {};
     var item = this.getEntryById(queueId);
     if (!item) return { ok: false, error: 'not_found' };
+
+    // [R2 Fix 4] 멱등 재시도 검증
+    if (item.status === STATUS.ISSUED) {
+      if (item.order_id === orderId) {
+        return {
+          ok: true,
+          duplicate: true,
+          already_completed: true,
+          item: Object.assign({}, item)
+        };
+      }
+      return {
+        ok: false,
+        error: 'ALREADY_ISSUED_OTHER_ORDER',
+        message: '이미 다른 주문번호로 발권 완료된 대기표입니다.'
+      };
+    }
 
     if (!orderId || typeof orderId !== 'string' || !orderId.trim()) {
       return { ok: false, error: 'ORDER_ID_REQUIRED', message: '유효한 주문번호가 필요합니다.' };
@@ -556,6 +583,61 @@
     }
     if (item.status !== STATUS.CALLED && item.status !== STATUS.PROCESSING) {
       return { ok: false, error: 'INVALID_STATUS', message: '호출 또는 처리 중인 팀만 발권 완료할 수 있습니다.' };
+    }
+
+    // [R2 Fix 4] 주문 결제 확정(order_payments) 검증
+    var payments = (opts && opts.orderPayments) || this.orderPayments;
+    if (payments && payments.length > 0) {
+      var hasPaid = false;
+      for (var p = 0; p < payments.length; p++) {
+        var pay = payments[p];
+        if (pay.order_id === orderId && pay.status === 'paid' && !pay.cancelled_at) {
+          hasPaid = true;
+          break;
+        }
+      }
+      if (!hasPaid) {
+        return { ok: false, error: 'PAYMENT_NOT_CONFIRMED', message: '결제가 확정되지 않았거나 유효한 결제 내역이 없습니다.' };
+      }
+    }
+
+    // [R2 Fix 4] 안전 서약서 유효 상태(safety_consents) 검증
+    var consents = (opts && opts.safetyConsents) || this.safetyConsents;
+    if (consents && consents.length > 0 && item.consent_id) {
+      var validConsent = false;
+      for (var c = 0; c < consents.length; c++) {
+        var cst = consents[c];
+        if (cst.id === item.consent_id && !cst.cancelled_at && cst.status !== 'cancelled') {
+          validConsent = true;
+          break;
+        }
+      }
+      if (!validConsent) {
+        return { ok: false, error: 'CONSENT_INVALID', message: '유효한 서약서 원장이 확인되지 않습니다.' };
+      }
+    }
+
+    // [R2 Fix 4] 티켓 전체 유효 원장(ticket_ledger) 검증
+    var ledger = (opts && opts.ticketLedger) || this.ticketLedger;
+    if (ledger && ledger.length > 0) {
+      var matchedCount = 0;
+      for (var t = 0; t < ticketIds.length; t++) {
+        var tid = ticketIds[t];
+        for (var l = 0; l < ledger.length; l++) {
+          var row = ledger[l];
+          if (row.ticket_id === tid && row.order_id === orderId && !row.cancelled_at) {
+            matchedCount++;
+            break;
+          }
+        }
+      }
+      if (matchedCount !== ticketIds.length) {
+        return {
+          ok: false,
+          error: 'TICKET_LEDGER_INCOMPLETE',
+          message: '티켓 원장에 등록되지 않았거나 취소된 티켓이 포함되어 있습니다. (유효: ' + matchedCount + '/' + ticketIds.length + ')'
+        };
+      }
     }
 
     var nowIso = (now ? new Date(now) : new Date()).toISOString();
@@ -578,15 +660,57 @@
     }
 
     this.completedHistory.push(Object.assign({}, item));
-    return { ok: true, item: Object.assign({}, item) };
+    return {
+      ok: true,
+      duplicate: false,
+      already_completed: false,
+      item: Object.assign({}, item)
+    };
   };
 
   /**
    * 고객용 상태 조회
+   * - [R2 Fix 1] 오직 customer_token 으로만 조회 (공개 ID 우회 차단)
+   * - [R2 Fix 1] 24시간 만료(TOKEN_EXPIRED) 및 분당 60회 요청 제한(RATE_LIMIT_EXCEEDED)
    */
-  InMemoryQueueStore.prototype.getCustomerQueueStatus = function (identifier, now) {
-    var item = this.getEntryByCustomerToken(identifier) || this.getEntryById(identifier);
-    if (!item) return { ok: false, error: 'not_found' };
+  InMemoryQueueStore.prototype.getCustomerQueueStatus = function (token, now) {
+    var nowDate = now ? new Date(now) : new Date();
+    var nowTime = nowDate.getTime();
+
+    if (!token || typeof token !== 'string' || !token.trim()) {
+      return { ok: false, error: 'INVALID_TOKEN', message: '고객 비밀 토큰이 필요합니다.' };
+    }
+
+    // 1. 요청 빈도 제한 (토큰당 분당 60회 초과 차단)
+    if (!this.rateLimits) this.rateLimits = {};
+    var limit = this.rateLimits[token];
+    if (limit) {
+      if (nowTime - limit.windowStart < 60000) {
+        if (limit.count >= 60) {
+          return { ok: false, error: 'RATE_LIMIT_EXCEEDED', message: '요청 빈도가 너무 높습니다. 잠시 후 다시 시도해 주세요.' };
+        }
+        limit.count++;
+        limit.lastRequestAt = nowTime;
+      } else {
+        limit.count = 1;
+        limit.windowStart = nowTime;
+        limit.lastRequestAt = nowTime;
+      }
+    } else {
+      this.rateLimits[token] = { count: 1, windowStart: nowTime, lastRequestAt: nowTime };
+    }
+
+    // 2. 고객 비밀 토큰으로만 조회 (공개 ID 우회 차단)
+    var item = this.getEntryByCustomerToken(token);
+    if (!item) {
+      return { ok: false, error: 'INVALID_TOKEN', message: '대기 접수 정보를 찾을 수 없거나 유효하지 않은 토큰입니다.' };
+    }
+
+    // 3. 토큰 만료 검사 (접수 후 24시간 경과 시 만료)
+    var enqueuedTime = new Date(item.enqueued_at).getTime();
+    if (nowTime - enqueuedTime > 24 * 60 * 60 * 1000) {
+      return { ok: false, error: 'TOKEN_EXPIRED', message: '만료된 대기표 토큰입니다. 다시 접수해 주세요.' };
+    }
 
     var ahead = computeAheadCount(this.entries, item.queue_number, item.queue_date, item.order_key);
 
@@ -615,8 +739,8 @@
         desk_no: item.desk_no,
         ahead_count: ahead,
         wait_time: waitTime,
-        updated_at: (now ? new Date(now) : new Date()).toISOString(),
-        updated_time_text: getKstTimeStr(now)
+        updated_at: nowDate.toISOString(),
+        updated_time_text: getKstTimeStr(nowDate)
       }
     };
   };
@@ -750,7 +874,6 @@
             if (typeof localStorage !== 'undefined' && item.customer_token) {
               try {
                 localStorage.setItem('bongplay_my_queue_token', item.customer_token);
-                localStorage.setItem('bongplay_my_queue_id', item.id);
               } catch (e) {}
             }
             return {
@@ -805,15 +928,35 @@
     },
 
     /**
+     * [R2 Fix 3] 직원 인증 코드 추출 헬퍼
+     * - window.BongplayAuth.getAccessCode() 또는 options.accessCode 에서 안전 추출
+     */
+    _getStaffAccessCode: function (options) {
+      if (options && options.accessCode) return options.accessCode;
+      if (typeof window !== 'undefined' && window.BongplayAuth && typeof window.BongplayAuth.getAccessCode === 'function') {
+        return window.BongplayAuth.getAccessCode();
+      }
+      return null;
+    },
+
+    /**
      * 다음 팀 호출 (직원 데스크)
+     * - [R2 Fix 3] p_access_code 서버 전송 및 직원·시설 권한 검증
      */
     callNext: async function (deskNo, staffId, options) {
       var opts = options || {};
+      var accessCode = this._getStaffAccessCode(opts);
+
       if (typeof window !== 'undefined' && window.BongplaySync && typeof window.BongplaySync.rpc === 'function') {
+        if (!accessCode) {
+          return { ok: false, error: 'UNAUTHORIZED_STAFF', message: '직원 인증 코드가 필요합니다.' };
+        }
         try {
           var rpcRes = await window.BongplaySync.rpc('call_next_queue_team', {
+            p_access_code: accessCode,
             p_desk_no: deskNo,
-            p_staff_id: staffId || 'desk_staff'
+            p_staff_id: staffId || 'desk_staff',
+            p_site_id: opts.siteId || 'bongplay_bonghwa'
           });
           var norm = normalizeRpcResult(rpcRes);
           if (!norm.ok) return norm;
@@ -830,6 +973,9 @@
         }
       }
       if (opts.store || opts.useLocalStore === true) {
+        if (opts.verifyStaff && !accessCode) {
+          return { ok: false, error: 'UNAUTHORIZED_STAFF', message: '직원 인증 코드가 필요합니다.' };
+        }
         return (opts.store || defaultStore).callNext(deskNo, staffId, opts.now);
       }
       return { ok: false, error: 'sync_uninitialized' };
@@ -837,14 +983,22 @@
 
     /**
      * 재호출
+     * - [R2 Fix 3] p_access_code 서버 전송 및 직원·시설 권한 검증
      */
     recall: async function (queueId, deskNo, options) {
       var opts = options || {};
+      var accessCode = this._getStaffAccessCode(opts);
+
       if (typeof window !== 'undefined' && window.BongplaySync && typeof window.BongplaySync.rpc === 'function') {
+        if (!accessCode) {
+          return { ok: false, error: 'UNAUTHORIZED_STAFF', message: '직원 인증 코드가 필요합니다.' };
+        }
         try {
           var rpcRes = await window.BongplaySync.rpc('recall_queue_team', {
+            p_access_code: accessCode,
             p_queue_id: queueId,
-            p_desk_no: deskNo
+            p_desk_no: deskNo || null,
+            p_site_id: opts.siteId || 'bongplay_bonghwa'
           });
           var norm = normalizeRpcResult(rpcRes);
           if (!norm.ok) return norm;
@@ -854,6 +1008,9 @@
         }
       }
       if (opts.store || opts.useLocalStore === true) {
+        if (opts.verifyStaff && !accessCode) {
+          return { ok: false, error: 'UNAUTHORIZED_STAFF', message: '직원 인증 코드가 필요합니다.' };
+        }
         return (opts.store || defaultStore).recall(queueId, deskNo, opts.now);
       }
       return { ok: false, error: 'sync_uninitialized' };
@@ -861,14 +1018,22 @@
 
     /**
      * 발권 시작
+     * - [R2 Fix 3] p_access_code 서버 전송 및 직원·시설 권한 검증
      */
     startProcessing: async function (queueId, deskNo, options) {
       var opts = options || {};
+      var accessCode = this._getStaffAccessCode(opts);
+
       if (typeof window !== 'undefined' && window.BongplaySync && typeof window.BongplaySync.rpc === 'function') {
+        if (!accessCode) {
+          return { ok: false, error: 'UNAUTHORIZED_STAFF', message: '직원 인증 코드가 필요합니다.' };
+        }
         try {
           var rpcRes = await window.BongplaySync.rpc('start_queue_processing', {
+            p_access_code: accessCode,
             p_queue_id: queueId,
-            p_desk_no: deskNo
+            p_desk_no: deskNo || null,
+            p_site_id: opts.siteId || 'bongplay_bonghwa'
           });
           var norm = normalizeRpcResult(rpcRes);
           if (!norm.ok) return norm;
@@ -878,6 +1043,9 @@
         }
       }
       if (opts.store || opts.useLocalStore === true) {
+        if (opts.verifyStaff && !accessCode) {
+          return { ok: false, error: 'UNAUTHORIZED_STAFF', message: '직원 인증 코드가 필요합니다.' };
+        }
         return (opts.store || defaultStore).startProcessing(queueId, deskNo, opts.now);
       }
       return { ok: false, error: 'sync_uninitialized' };
@@ -885,14 +1053,22 @@
 
     /**
      * 부재 보류
+     * - [R2 Fix 3] p_access_code 서버 전송 및 직원·시설 권한 검증
      */
     holdNoShow: async function (queueId, reason, options) {
       var opts = options || {};
+      var accessCode = this._getStaffAccessCode(opts);
+
       if (typeof window !== 'undefined' && window.BongplaySync && typeof window.BongplaySync.rpc === 'function') {
+        if (!accessCode) {
+          return { ok: false, error: 'UNAUTHORIZED_STAFF', message: '직원 인증 코드가 필요합니다.' };
+        }
         try {
           var rpcRes = await window.BongplaySync.rpc('hold_queue_team', {
+            p_access_code: accessCode,
             p_queue_id: queueId,
-            p_reason: reason
+            p_reason: reason || '고객 부재',
+            p_site_id: opts.siteId || 'bongplay_bonghwa'
           });
           var norm = normalizeRpcResult(rpcRes);
           if (!norm.ok) return norm;
@@ -907,6 +1083,9 @@
         }
       }
       if (opts.store || opts.useLocalStore === true) {
+        if (opts.verifyStaff && !accessCode) {
+          return { ok: false, error: 'UNAUTHORIZED_STAFF', message: '직원 인증 코드가 필요합니다.' };
+        }
         return (opts.store || defaultStore).holdNoShow(queueId, reason, opts.now);
       }
       return { ok: false, error: 'sync_uninitialized' };
@@ -914,15 +1093,23 @@
 
     /**
      * 부재 복귀 (맨 뒤 순번 배치)
+     * - [R2 Fix 3] p_access_code 서버 전송 및 직원·시설 권한 검증
      */
     restoreHeld: async function (queueId, staffId, reason, options) {
       var opts = options || {};
+      var accessCode = this._getStaffAccessCode(opts);
+
       if (typeof window !== 'undefined' && window.BongplaySync && typeof window.BongplaySync.rpc === 'function') {
+        if (!accessCode) {
+          return { ok: false, error: 'UNAUTHORIZED_STAFF', message: '직원 인증 코드가 필요합니다.' };
+        }
         try {
           var rpcRes = await window.BongplaySync.rpc('restore_queue_team', {
+            p_access_code: accessCode,
             p_queue_id: queueId,
             p_staff_id: staffId || 'desk_staff',
-            p_reason: reason || '고객 복귀'
+            p_reason: reason || '고객 창구 방문 복귀',
+            p_site_id: opts.siteId || 'bongplay_bonghwa'
           });
           var norm = normalizeRpcResult(rpcRes);
           if (!norm.ok) return norm;
@@ -937,6 +1124,9 @@
         }
       }
       if (opts.store || opts.useLocalStore === true) {
+        if (opts.verifyStaff && !accessCode) {
+          return { ok: false, error: 'UNAUTHORIZED_STAFF', message: '직원 인증 코드가 필요합니다.' };
+        }
         return (opts.store || defaultStore).restoreHeld(queueId, staffId, reason, opts.now);
       }
       return { ok: false, error: 'sync_uninitialized' };
@@ -944,15 +1134,23 @@
 
     /**
      * 접수 취소
+     * - [R2 Fix 3] p_access_code 서버 전송 및 직원·시설 권한 검증
      */
     cancelEntry: async function (queueId, reason, staffId, options) {
       var opts = options || {};
+      var accessCode = this._getStaffAccessCode(opts);
+
       if (typeof window !== 'undefined' && window.BongplaySync && typeof window.BongplaySync.rpc === 'function') {
+        if (!accessCode) {
+          return { ok: false, error: 'UNAUTHORIZED_STAFF', message: '직원 인증 코드가 필요합니다.' };
+        }
         try {
           var rpcRes = await window.BongplaySync.rpc('cancel_queue_team', {
+            p_access_code: accessCode,
             p_queue_id: queueId,
-            p_reason: reason,
-            p_staff_id: staffId || 'desk_staff'
+            p_reason: reason || '고객 취소',
+            p_staff_id: staffId || 'desk_staff',
+            p_site_id: opts.siteId || 'bongplay_bonghwa'
           });
           var norm = normalizeRpcResult(rpcRes);
           if (!norm.ok) return norm;
@@ -967,22 +1165,35 @@
         }
       }
       if (opts.store || opts.useLocalStore === true) {
+        if (opts.verifyStaff && !accessCode) {
+          return { ok: false, error: 'UNAUTHORIZED_STAFF', message: '직원 인증 코드가 필요합니다.' };
+        }
         return (opts.store || defaultStore).cancelEntry(queueId, reason, opts.now);
       }
       return { ok: false, error: 'sync_uninitialized' };
     },
 
     /**
-     * 발권 확정 완료 (발권 실패 시에는 절대 호출하지 않음)
+     * 발권 확정 완료 (complete_queue_issuance)
+     * - [R2 Fix 3] p_access_code 서버 전송 및 직원·시설 권한 검증
+     * - [R2 Fix 4] 주문 결제 확정 및 전체 티켓 원장 유효 상태 대사, 멱등 재시도 동일 성공 반환
      */
     completeIssuance: async function (queueId, orderId, ticketIds, options) {
       var opts = options || {};
+      var accessCode = this._getStaffAccessCode(opts);
+
       if (typeof window !== 'undefined' && window.BongplaySync && typeof window.BongplaySync.rpc === 'function') {
+        if (!accessCode) {
+          return { ok: false, error: 'UNAUTHORIZED_STAFF', message: '직원 인증 코드가 필요합니다.' };
+        }
         try {
           var rpcRes = await window.BongplaySync.rpc('complete_queue_issuance', {
+            p_access_code: accessCode,
             p_queue_id: queueId,
             p_order_id: orderId,
-            p_ticket_ids: ticketIds
+            p_ticket_ids: ticketIds,
+            p_staff_id: opts.staffId || 'desk_staff',
+            p_site_id: opts.siteId || 'bongplay_bonghwa'
           });
           var norm = normalizeRpcResult(rpcRes);
           if (!norm.ok) return norm;
@@ -991,28 +1202,41 @@
             var local = defaultStore.getEntryById(item.id);
             if (local) Object.assign(local, item);
           }
-          return { ok: true, item: item };
+          return {
+            ok: true,
+            duplicate: Boolean(norm.duplicate),
+            already_completed: Boolean(norm.already_completed),
+            item: item
+          };
         } catch (e) {
           return { ok: false, error: 'network_error', message: e.message || String(e) };
         }
       }
       if (opts.store || opts.useLocalStore === true) {
-        return (opts.store || defaultStore).completeIssuance(queueId, orderId, ticketIds, opts.now);
+        if (opts.verifyStaff && !accessCode) {
+          return { ok: false, error: 'UNAUTHORIZED_STAFF', message: '직원 인증 코드가 필요합니다.' };
+        }
+        return (opts.store || defaultStore).completeIssuance(queueId, orderId, ticketIds, opts.now, opts);
       }
       return { ok: false, error: 'sync_uninitialized' };
     },
 
     /**
-     * 고객용 대기 상태 실시간 조회 (토큰 또는 ID)
+     * 고객용 대기 상태 실시간 조회 (get_customer_queue_status)
+     * - [R2 Fix 1] 오직 customer_token 전용 조회 (공개 ID 우회 차단)
+     * - [R2 Fix 2] 불필요한 p_token, p_queue_id 제거, SQL 서명 100% 일치
      */
-    getCustomerStatus: async function (tokenOrId, options) {
+    getCustomerStatus: async function (customerToken, options) {
       var opts = options || {};
+      if (!customerToken || typeof customerToken !== 'string' || !customerToken.trim()) {
+        return { ok: false, error: 'INVALID_TOKEN', message: '고객 비밀 토큰이 필요합니다.' };
+      }
+
       if (typeof window !== 'undefined' && window.BongplaySync && typeof window.BongplaySync.rpc === 'function') {
         try {
           var rpcRes = await window.BongplaySync.rpc('get_customer_queue_status', {
-            p_token: tokenOrId,
-            p_customer_token: tokenOrId,
-            p_queue_id: tokenOrId
+            p_customer_token: customerToken,
+            p_site_id: opts.siteId || 'bongplay_bonghwa'
           });
           var norm = normalizeRpcResult(rpcRes);
           if (!norm.ok) return norm;
@@ -1022,19 +1246,22 @@
         }
       }
       if (opts.store || opts.useLocalStore === true) {
-        return (opts.store || defaultStore).getCustomerQueueStatus(tokenOrId, opts.now);
+        return (opts.store || defaultStore).getCustomerQueueStatus(customerToken, opts.now);
       }
       return { ok: false, error: 'sync_uninitialized' };
     },
 
     /**
-     * 공개 호출 전광판 상태 조회
+     * 공개 호출 전광판 상태 조회 (get_queue_public_display)
+     * - Zero PII: 내부 ID 및 토큰 일체 제외
      */
-    getPublicDisplay: async function (dateStr) {
+    getPublicDisplay: async function (dateStr, options) {
+      var opts = options || {};
       if (typeof window !== 'undefined' && window.BongplaySync && typeof window.BongplaySync.rpc === 'function') {
         try {
           var rpcRes = await window.BongplaySync.rpc('get_queue_public_display', {
-            p_date: dateStr || getKstDateStr()
+            p_date: dateStr || getKstDateStr(),
+            p_site_id: opts.siteId || 'bongplay_bonghwa'
           });
           var norm = normalizeRpcResult(rpcRes);
           if (!norm.ok) return norm;
@@ -1047,13 +1274,22 @@
     },
 
     /**
-     * 직원 데스크 관제 목록 조회 (Fix 6: 다중 단말 서버 동기화)
+     * 직원 데스크 관제 목록 조회 (get_staff_queue_list)
+     * - [R2 Fix 3] p_access_code 서버 전송 및 권한 검증
      */
-    getStaffQueueList: async function (dateStr) {
+    getStaffQueueList: async function (dateStr, options) {
+      var opts = options || {};
+      var accessCode = this._getStaffAccessCode(opts);
+
       if (typeof window !== 'undefined' && window.BongplaySync && typeof window.BongplaySync.rpc === 'function') {
+        if (!accessCode) {
+          return { ok: false, error: 'UNAUTHORIZED_STAFF', message: '직원 인증 코드가 필요합니다.' };
+        }
         try {
           var rpcRes = await window.BongplaySync.rpc('get_staff_queue_list', {
-            p_date: dateStr || getKstDateStr()
+            p_access_code: accessCode,
+            p_date: dateStr || getKstDateStr(),
+            p_site_id: opts.siteId || 'bongplay_bonghwa'
           });
           var norm = normalizeRpcResult(rpcRes);
           if (!norm.ok) return norm;
@@ -1062,18 +1298,33 @@
           return { ok: false, error: 'network_error', message: e.message || String(e) };
         }
       }
+      if (opts.store || opts.useLocalStore === true) {
+        if (opts.verifyStaff && !accessCode) {
+          return { ok: false, error: 'UNAUTHORIZED_STAFF', message: '직원 인증 코드가 필요합니다.' };
+        }
+        return (opts.store || defaultStore).getStaffQueueList(dateStr);
+      }
       return defaultStore.getStaffQueueList(dateStr);
     },
 
     /**
-     * 창구 일시 정지 토글
+     * 창구 일시 정지 토글 (set_desk_pause_status)
+     * - [R2 Fix 3] p_access_code 서버 전송 및 권한 검증
      */
-    setDeskPauseStatus: async function (deskNo, isPaused) {
+    setDeskPauseStatus: async function (deskNo, isPaused, options) {
+      var opts = options || {};
+      var accessCode = this._getStaffAccessCode(opts);
+
       if (typeof window !== 'undefined' && window.BongplaySync && typeof window.BongplaySync.rpc === 'function') {
+        if (!accessCode) {
+          return { ok: false, error: 'UNAUTHORIZED_STAFF', message: '직원 인증 코드가 필요합니다.' };
+        }
         try {
           var rpcRes = await window.BongplaySync.rpc('set_desk_pause_status', {
+            p_access_code: accessCode,
             p_desk_no: deskNo,
-            p_is_paused: Boolean(isPaused)
+            p_is_paused: Boolean(isPaused),
+            p_site_id: opts.siteId || 'bongplay_bonghwa'
           });
           var norm = normalizeRpcResult(rpcRes);
           if (!norm.ok) return norm;
@@ -1082,6 +1333,13 @@
         } catch (e) {
           return { ok: false, error: 'network_error', message: e.message || String(e) };
         }
+      }
+      if (opts.store || opts.useLocalStore === true) {
+        if (opts.verifyStaff && !accessCode) {
+          return { ok: false, error: 'UNAUTHORIZED_STAFF', message: '직원 인증 코드가 필요합니다.' };
+        }
+        (opts.store || defaultStore).setDeskPaused(deskNo, isPaused);
+        return { ok: true, desk_no: deskNo, is_paused: isPaused };
       }
       defaultStore.setDeskPaused(deskNo, isPaused);
       return { ok: true, desk_no: deskNo, is_paused: isPaused };

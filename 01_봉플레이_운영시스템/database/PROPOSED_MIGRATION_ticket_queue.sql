@@ -1,16 +1,14 @@
 -- ============================================================================
--- PROPOSED MIGRATION: ticket_queue (발권 대기열 시스템 — R1 보완 반영)
+-- PROPOSED MIGRATION: ticket_queue (발권 대기열 시스템 — R2 보완 반영)
 -- 
--- 태스크: ANT-006 / 지시서: BEN-022 (R1 검토 반영)
+-- 태스크: ANT-006 / 지시서: BEN-022 (R2 검토 반영)
 -- 목적: QR 안전동의서 서버 접수 시 당일 대기번호 부여, 고객 순서·예상시간 안내,
 --       매표소 호출 및 발권 완료 시 대기열 제외 파이프라인 구축.
--- 주요 보완 (R1 검토 6대 필수 수정 반영):
--- 1. 서버 접수 실패 시 로컬 번호 발급 원천 차단
--- 2. SECURITY DEFINER 권한(REVOKE PUBLIC, search_path 고정, anon 직원RPC 차단) 및 128비트 고객 비밀 토큰 도입
--- 3. 서버 발권 확정 시 order_id / ticket_ids 원장 정합성 및 상태 전이 검증
--- 4. 멱등키 조회 전 advisory lock 선취득, 멱등키 재사용 차단, 동의서 중복 제약, 단일 창구 다중 호출 차단
--- 5. 보류 복귀 시 order_key를 대기열 맨 뒤로 재할당 (새치기 원천 차단)
--- 6. 절대시각 NOW() (TIMESTAMPTZ)와 KST 영업일 분리, 창구 상태(정지/활성) 테이블 및 범위형 ETA 통합
+-- 주요 보완 (R2 검토 4대 필수 수정 반영):
+-- 1. [고객 보안] 공개 queue ID 우회 원천 차단 (customer_token 전용 조회), 24시간 만료 및 분당 60회 요청 제한
+-- 2. [RPC 계약] 클라이언트-SQL 서명 100% 일치 (getCustomerStatus 불필요 인자 p_token/p_queue_id 제거)
+-- 3. [직원 권한] 공용 키 전송과 연결 가능한 서버 검증 (private.verify_staff_permission 연동, anon/직원명 우회 차단)
+-- 4. [발권 검증] order_payments(결제 확정), safety_consents, ticket_ledger 전체 원장 대사 및 동일 order_id 멱등 재시도 보장
 -- 주의: 본 파일은 제안 마이그레이션(Proposed SQL)으로 운영 DB에 자동 적용하지 않으며,
 --       벤(Ben) 검토 및 관리자 승인 후 수동 반영합니다.
 -- ============================================================================
@@ -74,6 +72,15 @@ INSERT INTO public.ticket_queue_desks (site_id, desk_no, is_active, is_paused)
 VALUES ('bongplay_bonghwa', 1, true, false), ('bongplay_bonghwa', 2, true, false)
 ON CONFLICT (site_id, desk_no) DO NOTHING;
 
+-- 3. [R2 Fix 1] 고객 조회 요청 제한 테이블 (토큰당 분당 60회 초과 차단)
+CREATE TABLE IF NOT EXISTS public.ticket_queue_rate_limits (
+    customer_token VARCHAR(64) PRIMARY KEY,
+    request_count INTEGER NOT NULL DEFAULT 1,
+    window_start TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_request_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_ticket_queue_rate_limits_window ON public.ticket_queue_rate_limits (window_start);
+
 -- 인덱스 생성
 CREATE INDEX IF NOT EXISTS idx_ticket_queue_calling_order 
     ON public.ticket_queue (site_id, queue_date, status, order_key);
@@ -88,10 +95,57 @@ CREATE INDEX IF NOT EXISTS idx_ticket_queue_idempotency_lookup
     ON public.ticket_queue (site_id, queue_date, idempotency_key);
 
 -- ============================================================================
--- RPC 함수군 정의 (고정 search_path 및 권한 검증 탑재)
+-- [R2 Fix 3] 직원 권한 및 시설 접근 검증 헬퍼 (공용 키 전송 환경용 내부 보안 검증)
+-- ============================================================================
+CREATE OR REPLACE FUNCTION private.verify_staff_permission(
+    p_access_code TEXT,
+    p_site_id TEXT DEFAULT 'bongplay_bonghwa'
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = private, extensions, public
+AS $$
+DECLARE
+    v_hash TEXT;
+BEGIN
+    -- 1. 암호 기본 유효성 검사 (최소 4자 이상)
+    IF p_access_code IS NULL OR length(trim(p_access_code)) < 4 THEN
+        RETURN false;
+    END IF;
+
+    -- 2. 시설(site_id) 인가 검사
+    IF p_site_id IS NULL OR trim(p_site_id) = '' THEN
+        RETURN false;
+    END IF;
+    IF p_site_id NOT IN ('bongplay_bonghwa', 'gijang-main') THEN
+        RETURN false;
+    END IF;
+
+    -- 3. 기존 공통 운영 인증 RPC(private.verify_access_code) 연동 (브루트포스 락아웃 및 bcrypt 해시 검증)
+    IF EXISTS (
+        SELECT 1 FROM pg_proc p 
+        JOIN pg_namespace n ON p.pronamespace = n.oid 
+        WHERE n.nspname = 'private' AND p.proname = 'verify_access_code'
+    ) THEN
+        RETURN private.verify_access_code(p_access_code);
+    END IF;
+
+    -- 4. 단독 환경 폴백 검증 (private.app_settings)
+    SELECT value INTO v_hash FROM private.app_settings WHERE key = 'access_code';
+    IF v_hash IS NOT NULL AND v_hash LIKE '$2%' THEN
+        RETURN extensions.crypt(p_access_code, v_hash) = v_hash;
+    END IF;
+
+    RETURN false;
+END;
+$$;
+
+-- ============================================================================
+-- RPC 함수군 정의 (고정 search_path 및 100% 일치 계약)
 -- ============================================================================
 
--- 1. 서약서 대기열 접수 (enqueue_consent_team)
+-- 1. 서약서 대기열 접수 (enqueue_consent_team) - 고객/익명 공개
 -- - Advisory Lock 선취득으로 동시 동일 키 race condition 원천 차단
 -- - 멱등키 재사용 검사 (다른 동의서에 동일 키 재사용 시 거부)
 -- - 128비트 난수 고객 조회 토큰(customer_token) 생성 및 반환
@@ -114,29 +168,22 @@ DECLARE
     v_next_num INTEGER;
     v_next_order_key BIGINT;
     v_entry_id TEXT;
-    v_fmt_num TEXT;
     v_cust_token VARCHAR(64);
+    v_fmt_num TEXT;
     v_now TIMESTAMPTZ := NOW();
     v_lock_key BIGINT;
 BEGIN
-    IF p_consent_id IS NULL OR trim(p_consent_id) = '' THEN
-        RETURN jsonb_build_object('ok', false, 'error', 'CONSENT_ID_REQUIRED', 'message', '동의서 ID가 필요합니다.');
-    END IF;
-    IF p_idempotency_key IS NULL OR trim(p_idempotency_key) = '' THEN
-        RETURN jsonb_build_object('ok', false, 'error', 'IDEMPOTENCY_KEY_REQUIRED', 'message', '멱등키가 필요합니다.');
-    END IF;
-
-    -- [Fix 4] 동시 동일 키 및 번호 채번 경합 방지를 위해 배타적 Advisory Lock 선취득
-    v_lock_key := hashtext(p_site_id || ':' || v_today::TEXT);
+    -- 1. [Fix 4] 동시 접수 race condition 방지용 분산 락 (Advisory Lock)
+    v_lock_key := ('x' || substr(md5(p_site_id || ':' || v_today::text || ':' || p_idempotency_key), 1, 15))::bit(64)::bigint;
     PERFORM pg_advisory_xact_lock(v_lock_key);
 
-    -- 멱등성 검사: 동일 사이트/영업일 내 동일 멱등키 조회
+    -- 2. 멱등키 중복 여부 확인
     SELECT * INTO v_existing 
     FROM public.ticket_queue 
     WHERE site_id = p_site_id AND queue_date = v_today AND idempotency_key = p_idempotency_key;
 
     IF FOUND THEN
-        -- [Fix 4] 멱등키가 다른 동의서에 재사용된 경우 명시적 거부
+        -- [Fix 4] 멱등키가 다른 동의서에 재사용된 경우 보안 거부
         IF v_existing.consent_id <> p_consent_id THEN
             RETURN jsonb_build_object(
                 'ok', false,
@@ -153,12 +200,11 @@ BEGIN
             'formatted_number', v_existing.formatted_number,
             'customer_token', v_existing.customer_token,
             'status', v_existing.status,
-            'desk_no', v_existing.desk_no,
             'enqueued_at', v_existing.enqueued_at
         );
     END IF;
 
-    -- 동의서 중복 검사: 동일 동의서가 다른 멱등키로 다시 접수되는 경우 기존 레코드 반환
+    -- 3. 동의서 1건당 당일 1회 대기열 제약
     SELECT * INTO v_existing 
     FROM public.ticket_queue 
     WHERE site_id = p_site_id AND queue_date = v_today AND consent_id = p_consent_id;
@@ -172,26 +218,23 @@ BEGIN
             'formatted_number', v_existing.formatted_number,
             'customer_token', v_existing.customer_token,
             'status', v_existing.status,
-            'desk_no', v_existing.desk_no,
             'enqueued_at', v_existing.enqueued_at
         );
     END IF;
 
-    -- 당일 일련번호 및 초기 order_key 채번
-    SELECT COALESCE(MAX(queue_number), 0) + 1 INTO v_next_num
+    -- 4. 당일 최대 대기번호 및 order_key 원자적 조회
+    SELECT COALESCE(MAX(queue_number), 0) + 1,
+           COALESCE(MAX(order_key), 0) + 1
+    INTO v_next_num, v_next_order_key
     FROM public.ticket_queue
     WHERE site_id = p_site_id AND queue_date = v_today;
 
-    SELECT COALESCE(MAX(order_key), 0) + 1 INTO v_next_order_key
-    FROM public.ticket_queue
-    WHERE site_id = p_site_id AND queue_date = v_today;
+    -- 5. ID 및 128비트 암호화 고객 비밀 토큰 생성
+    v_entry_id := 'q_' || to_char(v_today, 'YYYYMMDD') || '_' || lpad(v_next_num::text, 4, '0') || '_' || substr(md5(random()::text), 1, 4);
+    v_cust_token := 'bpq_' || encode(gen_random_bytes(16), 'hex');
+    v_fmt_num := '#' || lpad(v_next_num::text, 3, '0');
 
-    v_fmt_num := '#' || LPAD(v_next_num::TEXT, 3, '0');
-    v_entry_id := 'q_' || TO_CHAR(v_today, 'YYYYMMDD') || '_' || LPAD(v_next_num::TEXT, 4, '0') || '_' || SUBSTRING(MD5(RANDOM()::TEXT), 1, 6);
-    
-    -- [Fix 2] 128비트 난수 고객 조회 토큰 발급
-    v_cust_token := encode(gen_random_bytes(16), 'hex');
-
+    -- 6. 레코드 삽입
     INSERT INTO public.ticket_queue (
         id, site_id, queue_date, queue_number, order_key, customer_token, formatted_number,
         consent_id, guardian_name, guardian_phone, party_size,
@@ -216,10 +259,11 @@ END;
 $$;
 
 -- 2. 다음 대기팀 호출 (call_next_queue_team) - 직원 전용
--- - anon 호출 차단
+-- - [R2 Fix 3] 서버 직원·시설 권한 검증
 -- - 단일 창구 다중 호출(이중 호출) 방지
 -- - order_key 오름차순 호출 (보류 복귀 팀은 맨 뒤)
 CREATE OR REPLACE FUNCTION public.call_next_queue_team(
+    p_access_code TEXT,
     p_desk_no INTEGER,
     p_staff_id TEXT DEFAULT 'desk_staff',
     p_site_id TEXT DEFAULT 'bongplay_bonghwa'
@@ -235,9 +279,9 @@ DECLARE
     v_target RECORD;
     v_desk_rec RECORD;
 BEGIN
-    -- [Fix 2] 익명 사용자(anon) 실행 거부
-    IF current_setting('request.jwt.claim.role', true) = 'anon' OR auth.role() = 'anon' THEN
-        RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED', 'message', '직원 권한이 필요합니다.');
+    -- [R2 Fix 3] 서버 직원·시설 권한 검증
+    IF NOT private.verify_staff_permission(p_access_code, p_site_id) THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED_STAFF', 'message', '직원 인증에 실패했거나 시설 권한이 없습니다.');
     END IF;
 
     -- 창구 정지 여부 확인
@@ -298,6 +342,7 @@ $$;
 
 -- 3. 재호출 (recall_queue_team) - 직원 전용
 CREATE OR REPLACE FUNCTION public.recall_queue_team(
+    p_access_code TEXT,
     p_queue_id TEXT,
     p_desk_no INTEGER DEFAULT NULL,
     p_site_id TEXT DEFAULT 'bongplay_bonghwa'
@@ -311,8 +356,9 @@ DECLARE
     v_now TIMESTAMPTZ := NOW();
     v_rec RECORD;
 BEGIN
-    IF current_setting('request.jwt.claim.role', true) = 'anon' OR auth.role() = 'anon' THEN
-        RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED', 'message', '직원 권한이 필요합니다.');
+    -- [R2 Fix 3] 서버 직원·시설 권한 검증
+    IF NOT private.verify_staff_permission(p_access_code, p_site_id) THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED_STAFF', 'message', '직원 인증에 실패했거나 시설 권한이 없습니다.');
     END IF;
 
     SELECT * INTO v_rec FROM public.ticket_queue WHERE id = p_queue_id FOR UPDATE;
@@ -337,6 +383,7 @@ $$;
 
 -- 4. 발권 처리 시작 (start_queue_processing) - 직원 전용
 CREATE OR REPLACE FUNCTION public.start_queue_processing(
+    p_access_code TEXT,
     p_queue_id TEXT,
     p_desk_no INTEGER DEFAULT NULL,
     p_site_id TEXT DEFAULT 'bongplay_bonghwa'
@@ -350,8 +397,9 @@ DECLARE
     v_now TIMESTAMPTZ := NOW();
     v_rec RECORD;
 BEGIN
-    IF current_setting('request.jwt.claim.role', true) = 'anon' OR auth.role() = 'anon' THEN
-        RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED', 'message', '직원 권한이 필요합니다.');
+    -- [R2 Fix 3] 서버 직원·시설 권한 검증
+    IF NOT private.verify_staff_permission(p_access_code, p_site_id) THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED_STAFF', 'message', '직원 인증에 실패했거나 시설 권한이 없습니다.');
     END IF;
 
     SELECT * INTO v_rec FROM public.ticket_queue WHERE id = p_queue_id FOR UPDATE;
@@ -377,6 +425,7 @@ $$;
 
 -- 5. 부재 보류 (hold_queue_team) - 직원 전용
 CREATE OR REPLACE FUNCTION public.hold_queue_team(
+    p_access_code TEXT,
     p_queue_id TEXT,
     p_reason TEXT DEFAULT '고객 부재',
     p_site_id TEXT DEFAULT 'bongplay_bonghwa'
@@ -390,8 +439,9 @@ DECLARE
     v_now TIMESTAMPTZ := NOW();
     v_rec RECORD;
 BEGIN
-    IF current_setting('request.jwt.claim.role', true) = 'anon' OR auth.role() = 'anon' THEN
-        RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED', 'message', '직원 권한이 필요합니다.');
+    -- [R2 Fix 3] 서버 직원·시설 권한 검증
+    IF NOT private.verify_staff_permission(p_access_code, p_site_id) THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED_STAFF', 'message', '직원 인증에 실패했거나 시설 권한이 없습니다.');
     END IF;
 
     SELECT * INTO v_rec FROM public.ticket_queue WHERE id = p_queue_id FOR UPDATE;
@@ -424,8 +474,8 @@ $$;
 
 -- 6. 보류 복귀 (restore_queue_team) - 직원 전용
 -- - [Fix 5] 복귀 시 order_key를 당일 최댓값 + 1로 재할당하여 맨 뒤로 배치 (새치기 원천 차단)
--- - 복귀 사유, 복귀 직원, 복귀 시각 기록
 CREATE OR REPLACE FUNCTION public.restore_queue_team(
+    p_access_code TEXT,
     p_queue_id TEXT,
     p_staff_id TEXT DEFAULT 'desk_staff',
     p_reason TEXT DEFAULT '고객 창구 방문 복귀',
@@ -441,8 +491,9 @@ DECLARE
     v_rec RECORD;
     v_new_order_key BIGINT;
 BEGIN
-    IF current_setting('request.jwt.claim.role', true) = 'anon' OR auth.role() = 'anon' THEN
-        RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED', 'message', '직원 권한이 필요합니다.');
+    -- [R2 Fix 3] 서버 직원·시설 권한 검증
+    IF NOT private.verify_staff_permission(p_access_code, p_site_id) THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED_STAFF', 'message', '직원 인증에 실패했거나 시설 권한이 없습니다.');
     END IF;
 
     SELECT * INTO v_rec FROM public.ticket_queue WHERE id = p_queue_id FOR UPDATE;
@@ -483,6 +534,7 @@ $$;
 -- 7. 접수 취소 (cancel_queue_team) - 직원 전용
 -- - [Fix 4] 이미 발권 완료(issued)된 건은 취소 불가 가드
 CREATE OR REPLACE FUNCTION public.cancel_queue_team(
+    p_access_code TEXT,
     p_queue_id TEXT,
     p_reason TEXT DEFAULT '고객 취소',
     p_staff_id TEXT DEFAULT 'desk_staff',
@@ -497,8 +549,9 @@ DECLARE
     v_now TIMESTAMPTZ := NOW();
     v_rec RECORD;
 BEGIN
-    IF current_setting('request.jwt.claim.role', true) = 'anon' OR auth.role() = 'anon' THEN
-        RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED', 'message', '직원 권한이 필요합니다.');
+    -- [R2 Fix 3] 서버 직원·시설 권한 검증
+    IF NOT private.verify_staff_permission(p_access_code, p_site_id) THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED_STAFF', 'message', '직원 인증에 실패했거나 시설 권한이 없습니다.');
     END IF;
 
     SELECT * INTO v_rec FROM public.ticket_queue WHERE id = p_queue_id FOR UPDATE;
@@ -531,9 +584,11 @@ END;
 $$;
 
 -- 8. 발권 확정 완료 (complete_queue_issuance) - 직원 전용
--- - [Fix 3] order_id / ticket_ids 필수 검증 및 상태 전이 검증
--- - ticket_ledger 테이블 존재 시 원장 존재 대조 검증
+-- - [R2 Fix 3] 서버 직원·시설 권한 검증
+-- - [R2 Fix 4] 주문 결제 확정(order_payments), 서약서(safety_consents), 티켓(ticket_ledger) 전체 유효 상태 검증
+-- - [R2 Fix 4] 동일 order_id 재시도 시 멱등 성공 결과 반환
 CREATE OR REPLACE FUNCTION public.complete_queue_issuance(
+    p_access_code TEXT,
     p_queue_id TEXT,
     p_order_id TEXT,
     p_ticket_ids JSONB DEFAULT '[]'::jsonb,
@@ -550,9 +605,11 @@ DECLARE
     v_rec RECORD;
     v_duration INTEGER := 60;
     v_tickets_count INTEGER;
+    v_matched_tickets INTEGER := 0;
 BEGIN
-    IF current_setting('request.jwt.claim.role', true) = 'anon' OR auth.role() = 'anon' THEN
-        RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED', 'message', '직원 권한이 필요합니다.');
+    -- [R2 Fix 3] 서버 직원·시설 권한 검증
+    IF NOT private.verify_staff_permission(p_access_code, p_site_id) THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED_STAFF', 'message', '직원 인증에 실패했거나 시설 권한이 없습니다.');
     END IF;
 
     -- [Fix 3] order_id 및 ticket_ids 유효성 검사
@@ -570,18 +627,66 @@ BEGIN
         RETURN jsonb_build_object('ok', false, 'error', 'not_found', 'message', '대기 정보를 찾을 수 없습니다.');
     END IF;
 
-    -- [Fix 3] 호출 또는 처리 중 상태에서만 완료 가능 (waiting/canceled/issued/no_show 차단)
+    -- [R2 Fix 4] 멱등성 재시도 검증: 동일 order_id로 이미 완료된 경우 동일 성공 결과 반환
+    IF v_rec.status = 'issued' THEN
+        IF v_rec.order_id = p_order_id THEN
+            RETURN jsonb_build_object(
+                'ok', true,
+                'duplicate', true,
+                'already_completed', true,
+                'id', v_rec.id,
+                'status', 'issued',
+                'order_id', v_rec.order_id,
+                'ticket_ids', v_rec.ticket_ids,
+                'duration_seconds', v_rec.duration_seconds,
+                'issued_at', v_rec.issued_at
+            );
+        ELSE
+            RETURN jsonb_build_object('ok', false, 'error', 'ALREADY_ISSUED_OTHER_ORDER', 'message', '이미 다른 주문번호로 발권 완료된 대기표입니다.');
+        END IF;
+    END IF;
+
+    -- [Fix 3] 호출 또는 처리 중 상태에서만 완료 가능 (waiting/canceled/no_show 차단)
     IF v_rec.status NOT IN ('called', 'processing') THEN
         RETURN jsonb_build_object('ok', false, 'error', 'INVALID_STATUS', 'message', '호출 또는 처리 중인 팀만 발권 완료할 수 있습니다.');
     END IF;
 
-    -- [Fix 3] ticket_ledger 테이블이 존재하는 경우 원장 일치 여부 대조
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ticket_ledger') THEN
+    -- [R2 Fix 4] 주문 결제 확정 상태 검증 (order_payments status = 'paid' & cancelled_at IS NULL)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'order_payments') THEN
         IF NOT EXISTS (
-            SELECT 1 FROM public.ticket_ledger 
-            WHERE order_id = p_order_id AND (consent_id = v_rec.consent_id OR v_rec.consent_id IS NULL)
+            SELECT 1 FROM public.order_payments
+            WHERE order_id = p_order_id
+              AND status = 'paid'
+              AND cancelled_at IS NULL
         ) THEN
-            RETURN jsonb_build_object('ok', false, 'error', 'LEDGER_VERIFICATION_FAILED', 'message', '발권 원장(ticket_ledger)과 일치하지 않습니다.');
+            RETURN jsonb_build_object('ok', false, 'error', 'PAYMENT_NOT_CONFIRMED', 'message', '결제가 확정되지 않았거나 유효한 결제 내역이 없습니다.');
+        END IF;
+    END IF;
+
+    -- [R2 Fix 4] 안전 서약서 유효 상태 검증 (safety_consents 존재 여부 대사)
+    IF v_rec.consent_id IS NOT NULL AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'safety_consents') THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM public.safety_consents
+            WHERE id = v_rec.consent_id
+        ) THEN
+            RETURN jsonb_build_object('ok', false, 'error', 'CONSENT_INVALID', 'message', '유효한 서약서 원장이 확인되지 않습니다.');
+        END IF;
+    END IF;
+
+    -- [R2 Fix 4] 티켓 전체 유효 원장 검증 (ticket_ledger 에 전체 티켓 존재 및 취소 여부)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ticket_ledger') THEN
+        SELECT COUNT(*) INTO v_matched_tickets
+        FROM public.ticket_ledger
+        WHERE order_id = p_order_id
+          AND cancelled_at IS NULL
+          AND ticket_id IN (SELECT jsonb_array_elements_text(p_ticket_ids));
+
+        IF v_matched_tickets <> v_tickets_count THEN
+            RETURN jsonb_build_object(
+                'ok', false, 
+                'error', 'TICKET_LEDGER_INCOMPLETE', 
+                'message', '티켓 원장에 등록되지 않았거나 취소된 티켓이 포함되어 있습니다. (유효: ' || v_matched_tickets || '/' || v_tickets_count || ')'
+            );
         END IF;
     END IF;
 
@@ -611,8 +716,12 @@ BEGIN
 
     RETURN jsonb_build_object(
         'ok', true,
+        'duplicate', false,
+        'already_completed', false,
         'id', p_queue_id,
         'status', 'issued',
+        'order_id', p_order_id,
+        'ticket_ids', p_ticket_ids,
         'duration_seconds', v_duration,
         'issued_at', v_now
     );
@@ -620,9 +729,9 @@ END;
 $$;
 
 -- 9. 고객용 대기 상태 조회 (get_customer_queue_status) - 고객/익명 공개
--- - [Fix 2] customer_token 기반 조회 지원
--- - [Fix 5] order_key 기반 앞선 팀 수 계산 (보류 복귀 팀은 맨 뒤)
--- - [Fix 6] 창구 정지/활성 수 반영 및 범위형(P25~P75) ETA 산출
+-- - [R2 Fix 1] 공개 queue ID 우회 원천 차단 (customer_token 전용 조회)
+-- - [R2 Fix 1] 24시간 만료(TOKEN_EXPIRED) 및 분당 60회 요청 제한(RATE_LIMIT_EXCEEDED)
+-- - [R2 Fix 2] 호출 계약: (p_customer_token, p_site_id) 100% 일치
 CREATE OR REPLACE FUNCTION public.get_customer_queue_status(
     p_customer_token TEXT,
     p_site_id TEXT DEFAULT 'bongplay_bonghwa'
@@ -633,7 +742,9 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 DECLARE
+    v_now TIMESTAMPTZ := NOW();
     v_rec RECORD;
+    v_limit_rec RECORD;
     v_ahead INTEGER := 0;
     v_samples_count INTEGER := 0;
     v_avg_sec NUMERIC := 120;
@@ -646,12 +757,51 @@ DECLARE
     v_wait_text TEXT := '집계 중';
     v_wait_code TEXT := 'CALCULATING';
 BEGIN
-    -- customer_token 우선 조회, 없으면 id로 fallback
+    -- [R2 Fix 1] 토큰 유효성 검사 (빈 값 거부)
+    IF p_customer_token IS NULL OR trim(p_customer_token) = '' THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'INVALID_TOKEN', 'message', '고객 비밀 토큰이 필요합니다.');
+    END IF;
+
+    -- [R2 Fix 1] 요청 빈도 제한 (Rate Limiting: 분당 60회 초과 시 차단)
+    SELECT * INTO v_limit_rec FROM public.ticket_queue_rate_limits
+    WHERE customer_token = p_customer_token FOR UPDATE;
+
+    IF FOUND THEN
+        IF v_limit_rec.window_start > (v_now - INTERVAL '1 minute') THEN
+            IF v_limit_rec.request_count >= 60 THEN
+                RETURN jsonb_build_object('ok', false, 'error', 'RATE_LIMIT_EXCEEDED', 'message', '요청 빈도가 너무 높습니다. 잠시 후 다시 시도해 주세요.');
+            ELSE
+                UPDATE public.ticket_queue_rate_limits
+                SET request_count = request_count + 1,
+                    last_request_at = v_now
+                WHERE customer_token = p_customer_token;
+            END IF;
+        ELSE
+            UPDATE public.ticket_queue_rate_limits
+            SET request_count = 1,
+                window_start = v_now,
+                last_request_at = v_now
+            WHERE customer_token = p_customer_token;
+        END IF;
+    ELSE
+        INSERT INTO public.ticket_queue_rate_limits (customer_token, request_count, window_start, last_request_at)
+        VALUES (p_customer_token, 1, v_now, v_now)
+        ON CONFLICT (customer_token) DO UPDATE
+        SET request_count = public.ticket_queue_rate_limits.request_count + 1,
+            last_request_at = v_now;
+    END IF;
+
+    -- [R2 Fix 1] 공개 queue ID 우회 원천 제거: 오직 customer_token 으로만 조회
     SELECT * INTO v_rec FROM public.ticket_queue 
-    WHERE site_id = p_site_id AND (customer_token = p_customer_token OR id = p_customer_token);
+    WHERE site_id = p_site_id AND customer_token = p_customer_token;
 
     IF NOT FOUND THEN
-        RETURN jsonb_build_object('ok', false, 'error', 'not_found', 'message', '대기 접수 정보를 찾을 수 없습니다.');
+        RETURN jsonb_build_object('ok', false, 'error', 'INVALID_TOKEN', 'message', '대기 접수 정보를 찾을 수 없거나 유효하지 않은 토큰입니다.');
+    END IF;
+
+    -- [R2 Fix 1] 토큰 만료 검사 (접수 후 24시간 경과 시 만료 처리)
+    IF v_rec.enqueued_at < (v_now - INTERVAL '24 hours') THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'TOKEN_EXPIRED', 'message', '만료된 대기표 토큰입니다. 다시 접수해 주세요.');
     END IF;
 
     -- [Fix 5] 앞선 미발권 팀 수: order_key < 내 order_key 기준
@@ -709,7 +859,6 @@ BEGIN
 
     RETURN jsonb_build_object(
         'ok', true,
-        'id', v_rec.id,
         'queue_number', v_rec.queue_number,
         'formatted_number', v_rec.formatted_number,
         'customer_token', v_rec.customer_token,
@@ -732,7 +881,7 @@ END;
 $$;
 
 -- 10. 공개 호출판 데이터 조회 (get_queue_public_display) - 공개/익명 허용
--- - [Fix 2] Zero PII: 내부 id 및 토큰 일체 제거 (번호, 창구, 상태, 호출시각만 표출)
+-- - Zero PII: 내부 id 및 토큰 일체 제거 (번호, 창구, 상태, 호출시각만 표출)
 CREATE OR REPLACE FUNCTION public.get_queue_public_display(
     p_date DATE DEFAULT ((NOW() AT TIME ZONE 'Asia/Seoul')::DATE),
     p_site_id TEXT DEFAULT 'bongplay_bonghwa'
@@ -748,12 +897,12 @@ DECLARE
 BEGIN
     SELECT COALESCE(jsonb_agg(
         jsonb_build_object(
+            'desk_no', desk_no,
             'queue_number', queue_number,
             'formatted_number', formatted_number,
-            'desk_no', desk_no,
             'status', status,
             'called_at', called_at
-        ) ORDER BY called_at DESC NULLS LAST
+        ) ORDER BY desk_no ASC
     ), '[]'::jsonb)
     INTO v_called
     FROM public.ticket_queue
@@ -774,10 +923,11 @@ END;
 $$;
 
 -- 11. 직원 대기열 관제 목록 조회 (get_staff_queue_list) - 직원 전용
--- - [Fix 6] 클라이언트 로컬 메모리 대신 서버 상태를 직접 조회하여 다중 단말 실시간 동기화
+-- - [R2 Fix 3] 서버 직원·시설 권한 검증
 CREATE OR REPLACE FUNCTION public.get_staff_queue_list(
-    p_site_id TEXT DEFAULT 'bongplay_bonghwa',
-    p_date DATE DEFAULT ((NOW() AT TIME ZONE 'Asia/Seoul')::DATE)
+    p_access_code TEXT,
+    p_date DATE DEFAULT ((NOW() AT TIME ZONE 'Asia/Seoul')::DATE),
+    p_site_id TEXT DEFAULT 'bongplay_bonghwa'
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -791,8 +941,9 @@ DECLARE
     v_desks JSONB;
     v_waiting_count INTEGER := 0;
 BEGIN
-    IF current_setting('request.jwt.claim.role', true) = 'anon' OR auth.role() = 'anon' THEN
-        RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED', 'message', '직원 권한이 필요합니다.');
+    -- [R2 Fix 3] 서버 직원·시설 권한 검증
+    IF NOT private.verify_staff_permission(p_access_code, p_site_id) THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED_STAFF', 'message', '직원 인증에 실패했거나 시설 권한이 없습니다.');
     END IF;
 
     -- 대기 중인 팀 목록
@@ -874,7 +1025,9 @@ END;
 $$;
 
 -- 12. 창구 일시 정지 토글 (set_desk_pause_status) - 직원 전용
+-- - [R2 Fix 3] 서버 직원·시설 권한 검증
 CREATE OR REPLACE FUNCTION public.set_desk_pause_status(
+    p_access_code TEXT,
     p_desk_no INTEGER,
     p_is_paused BOOLEAN,
     p_site_id TEXT DEFAULT 'bongplay_bonghwa'
@@ -887,8 +1040,9 @@ AS $$
 DECLARE
     v_now TIMESTAMPTZ := NOW();
 BEGIN
-    IF current_setting('request.jwt.claim.role', true) = 'anon' OR auth.role() = 'anon' THEN
-        RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED', 'message', '직원 권한이 필요합니다.');
+    -- [R2 Fix 3] 서버 직원·시설 권한 검증
+    IF NOT private.verify_staff_permission(p_access_code, p_site_id) THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED_STAFF', 'message', '직원 인증에 실패했거나 시설 권한이 없습니다.');
     END IF;
 
     UPDATE public.ticket_queue_desks
@@ -901,44 +1055,53 @@ END;
 $$;
 
 -- ============================================================================
--- RLS 및 최소 권한(Least Privilege) 설정 (Fix 2 반영)
+-- RLS 및 최소 권한(Least Privilege) 설정 (R2 보안 강화 반영)
 -- ============================================================================
 ALTER TABLE public.ticket_queue ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ticket_queue_desks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ticket_queue_rate_limits ENABLE ROW LEVEL SECURITY;
 
--- 1) ticket_queue 테이블 직접 조회 차단
+-- 1) ticket_queue / ticket_queue_rate_limits 테이블 직접 조회 차단
 DROP POLICY IF EXISTS "Deny direct anon select on ticket_queue" ON public.ticket_queue;
 CREATE POLICY "Deny direct anon select on ticket_queue"
     ON public.ticket_queue FOR SELECT
     TO anon
     USING (false);
 
+DROP POLICY IF EXISTS "Deny direct anon on ticket_queue_rate_limits" ON public.ticket_queue_rate_limits;
+CREATE POLICY "Deny direct anon on ticket_queue_rate_limits"
+    ON public.ticket_queue_rate_limits FOR ALL
+    TO anon
+    USING (false);
+
 -- 2) 모든 RPC 함수의 PUBLIC 기본 실행 권한 철회 (보안 홀 차단)
-REVOKE ALL ON FUNCTION public.enqueue_consent_team FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.get_customer_queue_status FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.get_queue_public_display FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.call_next_queue_team FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.recall_queue_team FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.start_queue_processing FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.hold_queue_team FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.restore_queue_team FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.cancel_queue_team FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.complete_queue_issuance FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.get_staff_queue_list FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.set_desk_pause_status FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.enqueue_consent_team(TEXT, TEXT, INTEGER, TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.get_customer_queue_status(TEXT, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.get_queue_public_display(DATE, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.call_next_queue_team(TEXT, INTEGER, TEXT, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.recall_queue_team(TEXT, TEXT, INTEGER, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.start_queue_processing(TEXT, TEXT, INTEGER, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.hold_queue_team(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.restore_queue_team(TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.cancel_queue_team(TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.complete_queue_issuance(TEXT, TEXT, TEXT, JSONB, TEXT, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.get_staff_queue_list(TEXT, DATE, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.set_desk_pause_status(TEXT, INTEGER, BOOLEAN, TEXT) FROM PUBLIC;
 
 -- 3) 고객 및 공개 엔드포인트: anon, authenticated에게만 최소 권한 부여
-GRANT EXECUTE ON FUNCTION public.enqueue_consent_team TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.get_customer_queue_status TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.get_queue_public_display TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.enqueue_consent_team(TEXT, TEXT, INTEGER, TEXT, TEXT, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.get_customer_queue_status(TEXT, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.get_queue_public_display(DATE, TEXT) TO anon, authenticated;
 
--- 4) 직원 데스크 엔드포인트: authenticated에게만 허용 (anon 접근 차단)
-GRANT EXECUTE ON FUNCTION public.call_next_queue_team TO authenticated;
-GRANT EXECUTE ON FUNCTION public.recall_queue_team TO authenticated;
-GRANT EXECUTE ON FUNCTION public.start_queue_processing TO authenticated;
-GRANT EXECUTE ON FUNCTION public.hold_queue_team TO authenticated;
-GRANT EXECUTE ON FUNCTION public.restore_queue_team TO authenticated;
-GRANT EXECUTE ON FUNCTION public.cancel_queue_team TO authenticated;
-GRANT EXECUTE ON FUNCTION public.complete_queue_issuance TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_staff_queue_list TO authenticated;
-GRANT EXECUTE ON FUNCTION public.set_desk_pause_status TO authenticated;
+-- 4) 직원 데스크 엔드포인트: anon, authenticated에게 실행 권한 부여
+--    (클라이언트 공용 anon 키 전송 경로를 지원하되, 함수 내부에서 private.verify_staff_permission 을 통해 
+--     운영자 암호 해시 검증 및 시설 권한을 철저히 확인하여 무단 호출을 원천 차단함)
+GRANT EXECUTE ON FUNCTION public.call_next_queue_team(TEXT, INTEGER, TEXT, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.recall_queue_team(TEXT, TEXT, INTEGER, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.start_queue_processing(TEXT, TEXT, INTEGER, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.hold_queue_team(TEXT, TEXT, TEXT, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.restore_queue_team(TEXT, TEXT, TEXT, TEXT, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.cancel_queue_team(TEXT, TEXT, TEXT, TEXT, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.complete_queue_issuance(TEXT, TEXT, TEXT, JSONB, TEXT, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.get_staff_queue_list(TEXT, DATE, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.set_desk_pause_status(TEXT, INTEGER, BOOLEAN, TEXT) TO anon, authenticated;

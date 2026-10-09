@@ -883,14 +883,13 @@
       qAlertEl.classList.add('hidden');
       qSubText.classList.remove('hidden');
       btnStatus.classList.remove('hidden');
-      const tokenOrId = v.customerToken || v.queueId;
-      if (tokenOrId) {
-        btnStatus.href = 'queue-status.html?' + (v.customerToken ? 'token=' + encodeURIComponent(v.customerToken) : 'id=' + encodeURIComponent(v.queueId));
+      if (v.customerToken) {
+        btnStatus.href = 'queue-status.html?token=' + encodeURIComponent(v.customerToken);
       }
 
-      if (window.BongplayQueue && tokenOrId) {
+      if (window.BongplayQueue && v.customerToken) {
         try {
-          const res = await BongplayQueue.getCustomerStatus(tokenOrId);
+          const res = await BongplayQueue.getCustomerStatus(v.customerToken);
           if (res && res.ok && res.item) {
             document.getElementById('voucherAheadCountText').textContent = (res.item.ahead_count || 0) + ' 팀';
             if (res.item.wait_time) {

@@ -591,4 +591,193 @@ test('ANT-006 / BEN-022 발권 대기열 시스템 전수 검증', async (t) => 
     assert.equal(waitNoDesk.text, '발권 일시 중지');
   });
 
+  // ---------------------------------------------------------------------------
+  // 15. [R2 Fix 1] 공개 queue ID 우회 차단, 24시간 토큰 만료, 분당 60회 요청 제한
+  // ---------------------------------------------------------------------------
+  await t.test('15. [R2 Fix 1] 공개 ID 우회 차단(토큰 전용), 24시간 만료, 분당 60회 Rate Limit 검증', () => {
+    const store = BongplayQueue.createStore();
+    const now = new Date('2026-10-09T10:00:00.000Z');
+    const enq = store.enqueue({ consent_id: 'cst_sec_1', guardian_name: '보안고객', now: now });
+    const token = enq.item.customer_token;
+    const publicId = enq.item.id;
+
+    // 15-1. 공개 queue ID로 조회 시도 시 차단 확인
+    const queryById = store.getCustomerQueueStatus(publicId, now);
+    assert.equal(queryById.ok, false, '공개 ID 조회는 거부되어야 함');
+    assert.equal(queryById.error, 'INVALID_TOKEN');
+
+    // 15-2. 비밀 customer_token 으로 정상 조회 확인
+    const queryByToken = store.getCustomerQueueStatus(token, now);
+    assert.equal(queryByToken.ok, true, '비밀 토큰으로 정상 조회되어야 함');
+    assert.equal(queryByToken.item.customer_token, token);
+
+    // 15-3. 24시간 경과 후 토큰 만료 검증
+    const after24h = new Date(now.getTime() + 24 * 60 * 60 * 1000 + 1000);
+    const queryExpired = store.getCustomerQueueStatus(token, after24h);
+    assert.equal(queryExpired.ok, false, '24시간 경과 시 만료되어야 함');
+    assert.equal(queryExpired.error, 'TOKEN_EXPIRED');
+
+    // 15-4. 분당 60회 초과 시 요청 제한(Rate Limit) 검증
+    const rateStore = BongplayQueue.createStore();
+    const rateEnq = rateStore.enqueue({ consent_id: 'cst_rate_1', guardian_name: '속도제한', now: now });
+    const rToken = rateEnq.item.customer_token;
+
+    // 1분 내에 60회 요청 성공
+    for (let i = 1; i <= 60; i++) {
+      const q = rateStore.getCustomerQueueStatus(rToken, now);
+      assert.equal(q.ok, true, `${i}번째 요청은 허용되어야 함`);
+    }
+
+    // 61번째 요청 거부 (RATE_LIMIT_EXCEEDED)
+    const rateBlocked = rateStore.getCustomerQueueStatus(rToken, now);
+    assert.equal(rateBlocked.ok, false, '61번째 요청은 제한되어야 함');
+    assert.equal(rateBlocked.error, 'RATE_LIMIT_EXCEEDED');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 16. [R2 Fix 2] 클라이언트 RPC 인자 SQL 서명 100% 일치 계약
+  // ---------------------------------------------------------------------------
+  await t.test('16. [R2 Fix 2] getCustomerStatus 불필요 인자 제거 및 SQL 서명 일치 계약 검증', async () => {
+    let capturedRpc = null;
+    let capturedParams = null;
+
+    global.window = global;
+    global.window.BongplaySync = {
+      isOnline: () => true,
+      rpc: async (fn, params) => {
+        capturedRpc = fn;
+        capturedParams = params;
+        return { ok: true, data: { status: 'waiting', queue_number: 1 } };
+      }
+    };
+
+    // getCustomerStatus 호출
+    await BongplayQueue.getCustomerStatus('bpq_secret_test_token_123', { siteId: 'bongplay_bonghwa' });
+
+    assert.equal(capturedRpc, 'get_customer_queue_status');
+    assert.equal(capturedParams.p_customer_token, 'bpq_secret_test_token_123');
+    assert.equal(capturedParams.p_site_id, 'bongplay_bonghwa');
+    // 불필요했던 p_token, p_queue_id 가 전혀 존재하지 않음을 단언
+    assert.equal(capturedParams.p_token, undefined, 'p_token 인자는 없어야 함');
+    assert.equal(capturedParams.p_queue_id, undefined, 'p_queue_id 인자는 없어야 함');
+
+    delete global.window.BongplaySync;
+  });
+
+  // ---------------------------------------------------------------------------
+  // 17. [R2 Fix 3] 직원 조작 권한 검증 (access_code 부재 시 차단, BongplayAuth 연동)
+  // ---------------------------------------------------------------------------
+  await t.test('17. [R2 Fix 3] 직원 조작 시 서버 권한 검증 및 공용 키 환경 보호', async () => {
+    let lastSentAccessCode = null;
+
+    global.window = global;
+    global.window.BongplaySync = {
+      isOnline: () => true,
+      rpc: async (fn, params) => {
+        lastSentAccessCode = params.p_access_code;
+        return { ok: true, data: { id: 'q_test_1', status: 'called' } };
+      }
+    };
+
+    // 17-1. 직원 인증 코드 없을 때 호출 시 UNAUTHORIZED_STAFF 반환
+    delete global.window.BongplayAuth;
+    const callWithoutAuth = await BongplayQueue.callNext(1, 'staff_anonymous');
+    assert.equal(callWithoutAuth.ok, false);
+    assert.equal(callWithoutAuth.error, 'UNAUTHORIZED_STAFF');
+
+    // 17-2. window.BongplayAuth 에 올바른 세션이 있을 때 p_access_code 자동 주입 및 전송
+    global.window.BongplayAuth = {
+      getAccessCode: () => 'staff_secret_9999'
+    };
+
+    const callWithAuth = await BongplayQueue.callNext(1, 'staff_authorized');
+    assert.equal(callWithAuth.ok, true);
+    assert.equal(lastSentAccessCode, 'staff_secret_9999', 'BongplayAuth의 암호가 RPC에 정상 전달되어야 함');
+
+    delete global.window.BongplayAuth;
+    delete global.window.BongplaySync;
+  });
+
+  // ---------------------------------------------------------------------------
+  // 18. [R2 Fix 4] 발권 확정 원장 무결성 대사 및 동일 주문 멱등 재시도
+  // ---------------------------------------------------------------------------
+  await t.test('18. [R2 Fix 4] 발권 확정 원장 대사(결제·서약·티켓) 및 동일 주문 멱등 재시도 검증', () => {
+    const store = BongplayQueue.createStore();
+    const dateStr = BongplayQueue.getKstDateStr();
+
+    const enq = store.enqueue({ consent_id: 'cst_ledger_1', queue_date: dateStr });
+    const qId = enq.item.id;
+    store.callNext(1, 'staff_1');
+
+    // 모의 원장 데이터 설정
+    const validPayments = [
+      { order_id: 'ord_ledger_100', status: 'paid', cancelled_at: null }
+    ];
+    const validConsents = [
+      { id: 'cst_ledger_1', status: 'active', cancelled_at: null }
+    ];
+    const validTickets = [
+      { ticket_id: 'tkt_01', order_id: 'ord_ledger_100', cancelled_at: null },
+      { ticket_id: 'tkt_02', order_id: 'ord_ledger_100', cancelled_at: null }
+    ];
+
+    // 18-1. 결제 미확정 (order_payments 누락) 시 발권 거부
+    const failPayment = store.completeIssuance(qId, 'ord_ledger_100', ['tkt_01', 'tkt_02'], null, {
+      orderPayments: [{ order_id: 'ord_ledger_100', status: 'cancelled' }], // 취소된 결제
+      safetyConsents: validConsents,
+      ticketLedger: validTickets
+    });
+    assert.equal(failPayment.ok, false);
+    assert.equal(failPayment.error, 'PAYMENT_NOT_CONFIRMED');
+
+    // 18-2. 서약서 취소 상태 시 발권 거부
+    const failConsent = store.completeIssuance(qId, 'ord_ledger_100', ['tkt_01', 'tkt_02'], null, {
+      orderPayments: validPayments,
+      safetyConsents: [{ id: 'cst_ledger_1', status: 'cancelled' }],
+      ticketLedger: validTickets
+    });
+    assert.equal(failConsent.ok, false);
+    assert.equal(failConsent.error, 'CONSENT_INVALID');
+
+    // 18-3. 티켓 원장 불일치 (일부 티켓 누락) 시 발권 거부
+    const failTickets = store.completeIssuance(qId, 'ord_ledger_100', ['tkt_01', 'tkt_02'], null, {
+      orderPayments: validPayments,
+      safetyConsents: validConsents,
+      ticketLedger: [{ ticket_id: 'tkt_01', order_id: 'ord_ledger_100', cancelled_at: null }] // tkt_02 누락
+    });
+    assert.equal(failTickets.ok, false);
+    assert.equal(failTickets.error, 'TICKET_LEDGER_INCOMPLETE');
+
+    // 18-4. 전체 원장 일치 시 정상 발권 성공
+    const successComplete = store.completeIssuance(qId, 'ord_ledger_100', ['tkt_01', 'tkt_02'], null, {
+      orderPayments: validPayments,
+      safetyConsents: validConsents,
+      ticketLedger: validTickets
+    });
+    assert.equal(successComplete.ok, true);
+    assert.equal(successComplete.duplicate, false);
+    assert.equal(successComplete.item.status, BongplayQueue.STATUS.ISSUED);
+
+    // 18-5. [멱등 재시도] 동일 order_id 로 다시 완료 요청 시 동일 성공 결과 반환
+    const retrySameOrder = store.completeIssuance(qId, 'ord_ledger_100', ['tkt_01', 'tkt_02'], null, {
+      orderPayments: validPayments,
+      safetyConsents: validConsents,
+      ticketLedger: validTickets
+    });
+    assert.equal(retrySameOrder.ok, true, '동일 주문 재시도는 성공해야 함');
+    assert.equal(retrySameOrder.duplicate, true, '재시도 플래그 설정');
+    assert.equal(retrySameOrder.already_completed, true);
+    assert.equal(retrySameOrder.item.order_id, 'ord_ledger_100');
+
+    // 18-6. 다른 order_id 로 완료 시도 시 ALREADY_ISSUED_OTHER_ORDER 에러
+    const retryDifferentOrder = store.completeIssuance(qId, 'ord_ledger_DIFFERENT', ['tkt_01'], null, {
+      orderPayments: validPayments,
+      safetyConsents: validConsents,
+      ticketLedger: validTickets
+    });
+    assert.equal(retryDifferentOrder.ok, false);
+    assert.equal(retryDifferentOrder.error, 'ALREADY_ISSUED_OTHER_ORDER');
+  });
+
 });
+

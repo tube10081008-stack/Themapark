@@ -102,6 +102,24 @@ function createLocalServer() {
           return res.end(JSON.stringify(resData));
         }
 
+        // [R2 Fix 3] 직원 엔드포인트 권한 검증 (access_code 확인)
+        const isStaffEndpoint = [
+          'call_next_queue_team',
+          'recall_queue_team',
+          'start_queue_processing',
+          'hold_queue_team',
+          'restore_queue_team',
+          'cancel_queue_team',
+          'complete_queue_issuance',
+          'get_staff_queue_list',
+          'set_desk_pause_status'
+        ].some(ep => endpoint.startsWith(ep));
+
+        if (isStaffEndpoint && (!body.p_access_code || body.p_access_code !== '1234')) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ ok: false, error: 'UNAUTHORIZED_STAFF', message: '직원 인증 실패' }));
+        }
+
         if (endpoint.startsWith('call_next_queue_team')) {
           const resData = BongplayQueue.store.callNext(body.p_desk_no, body.p_staff_id);
           res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -145,8 +163,11 @@ function createLocalServer() {
         }
 
         if (endpoint.startsWith('get_customer_queue_status')) {
-          const key = body.p_customer_token || body.p_token || body.p_queue_id;
-          const resData = BongplayQueue.store.getCustomerQueueStatus(key);
+          if (!body.p_customer_token) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ ok: false, error: 'INVALID_TOKEN', message: '고객 비밀 토큰이 필요합니다.' }));
+          }
+          const resData = BongplayQueue.store.getCustomerQueueStatus(body.p_customer_token);
           res.writeHead(200, { 'Content-Type': 'application/json' });
           return res.end(JSON.stringify(resData));
         }
@@ -187,6 +208,15 @@ window.BONGPLAY_CONFIG = {
   SUPABASE_ANON_KEY: 'test-anon-key',
   STAFF_SESSION_HOURS: 24,
   MASTER_VERSION: '2026.v1'
+};
+window.BongplayAuth = {
+  getAccessCode: function () {
+    try {
+      var s = JSON.parse(localStorage.getItem('bongplay_staff_session_v2'));
+      return s ? s.code : '1234';
+    } catch (e) { return '1234'; }
+  },
+  isAuthenticated: function () { return true; }
 };
 try {
   localStorage.setItem('bongplay_staff_session_v2', JSON.stringify({
@@ -434,7 +464,7 @@ async function runE2E() {
 
     // 바우처 및 대기번호 확인 (최대 10초 대기)
     let assignedQueueNumber = null;
-    let assignedQueueId = null;
+    let assignedCustomerToken = null;
 
     for (let i = 0; i < 40; i++) {
       await new Promise(r => setTimeout(r, 250));
@@ -443,8 +473,8 @@ async function runE2E() {
       `);
       if (qNumText && qNumText.includes('#')) {
         assignedQueueNumber = qNumText.trim();
-        assignedQueueId = await customerSession.evalCode(`
-          localStorage.getItem('bongplay_my_queue_id')
+        assignedCustomerToken = await customerSession.evalCode(`
+          localStorage.getItem('bongplay_my_queue_token')
         `);
         break;
       }
@@ -461,8 +491,8 @@ async function runE2E() {
 
     assert.ok(assignedQueueNumber, '서약 완료 후 공식 대기번호가 발급되어야 함');
     assert.equal(assignedQueueNumber, '#001', '첫 번째 접수팀은 #001을 발급받아야 함');
-    assert.ok(assignedQueueId, '대기열 ID가 발급되어야 함');
-    console.log(`  ✔ [PASS] 공식 대기번호 발급 완료: ${assignedQueueNumber} (ID: ${assignedQueueId}) [${Date.now() - step1Start}ms]`);
+    assert.ok(assignedCustomerToken, '비밀 고객 토큰이 발급되어야 함');
+    console.log(`  ✔ [PASS] 공식 대기번호 발급 완료: ${assignedQueueNumber} (Token: ${assignedCustomerToken.substring(0, 10)}...) [${Date.now() - step1Start}ms]`);
 
     // -------------------------------------------------------------------------
     // 단계 2: 고객 대기 순서 확인 화면 (queue-status.html)
@@ -470,7 +500,8 @@ async function runE2E() {
     console.log('\n▶ [단계 2] 고객 모바일 대기 순서 실시간 확인 화면');
     const step2Start = Date.now();
 
-    await statusSession.navigate(`${BASE_URL}/pages/queue-status.html?id=${assignedQueueId}`);
+    // [R2 Fix 1] 토큰으로 안전 조회 (공개 ID 우회 차단)
+    await statusSession.navigate(`${BASE_URL}/pages/queue-status.html?token=${assignedCustomerToken}`);
 
     let statusPillText = null;
     let aheadCountText = null;
@@ -589,15 +620,20 @@ async function runE2E() {
         if (q) {
           await BongplayQueue.completeIssuance(q.id, 'ord_e2e_001', ['tkt_e2e_1', 'tkt_e2e_2']);
           currentCalledQueueEntry = null;
-          refreshDeskQueueView();
+          await refreshDeskQueueView();
         }
       })()
     `);
 
     // 1) 매표소 데스크 호출 슬롯이 비워졌는지 확인
-    const deskEmptyAfter = await deskSession.evalCode(`
-      !document.getElementById('deskCalledEmptyBox').classList.contains('hidden')
-    `);
+    let deskEmptyAfter = false;
+    for (let i = 0; i < 25; i++) {
+      await new Promise(r => setTimeout(r, 200));
+      deskEmptyAfter = await deskSession.evalCode(`
+        !document.getElementById('deskCalledEmptyBox').classList.contains('hidden')
+      `);
+      if (deskEmptyAfter) break;
+    }
     assert.ok(deskEmptyAfter, '발권 완료 후 매표소 호출 슬롯이 비워져야 함');
 
     // 2) 고객 모바일 화면: "발권 완료" 상태로 전환 확인
