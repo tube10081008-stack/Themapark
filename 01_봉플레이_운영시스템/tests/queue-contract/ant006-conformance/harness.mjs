@@ -48,8 +48,13 @@ export async function createDb({ supabaseDefaults = true, supabaseExtensions = f
     create table private.app_settings (key text primary key, value text not null, updated_at timestamptz default now());
     create table private.auth_attempts (id bigserial primary key, client_ip text, ok boolean not null, attempted_at timestamptz not null default now());
     create table public.safety_consents (id text primary key, guardian_name text, created_date date);
+    -- order_items: FINAL_SUPABASE_SETUP.sql 의 기본 열(category/unit_price/total_price) + 추가 열(product_category/list_price/
+    -- discount_amount/paid_amount/consent_id/status). 매표 데스크(bongplay-id.js createOrder)는 추가 열만 채우고
+    -- total_price·category 는 쓰지 않는다 → 시험 픽스처도 실제 쓰기 형태(orderItem)로 넣는다.
     create table public.order_items (item_id text primary key, order_id text not null, product_id text, category text,
-      unit_price bigint default 0, quantity int default 1, total_price bigint default 0, site_id text default 'bongplay_bonghwa');
+      unit_price bigint default 0, quantity int default 1, total_price bigint default 0, site_id text default 'bongplay_bonghwa',
+      product_category text, list_price bigint default 0, discount_amount bigint default 0, paid_amount bigint default 0,
+      consent_id text, status text default 'paid', cancelled_at timestamptz);
     create table public.order_payments (id text primary key, order_id text not null, consent_id text, method text not null,
       amount bigint not null default 0, status text default 'paid', cancelled_at timestamptz);
     create table public.ticket_ledger (ticket_id text primary key, site_id text default 'bongplay_bonghwa', consent_id text,
@@ -101,6 +106,13 @@ export async function hasParam(db, fn, param) {
   const r = await db.query(`select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public' and p.proname = $1 and $2 = any(p.proargnames)`, [fn, param]);
   return r.rows.length > 0;
+}
+
+/** 매표 데스크 createOrder 와 같은 형태로 주문 품목 1행을 넣는 SQL (total_price·category 는 채우지 않음) */
+export function orderItemSql({ item, order, product = 'tkt_basic', category = 'ticket', qty = 1, list = 15000, discount = 0, consent }) {
+  const paid = Math.max(0, list * qty - discount);
+  return `insert into public.order_items (item_id, order_id, product_id, product_category, quantity, list_price, discount_amount, paid_amount, consent_id)
+    values ('${item}','${order}','${product}','${category}',${qty},${list},${discount},${paid},${consent ? `'${consent}'` : 'null'});`;
 }
 
 export const rows = async (db, sql, params) => (await db.query(sql, params)).rows;

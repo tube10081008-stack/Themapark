@@ -8,7 +8,7 @@
 // ANT006_SQL 이 없으면 전부 건너뛴다.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ANT006_SQL, STAFF_CODE, createDb, loadMigration, callAs, rows, hasParam } from './harness.mjs';
+import { ANT006_SQL, STAFF_CODE, createDb, loadMigration, callAs, rows, hasParam, orderItemSql } from './harness.mjs';
 import { impl } from './status-map.mjs';
 
 const skip = ANT006_SQL ? false : 'ANT006_SQL 미지정 — 대상 구현 없이 건너뜀';
@@ -38,8 +38,8 @@ async function servingWithLedger(db) {
   const s = await callAs(db, 'staff', 'start_queue_processing', { p_queue_id: a.id });
   assert.equal(s.status, impl('serving'), `준비: serving 전이 실패 ${JSON.stringify(s)}`);
   await db.exec(`
-    insert into public.order_items (item_id, order_id, product_id, category, unit_price, quantity, total_price) values
-      ('it_A','ord_A','tkt_basic','ticket',15000,2,30000), ('it_B','ord_B','tkt_basic','ticket',15000,1,15000);
+    ${orderItemSql({ item: 'it_A', order: 'ord_A', qty: 2, consent: 'cst_A' })}
+    ${orderItemSql({ item: 'it_B', order: 'ord_B', qty: 1, consent: 'cst_B' })}
     insert into public.order_payments (id, order_id, consent_id, method, amount, status) values
       ('pay_A','ord_A','cst_A','card',30000,'paid'), ('pay_B','ord_B','cst_B','card',15000,'paid');
     insert into public.ticket_ledger (ticket_id, consent_id, order_id, product_id, status) values
@@ -103,7 +103,7 @@ async function prepareFor(db, fn) {
     case 'cancel_queue_team': return { p_queue_id: id };
     case 'complete_queue_issuance': {
       await asStaff('call_next_queue_team', { p_desk_no: 1 }); await asStaff('start_queue_processing', { p_queue_id: id });
-      await db.exec(`insert into public.order_items values ('it_A','ord_A','tkt_basic','ticket',15000,1,15000,'bongplay_bonghwa');
+      await db.exec(`${orderItemSql({ item: 'it_A', order: 'ord_A', qty: 1, consent: 'cst_A' })}
         insert into public.order_payments (id, order_id, consent_id, method, amount) values ('pay_A','ord_A','cst_A','card',15000);
         insert into public.ticket_ledger (ticket_id, consent_id, order_id) values ('T_A1','cst_A','ord_A');`);
       return { p_queue_id: id, p_order_id: 'ord_A', p_ticket_ids: ['T_A1'] };
@@ -247,11 +247,78 @@ test('completion from called (not yet serving) is rejected', { skip }, async () 
   const db = await freshDb();
   const a = await enqueue(db, 'cst_A', 'kA');
   await callAs(db, 'staff', 'call_next_queue_team', { p_desk_no: 1 });
-  await db.exec(`insert into public.order_items values ('it_A','ord_A','tkt_basic','ticket',15000,1,15000,'bongplay_bonghwa');
+  await db.exec(`${orderItemSql({ item: 'it_A', order: 'ord_A', qty: 1, consent: 'cst_A' })}
     insert into public.order_payments (id, order_id, consent_id, method, amount) values ('pay_A','ord_A','cst_A','card',15000);
     insert into public.ticket_ledger (ticket_id, consent_id, order_id) values ('T_A1','cst_A','ord_A');`);
   const r = await callAs(db, 'staff', 'complete_queue_issuance', { p_queue_id: a.id, p_order_id: 'ord_A', p_ticket_ids: ['T_A1'] });
   assert.ok(rejected(r), `계약 §2.1 은 ${impl('serving')}(serving) 에서만 완료 허용. called 에서 완료됨: ${JSON.stringify(r)}`);
+});
+
+// ---- 3b. R3 새 검사의 회귀 확인 — 실제 매표 데스크 주문 형태 (bongplay-id.js createOrder) -----------------
+/** A 를 serving 으로 만들고, 주어진 주문 품목·수납·티켓으로 원장을 만든다 */
+async function servingWith(db, { items, payments, tickets }) {
+  const a = await enqueue(db, 'cst_A', 'kA');
+  await enqueue(db, 'cst_B', 'kB');
+  await callAs(db, 'staff', 'call_next_queue_team', { p_desk_no: 1 });
+  await callAs(db, 'staff', 'start_queue_processing', { p_queue_id: a.id });
+  await db.exec(items.map(orderItemSql).join('\n'));
+  for (const [i, pay] of payments.entries()) {
+    await db.query(`insert into public.order_payments (id, order_id, consent_id, method, amount, status) values ($1,$2,$3,'card',$4,'paid')`,
+      [`pay_${i}`, pay.order, pay.consent ?? null, pay.amount]);
+  }
+  for (const t of tickets) {
+    await db.query(`insert into public.ticket_ledger (ticket_id, consent_id, order_id, status) values ($1,$2,$3,'active')`, [t.id, t.consent ?? null, t.order]);
+  }
+  return a;
+}
+
+test('valid mixed order (2 tickets + 1 non-ticket item) completes', { skip }, async () => {
+  // 매표 데스크는 입장권 품목에만 티켓 원장을 만든다. 음료 등 비입장권 품목은 티켓 수 대조에서 빠져야 한다.
+  const db = await freshDb();
+  const a = await servingWith(db, {
+    items: [{ item: 'i1', order: 'ord_A', qty: 2, consent: 'cst_A' },
+            { item: 'i2', order: 'ord_A', product: 'fnb_drink', category: 'food', qty: 1, list: 3000, consent: 'cst_A' }],
+    payments: [{ order: 'ord_A', consent: 'cst_A', amount: 33000 }],
+    tickets: [{ id: 'T_A1', order: 'ord_A', consent: 'cst_A' }, { id: 'T_A2', order: 'ord_A', consent: 'cst_A' }]
+  });
+  const r = await callAs(db, 'staff', 'complete_queue_issuance', { p_queue_id: a.id, p_order_id: 'ord_A', p_ticket_ids: ['T_A1', 'T_A2'] });
+  assert.equal(r.ok, true, `정상 혼합 주문의 발권 완료가 거부됨 (오거부): ${JSON.stringify(r)}`);
+});
+
+test('valid discounted order (paid equals discounted amount) completes', { skip }, async () => {
+  // 봉화군민 20% 등 할인 주문: 수납액 = 할인 후 금액(paid_amount 합). 정가 기준으로 부분 수납 판정하면 오거부.
+  const db = await freshDb();
+  const a = await servingWith(db, {
+    items: [{ item: 'i1', order: 'ord_A', qty: 2, discount: 6000, consent: 'cst_A' }],
+    payments: [{ order: 'ord_A', consent: 'cst_A', amount: 24000 }],
+    tickets: [{ id: 'T_A1', order: 'ord_A', consent: 'cst_A' }, { id: 'T_A2', order: 'ord_A', consent: 'cst_A' }]
+  });
+  const r = await callAs(db, 'staff', 'complete_queue_issuance', { p_queue_id: a.id, p_order_id: 'ord_A', p_ticket_ids: ['T_A1', 'T_A2'] });
+  assert.equal(r.ok, true, `할인 주문의 발권 완료가 거부됨 (오거부): ${JSON.stringify(r)}`);
+});
+
+test('completion rejects an order whose rows carry no consent link (ownership must be proven, not merely not contradicted)', { skip }, async () => {
+  // 서약서 연결이 없는 주문(예: 다른 판매 채널)이 아무 대기 팀의 발권 완료에 쓰이면 안 된다.
+  const db = await freshDb();
+  const a = await servingWith(db, {
+    items: [{ item: 'i1', order: 'ord_X', qty: 1 }],
+    payments: [{ order: 'ord_X', amount: 15000 }],
+    tickets: [{ id: 'T_X1', order: 'ord_X' }]
+  });
+  const r = await callAs(db, 'staff', 'complete_queue_issuance', { p_queue_id: a.id, p_order_id: 'ord_X', p_ticket_ids: ['T_X1'] });
+  assert.ok(rejected(r), `서약서 연결 없는 주문으로 A 팀 완료: ${JSON.stringify(r)}`);
+  assert.equal((await statusOf(db, a.id)).status, impl('serving'));
+});
+
+test('completion rejects more tickets than the order quantity', { skip }, async () => {
+  const db = await freshDb();
+  const a = await servingWith(db, {
+    items: [{ item: 'i1', order: 'ord_A', qty: 2, consent: 'cst_A' }],
+    payments: [{ order: 'ord_A', consent: 'cst_A', amount: 30000 }],
+    tickets: [{ id: 'T_A1', order: 'ord_A', consent: 'cst_A' }, { id: 'T_A2', order: 'ord_A', consent: 'cst_A' }, { id: 'T_A3', order: 'ord_A', consent: 'cst_A' }]
+  });
+  const r = await callAs(db, 'staff', 'complete_queue_issuance', { p_queue_id: a.id, p_order_id: 'ord_A', p_ticket_ids: ['T_A1', 'T_A2', 'T_A3'] });
+  assert.ok(rejected(r), `주문 2매에 티켓 3매로 완료: ${JSON.stringify(r)}`);
 });
 
 // ---- 4. 동일 완료 요청 재시도 (계약 §7·§9.2) ---------------------------------------------
