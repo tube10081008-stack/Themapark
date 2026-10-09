@@ -6,14 +6,25 @@
 //   - Supabase 기본 권한: public 스키마 새 함수에 anon·authenticated EXECUTE 자동 부여 (supabaseDefaults)
 //   - pgcrypto 를 extensions 스키마에 설치 (supabaseExtensions) 또는 public 에 설치
 //   - 01 운영 스키마의 safety_consents·order_items·order_payments·ticket_ledger 중 시험에 필요한 열
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import path from 'node:path';
 
 const pgliteDir = process.env.PGLITE_DIR;
 const { PGlite } = await import(pgliteDir ? pathToFileURL(pgliteDir + '/dist/index.js').href : '@electric-sql/pglite');
 const { pgcrypto } = await import(pgliteDir ? pathToFileURL(pgliteDir + '/dist/contrib/pgcrypto.js').href : '@electric-sql/pglite/contrib/pgcrypto');
 
 export const ANT006_SQL = process.env.ANT006_SQL || null;
+export const STAFF_CODE = 'SENTINEL-STAFF-CODE';   // 합성 운영자 암호 (운영 값 아님)
+export const WRONG_CODE = 'SENTINEL-WRONG-CODE';
+
+/** 대상 체크아웃의 01 운영 스키마(FINAL_SUPABASE_SETUP.sql)에서 private.verify_access_code 원문을 가져온다 */
+function repoVerifyAccessCode() {
+  const f = ANT006_SQL ? path.join(path.dirname(ANT006_SQL), 'FINAL_SUPABASE_SETUP.sql') : null;
+  if (!f || !existsSync(f)) return null;
+  const m = readFileSync(f, 'utf8').match(/create or replace function private\.verify_access_code[\s\S]*?\n\$\$;/i);
+  return m ? m[0] : null;
+}
 
 export async function createDb({ supabaseDefaults = true, supabaseExtensions = false } = {}) {
   const db = new PGlite({ extensions: { pgcrypto } });
@@ -29,6 +40,13 @@ export async function createDb({ supabaseDefaults = true, supabaseExtensions = f
       select nullif((nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'), '')::uuid $$;
     grant execute on function auth.role(), auth.uid() to anon, authenticated;
     create extension if not exists pgcrypto schema ${supabaseExtensions ? 'extensions' : 'public'};
+    ${supabaseExtensions ? '' : `create or replace function extensions.crypt(text, text) returns text language sql as $f$ select public.crypt($1, $2) $f$;
+    create or replace function extensions.gen_salt(text) returns text language sql as $f$ select public.gen_salt($1) $f$;`}
+    -- 01 운영 스키마의 직원 암호 저장소 (FINAL_SUPABASE_SETUP.sql 과 같은 구조)
+    create schema if not exists private;
+    revoke all on schema private from public;
+    create table private.app_settings (key text primary key, value text not null, updated_at timestamptz default now());
+    create table private.auth_attempts (id bigserial primary key, client_ip text, ok boolean not null, attempted_at timestamptz not null default now());
     create table public.safety_consents (id text primary key, guardian_name text, created_date date);
     create table public.order_items (item_id text primary key, order_id text not null, product_id text, category text,
       unit_price bigint default 0, quantity int default 1, total_price bigint default 0, site_id text default 'bongplay_bonghwa');
@@ -37,6 +55,9 @@ export async function createDb({ supabaseDefaults = true, supabaseExtensions = f
     create table public.ticket_ledger (ticket_id text primary key, site_id text default 'bongplay_bonghwa', consent_id text,
       order_id text, product_id text, status text default 'active', cancelled_at timestamptz, issued_at timestamptz default now());
   `);
+  const verify = repoVerifyAccessCode();
+  if (verify) await db.exec(verify);
+  await db.query(`insert into private.app_settings (key, value) values ('access_code', extensions.crypt($1, extensions.gen_salt('bf')))`, [STAFF_CODE]);
   if (supabaseDefaults) {
     await db.exec(`alter default privileges in schema public grant execute on functions to anon, authenticated;`);
   }
@@ -55,6 +76,10 @@ export async function callAs(db, who, fn, args = {}) {
     : who === 'staff' ? { role: 'authenticated', sub: '00000000-0000-4000-8000-0000000000bb', app_metadata: { role: 'staff' } }
     : null;
   const role = who === 'owner' ? null : (who === 'anon' ? 'anon' : 'authenticated');
+  // 대상 함수가 p_access_code 를 받으면(R2 이후) 신원에 맞는 코드를 자동으로 넣는다. 명시한 값이 있으면 그대로 쓴다.
+  if (!('p_access_code' in args) && (await hasParam(db, fn, 'p_access_code'))) {
+    args = { p_access_code: who === 'staff' ? STAFF_CODE : WRONG_CODE, ...args };
+  }
   const names = Object.keys(args);
   const placeholders = names.map((k, i) => `${k} => $${i + 1}`).join(', ');
   const values = names.map((k) => (args[k] !== null && typeof args[k] === 'object' ? JSON.stringify(args[k]) : args[k]));
@@ -70,6 +95,12 @@ export async function callAs(db, who, fn, args = {}) {
   } catch (e) {
     return { sqlError: e.message, sqlCode: e.code };
   }
+}
+
+export async function hasParam(db, fn, param) {
+  const r = await db.query(`select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = $1 and $2 = any(p.proargnames)`, [fn, param]);
+  return r.rows.length > 0;
 }
 
 export const rows = async (db, sql, params) => (await db.query(sql, params)).rows;

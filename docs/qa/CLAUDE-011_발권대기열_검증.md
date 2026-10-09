@@ -301,3 +301,75 @@ ANT-006 자체 시험 `ticket_queue.test.js` 는 dd7dc19 에서 15/15 통과했�
   - (PGlite 는 단일 연결이라 재현 불가. 시험 프로젝트에서 병렬 HTTP 로 확인해야 함)
 - 브라우저 화면, GEO-008 실사용 시험표 실행
 - 운영 DB 적용·배포
+
+## 10. ANT-006 R2 재검증 (2026-10-10)
+
+### 10.1 대상과 경위
+
+| 항목 | 값 |
+|---|---|
+| 대상 | `antigravity/ANT-006-ticket-queue` **`74812700958fd18d2c87b7331c2a6fddc57fa41c`** (2026-10-09T19:00:19+09:00, "R2 4대 필수 수정"). R1 `dd7dc19` 위 1커밋 |
+| 제외 | `antigravity/ANT-006-geo-synthetic-env` `4811a31` (R2 위 지오 합성 환경 커밋, 대기열 구현 변경 아님) |
+| 원격 확인 | 착수 2026-10-10T00:24:58+09:00, 제출 직전 같은 SHA |
+| 경위 | 착수 시점에 R2 재검증 결과 커밋·미푸시 결과는 **없었다** (로컬 HEAD = 원격 `8db4726`, 미커밋·stash 없음). 이번에 새로 실행했다 |
+
+### 10.2 시험 도구 변경 (R2 의 접근 코드 모델 지원)
+
+- R2 는 직원 RPC 에 `p_access_code` 를 추가하고, `private.verify_staff_permission` → 기존 `private.verify_access_code`(bcrypt·IP 잠금)로 검증한다. 계약 §9.1 방식이다.
+- **하네스** (`harness.mjs`)
+  - 대상 체크아웃의 `FINAL_SUPABASE_SETUP.sql` 에서 `private.verify_access_code` 원문을 그대로 가져온다.
+  - 합성 운영자 암호(`SENTINEL-STAFF-CODE`) 의 bcrypt 해시를 `private.app_settings` 에 넣는다.
+  - 대상 함수가 `p_access_code` 를 받으면 신원에 맞는 코드를 자동으로 넣는다: 직원은 유효 코드, anon·비직원은 틀린 코드.
+- **시험 추가·수정**
+  - 접근 코드 모델 시험: anon + 유효 코드는 허용. 코드 없음·빈 값·틀린 코드는 거부.
+  - 권한 계층 시험을 "직원 자격 인자가 **없는** 직원 RPC 에 anon EXECUTE 가 없을 것" 으로 일반화했다. 접근 코드 모델에서는 앱이 anon 키를 쓰므로 anon 실행 자체는 설계상 필요하다.
+  - 24시간 만료 장치 확인 시험을 추가했다. 계약 기준(영업일 종료) 시험과 분리했다.
+  - 결제 시험을 부분 수납 / 결제 취소로 분리했다.
+- **시험 쪽 과잉 명세 정정**: 토큰 형식 단언을 "정확히 32 hex" 에서 "128비트(32 hex) 이상, 접두어 허용" 으로 바꿨다. 계약 §11 은 형식이 아니라 엔트로피를 요구한다. R2 토큰은 `bpq_` + 32 hex 다.
+
+### 10.3 결과 (대상 `7481270`)
+
+**정적 대조** `rpc-signature.test.mjs`: **4/4 통과**
+- 클라이언트 인자와 SQL 서명이 일치한다 (R1 의 `get_customer_queue_status` 불일치 해소).
+- 직원 RPC 9종 모두 `p_access_code` 가 있다.
+
+**PGlite** `sql-conformance.test.mjs` (PostgreSQL 18.3): **38개 중 통과 32, 실패 6**
+
+| 벤 지정 항목 | R1 `dd7dc19` | R2 `7481270` |
+|---|---|---|
+| 공개 ID 로 고객 조회 거부 | 실패 | **통과** (token 전용 조회, 응답에 id 없음) |
+| 토큰 만료 — 계약 기준(영업일 종료) | 실패 | **실패** (계약 차이: 구현은 접수 후 24시간) |
+| 토큰 만료 — 구현 장치(24시간) | — | 통과 |
+| anon 직원 조작 거부 (9개, 상태 불변) | 통과 | 통과 |
+| 로그인 비직원 거부 (9개, 상태 불변) | 실패 9/9 | **통과 9/9** |
+| 접근 코드: 유효 허용 / 없음·빈 값·틀림 거부 | — | 통과 |
+| 다른 팀 티켓 | 실패 | **통과** |
+| 다른 팀 주문 | 통과 | **실패 (회귀)**: B 팀 주문 `ord_B`·티켓 `T_B1` 로 A 팀 완료가 된다. R2 원장 대조가 `order_id` 와 티켓만 보고 주문·티켓의 `consent_id` 를 보지 않는다 |
+| 취소 티켓 | 실패 | 통과 (`cancelled_at IS NULL` 조건) |
+| 원장에 없는 티켓 포함 | 실패 | 통과 |
+| 주문 수량보다 적은 티켓 | 실패 | **실패**: 주문 2매인데 `p_ticket_ids` 1매·원장 1매로 완료된다 (요청 티켓 수와만 비교) |
+| 결제 없음 | 실패 | 통과 |
+| 결제 취소 | 실패 | 통과 |
+| 부분 수납 | 실패 | **실패**: 수납 10,000 < 주문 30,000 인데 완료된다 (`paid` 행 존재만 확인, 금액 합계 미대조) |
+| 동일 완료 재시도 | 실패 | **통과** (같은 성공·`duplicate:true`, 행 불변) |
+| 완료 후 다른 주문 | 통과 | 통과 |
+| `called` 에서 완료 (계약 §2.1) | 실패 | **실패**: 구현은 `called`·`processing` 모두 허용 |
+| Supabase `extensions` 스키마의 pgcrypto | 실패 | **실패**: `enqueue_consent_team` 이 `SET search_path = public, pg_temp` 에서 비한정 `gen_random_bytes` 를 호출해 42883. 01 운영 스키마 스스로 `create extension pgcrypto with schema extensions` 다 (`FINAL_SUPABASE_SETUP.sql`). 그대로 적용하면 **모든 접수가 실패**할 수 있다 (실환경 미확인) |
+
+ANT-006 자체 시험 `ticket_queue.test.js`: R2 에서 19/19 통과 (메모리 저장소 대상).
+기존 계약 시험 `contract.test.mjs`: 25/25 통과.
+
+### 10.4 소스 관찰 (시험 외, 실환경 확인 필요)
+
+- **고객 요청 제한이 토큰 단위다**: 토큰을 추측하는 공격은 매번 다른 토큰을 쓰므로 제한되지 않는다. 존재하지 않는 토큰도 검증 전에 `ticket_queue_rate_limits` 에 행을 만든다 (무한 증가). 출처(IP 등) 단위 제한이 필요하다 (계약 §11, 결정 요청 B5).
+- **`verify_staff_permission` 의 시설 허용 목록**이 `('bongplay_bonghwa', 'gijang-main')` 으로 하드코딩되어 있다. `gijang-main` 의 근거를 확인해야 한다.
+- **같은 창구 활성 1팀 검사**가 여전히 잠금 없는 `EXISTS` 다. 두 단말이 같은 창구로 동시에 호출하면 둘 다 통과할 수 있다 (동시 연결 미검증).
+- **`consent.html` 771행**이 여전히 제출마다 새 동의서 id 를 만든다. 새로고침 후 재제출하면 새 번호가 생긴다.
+- 고객 토큰은 `queue-status.html?token=` URL 에 들어간다. `Referrer-Policy: strict-origin-when-cross-origin` 이라 외부 CDN 요청에는 출처만 전달된다. 링크 공유·기록 노출은 GEO-008 V-05 대상이다.
+
+### 10.5 미실행 (구현 통과로 표시하지 않음)
+
+- 실제 Supabase/PostgREST: 인자 해석, 기본 권한·RLS, pgcrypto 위치, `verify_access_code` 의 `request.headers` IP 추출
+- 동시 연결: 같은 창구 동시 호출, 같은 키 동시 접수, 같은 팀 동시 완료
+- 브라우저 화면, GEO-008 실행
+- 운영 DB 적용·배포
