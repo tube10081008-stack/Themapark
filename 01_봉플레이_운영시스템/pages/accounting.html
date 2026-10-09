@@ -22,6 +22,7 @@
     .btn-p { background: #f59e0b; color: #0f172a; border-color: #f59e0b; }
     .btn-p:hover { background: #fbbf24; }
     .btn-d { border-color: #7f1d1d; color: #fca5a5; }
+    .btn:disabled, .btn:disabled:hover { opacity: .4; cursor: not-allowed; background: #1e293b; color: #94a3b8; border-color: #334155; }
     .card { background: #0b1222; border: 1px solid #1e293b; border-radius: 16px; padding: 14px; }
     .scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     details > summary { cursor: pointer; list-style: none; }
@@ -68,56 +69,69 @@
   /* ---------- 상태 (이 기기 브라우저에 저장 — 백업은 ⑦ 마감 탭) ---------- */
   function loadState() {
     try { const s = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); if (s && s.version === 1) return s; } catch (e) {}
-    return { version: 1, manual: [], schedules: [], chartExtra: [], locks: {}, settings: { autoSalesStart: '', closedYears: [], manualSalesDates: [], cardSettleDays: 5 } };
+    return { version: 1, manual: [], schedules: [], chartExtra: [], locks: {}, salesReviews: {}, settings: { closedYears: [], cardSettleDays: 5 } };
   }
   function saveState() {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { alert('브라우저 저장소에 쓰지 못했습니다. ⑦ 마감 탭에서 백업 파일을 받아 두세요.\n' + e.message); }
   }
   let state = loadState();
-  state.settings = Object.assign({ autoSalesStart: '', closedYears: [], manualSalesDates: [], cardSettleDays: 5 }, state.settings || {});
+  state.settings = Object.assign({ closedYears: [], cardSettleDays: 5 }, state.settings || {});
+  state.salesReviews = state.salesReviews || {};
 
-  /* ---------- ① 원천 데이터: 로컬(POS 기기) + 서버 기간 조회 ---------- */
+  /* ---------- ① 원천: 서버 키 기반 완전 조회 스냅샷 ----------
+     · 공통 정책(bongplay-site.js accounting)의 자동매출 시작일 ~ 기준월 말일을 통째로 받는다 (누적 잔액·카드 미정산까지 맞도록).
+     · 세 원천을 모두 완전하게 받았을 때만 스냅샷을 교체한다. 실패하면 마지막 정상 자료를 두고 '미완료'로 표시한다.
+     · 스냅샷은 이 화면 메모리에만 있다 (새로고침하면 다시 조회). 조회 전·서버 미설정이면 이 기기 로컬 자료를 '미확정'으로 보여 준다. */
+  const policyRaw = (window.BongplaySite && typeof BongplaySite.accountingPolicy === 'function') ? BongplaySite.accountingPolicy()
+    : { auto_sales_start: null, policy_version: '', source: '공통 설정을 불러오지 못함' };
+  const policy = A.normalizePolicy(policyRaw);
   const readLocal = k => { try { const v = JSON.parse(localStorage.getItem(k) || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; } };
-  const source = { items: [], payments: [], closings: [], server: null };
-  function mergeById(a, b) { const m = {}; a.concat(b).forEach(r => { const k = r && (r.id || r.item_id); if (k) m[k] = Object.assign({}, m[k] || {}, r); }); return Object.values(m); }
-  function loadLocalSource() {
-    source.items = mergeById(readLocal('bongplay_order_items'), source.items);
-    source.payments = mergeById(readLocal('bongplay_order_payments'), source.payments);
-    source.closings = mergeById(readLocal('bongplay_closing_records_history').map(c => Object.assign({ id: c.id || c.date }, c)), source.closings);
+  let snapshot = null, collecting = false, pendingCount = null;
+  function localSource() {
+    return { items: readLocal('bongplay_order_items'), payments: readLocal('bongplay_order_payments'),
+      closings: readLocal('bongplay_closing_records_history').map(c => Object.assign({ id: c.id || c.date }, c)) };
   }
-  async function fetchAll(table, filter) {
-    const out = []; const size = 1000;
-    for (let off = 0; off < 20000; off += size) {
-      const r = await BongplaySync.select(table, '?select=*' + filter + '&limit=' + size + '&offset=' + off);
-      if (!r || !r.ok || !Array.isArray(r.data)) return { ok: false, reason: (r && r.reason) || 'error', data: out };
-      out.push(...r.data);
-      if (r.data.length < size) break;
+  const currentSource = () => (snapshot && snapshot.data) ? snapshot.data : localSource();
+  const tm = iso => iso ? new Date(iso).toLocaleTimeString('ko-KR') : '-';
+  function sourceState() {
+    const need = A.requiredSourceRange(policyRaw, period);
+    if (!need) return { level: 'stop', text: '자동매출 시작일 미정 — 자동매출·시재 자동분개 중지 (수기 장부만 표시)' };
+    if (collecting) return { level: 'busy', text: '원천 조회 중…' };
+    const la = snapshot && snapshot.lastAttempt;
+    if (A.snapshotCovers(snapshot, need.from, need.to)) return { level: 'ok', text: `원천 완전 조회 ${need.from} ~ ${need.to} · ${tm(snapshot.fetchedAt)}` };
+    const held = snapshot && snapshot.data ? `마지막 정상 자료(${tm(snapshot.fetchedAt)}, ${snapshot.range.from} ~ ${snapshot.range.to})` : '이 기기 로컬 자료(미확정)';
+    if (la && !la.ok) return { level: 'fail', text: `원천 조회 미완료 — ${(la.failures || []).map(f => `${f.table} ${A.SOURCE_FAIL_TEXT[f.reason] || f.detail || f.reason}`).join(', ')}. ${held}로 표시 중` };
+    if (snapshot && snapshot.data) return { level: 'fail', text: `보유 자료가 ${need.from} ~ ${need.to} 를 덮지 못함 — ${held}로 표시 중, 다시 조회 필요` };
+    return { level: 'fail', text: '서버 원천을 아직 완전하게 받지 못함 — 이 기기 로컬 자료(미확정)로 표시 중' };
+  }
+  async function refreshPending() {
+    try { pendingCount = (window.BongplaySync && typeof BongplaySync.getPendingCount === 'function') ? await BongplaySync.getPendingCount() : null; }
+    catch (e) { pendingCount = null; }
+  }
+  async function collect() {
+    const need = A.requiredSourceRange(policyRaw, period);
+    if (!need || collecting) return;
+    if (!window.BongplaySync || !BongplaySync.isConfigured()) {
+      snapshot = A.applyCollectResult(snapshot, { ok: false, at: new Date().toISOString(), range: need, failures: [{ table: '-', reason: 'NOT_CONFIGURED', detail: 'Supabase 미설정' }] });
+      return;
     }
-    return { ok: true, data: out };
+    // 이미 더 넓게 받았으면 그 끝까지 다시 받는다 (범위가 줄어 자료가 사라지지 않도록)
+    const range = { from: need.from, to: (snapshot && snapshot.range && snapshot.range.to > need.to) ? snapshot.range.to : need.to };
+    collecting = true; render();
+    try {
+      const res = await A.collectSources((t, q) => BongplaySync.select(t, q), range);
+      snapshot = A.applyCollectResult(snapshot, res);
+    } finally { collecting = false; }
+    await refreshPending();
   }
-  async function loadServer(period) {
-    if (!window.BongplaySync || !BongplaySync.isConfigured()) { source.server = { ok: false, msg: 'Supabase 미설정 — 이 기기에 저장된 데이터만 사용합니다.' }; return; }
-    // 월 경계는 KST 기준 (UTC 저장값을 +09:00 로 비교)
-    const from = encodeURIComponent(period + '-01T00:00:00+09:00');
-    const to = encodeURIComponent(A.addMonths(period, 1) + '-01T00:00:00+09:00');
-    const [it, pa, cl] = await Promise.all([
-      fetchAll('order_items', '&purchased_at=gte.' + from + '&purchased_at=lt.' + to),
-      fetchAll('order_payments', '&paid_at=gte.' + from + '&paid_at=lt.' + to),
-      fetchAll('closing_records', '&date=gte.' + period + '-01&date=lte.' + A.lastDayOf(period))
-    ]);
-    source.items = mergeById(source.items, it.data);
-    source.payments = mergeById(source.payments, pa.data);
-    source.closings = mergeById(source.closings, cl.data);
-    const ok = it.ok && pa.ok && cl.ok;
-    source.server = { ok: ok, at: new Date().toLocaleTimeString('ko-KR'), msg: ok ? `서버 조회 완료 — 품목 ${it.data.length} · 결제 ${pa.data.length} · 마감 ${cl.data.length}` : '서버 조회 일부 실패 (' + [it, pa, cl].filter(x => !x.ok).map(x => x.reason).join(', ') + ') — 로컬 데이터로 계산합니다.' };
-  }
+  const readinessCtx = () => ({ policy: policyRaw, snapshot: snapshot, pendingCount: pendingCount, seal: null, today: today, nowMs: Date.now() });
 
   /* ---------- 장부 조립 ---------- */
   let books = null;
   let period = (localStorage.getItem('bongplay_accounting_period') || today.slice(0, 7));
   const pFrom = () => period + '-01', pTo = () => A.lastDayOf(period);
   function rebuild() {
-    books = A.assembleBooks(state, source, { today: today, toPeriod: period > today.slice(0, 7) ? period : undefined });
+    books = A.assembleBooks(state, currentSource(), { policy: policyRaw, today: today, toPeriod: period > today.slice(0, 7) ? period : undefined });
     render();
   }
   const inPeriod = v => v.date >= pFrom() && v.date <= pTo();
@@ -154,11 +168,13 @@
     const tb = A.trialBalance(books.lines, books.chart, { from: pFrom(), to: pTo() });
     const color = err.length ? 'text-rose-400' : warn.length ? 'text-amber-300' : 'text-emerald-400';
     const row = w => `<li class="py-1 border-b border-slate-800/60"><span class="text-[10px] font-black mr-1 ${w.level === 'error' ? 'text-rose-400' : w.level === 'warn' ? 'text-amber-300' : 'text-sky-300'}">${w.level === 'error' ? '오류' : w.level === 'warn' ? '확인' : '제안'}</span>${w.voucher ? `<span class="font-mono text-[11px] text-slate-500 mr-1">${esc(w.voucher)}</span>` : ''}${esc(w.message)}
-      ${w.code === 'DUPLICATE_SALES' ? ` <button class="btn !py-0 !px-2 ml-1" data-keepmanual="${esc(w.voucher)}">이 날은 수기 전표 유지</button>` : ''}</li>`;
+      ${w.code === 'SALES_CONFLICT_POTENTIAL' && !isLocked(A.periodOf(w.date)) ? ` <button class="btn !py-0 !px-2 ml-1" data-review-sep="${esc(w.voucher)}">별개 거래로 확인</button> <button class="btn btn-d !py-0 !px-2" data-review-dup="${esc(w.voucher)}">같은 매출(중복)로 판정</button>` : ''}
+      ${(w.code === 'SALES_CONFLICT_REVIEWED' || w.code === 'SALES_DUPLICATE_CONFIRMED') && !isLocked(A.periodOf(w.date)) ? ` <button class="btn !py-0 !px-2 ml-1" data-review-clear="${esc(w.voucher)}">검토 취소</button>` : ''}</li>`;
+    const st = sourceState();
     $('health').innerHTML = `<div class="flex items-center gap-3 flex-wrap">
       <p class="font-black ${color}">${err.length ? `오류 ${err.length}건` : warn.length ? `확인 필요 ${warn.length}건` : '장부 정상'}</p>
       <p class="text-xs text-slate-400">${period} 차변 ${fmt(tb.totalDebit)} · 대변 ${fmt(tb.totalCredit)} · ${tb.balanced ? '대차 일치' : '<b class=text-rose-400>대차 불일치</b>'}${isLocked(period) ? ' · <b class="text-rose-300">마감(잠금)된 달</b>' : ''}</p>
-      <p class="text-[11px] text-slate-500 ml-auto">${source.server ? esc(source.server.msg) : '이 기기 데이터 기준'}</p></div>
+      <p class="text-[11px] ml-auto ${st.level === 'ok' ? 'text-emerald-400' : st.level === 'busy' ? 'text-slate-400' : 'text-amber-300'}">${esc(st.text)}</p></div>
       ${ws.length ? `<details class="mt-2" ${err.length ? 'open' : ''}><summary class="text-xs text-slate-400 font-bold">점검 결과 ${ws.length}건 보기 (오류 ${err.length} · 확인 ${warn.length} · 제안 ${info.length})</summary><ul class="mt-1 text-xs text-slate-300">${err.concat(warn, info).map(row).join('')}</ul></details>` : ''}`;
   }
 
@@ -174,10 +190,11 @@
   const VIEWS = {};
 
   VIEWS.collect = () => {
-    const its = source.items.filter(i => { const d = A.kstDate(i.purchased_at || i.created_at); return d >= pFrom() && d <= pTo(); });
+    const src = currentSource(), st = sourceState();
+    const its = src.items.filter(i => { const d = A.kstDate(i.purchased_at || i.created_at); return d >= pFrom() && d <= pTo(); });
     const live = its.filter(i => i.status !== 'cancelled');
-    const pays = source.payments.filter(p => { const d = A.kstDate(p.paid_at || p.created_at); return d >= pFrom() && d <= pTo() && p.status !== 'cancelled'; });
-    const cls = source.closings.filter(c => String(c.date || '').slice(0, 7) === period);
+    const pays = src.payments.filter(p => { const d = A.kstDate(p.paid_at || p.created_at); return d >= pFrom() && d <= pTo() && p.status !== 'cancelled'; });
+    const cls = src.closings.filter(c => String(c.date || '').slice(0, 7) === period);
     const man = state.manual.filter(inPeriod);
     const byM = {}; pays.forEach(p => { byM[p.method] = (byM[p.method] || 0) + Number(p.amount || 0); });
     const rules = Object.keys(A.METHOD_RULES).map(m => `<tr><td>${m}</td><td><span class="font-mono text-slate-400">${A.METHOD_RULES[m].code}</span> ${esc(acctName(A.METHOD_RULES[m].code))}</td><td class="num">${fmt(byM[m] || 0)}</td><td class="text-slate-400">${esc(A.METHOD_RULES[m].note)}</td></tr>`).join('');
@@ -189,14 +206,17 @@
         <tr><td>이용권(ticket*) · 체험/짚코스터(addon_attraction)</td><td><span class="font-mono text-slate-400">401</span> 체험·입장료수입</td><td rowspan="2" class="text-slate-400">결제액은 부가세 포함가 → 세액 = 합계÷11 (원 단위 반올림)을 220 부가세예수금으로, 나머지를 공급가액으로</td></tr>
         <tr><td>F&amp;B(fnb) · 굿즈(merchandise)</td><td><span class="font-mono text-slate-400">403</span> 매점매출</td></tr>
         <tr><td colspan="3" class="text-slate-400">발권취소(cancelled)는 제외 · 마감 시재 과부족은 잡이익(410)/잡비(530)로 자동 정리</td></tr></tbody></table></div></div>
-    <div class="card mt-3"><p class="font-black mb-2">설정</p>
-      <div class="grid sm:grid-cols-2 gap-3 text-sm">
-        <label class="block"><span class="text-xs text-slate-400 font-bold">자동 매출 전표 시작일</span><input type="date" class="inp mt-1" id="setAutoStart" value="${esc(state.settings.autoSalesStart)}">
-          <span class="text-[11px] text-slate-500">이 날짜 이전 매출은 엑셀에서 손으로 쓴 전표를 그대로 씁니다 (이중 계상 방지). 비우면 모든 날짜 자동.</span></label>
-        <label class="block"><span class="text-xs text-slate-400 font-bold">카드 미정산 경고 기준(일)</span><input type="number" min="1" class="inp mt-1" id="setCardDays" value="${esc(state.settings.cardSettleDays)}">
-          <span class="text-[11px] text-slate-500">카드매출이 이 기간 넘게 통장에 안 들어오면 경고합니다.</span></label>
-      </div>
-      ${state.settings.manualSalesDates.length ? `<p class="text-xs text-slate-400 mt-2">수기 매출 유지 날짜: ${state.settings.manualSalesDates.map(d => `<span class="font-mono">${esc(d)}</span> <button class="text-rose-300" data-unkeep="${esc(d)}">✕</button>`).join(' · ')}</p>` : ''}
+    <div class="card mt-3"><p class="font-black mb-2">자동매출 정책 <span class="text-xs text-slate-500 font-bold">공통 설정 · 읽기 전용</span></p>
+      <table class="tbl"><tbody>
+        <tr><td style="width:140px">자동매출 시작일</td><td class="${policy.autoSalesStart ? '' : 'text-amber-300 font-bold'}">${policy.autoSalesStart ? esc(policy.autoSalesStart) : '미정 (null) — 자동매출·시재 자동분개·최종 마감 중지'}</td></tr>
+        <tr><td>정책 버전</td><td>${esc(policy.version || '-')}</td></tr>
+        <tr><td>출처</td><td>${esc(policy.source || '-')}</td></tr></tbody></table>
+      <p class="text-[11px] text-slate-500 mt-2">시작일은 대표 결정 후 assets/bongplay-site.js 의 accounting.auto_sales_start 에만 기입합니다. 기기·화면에서 바꿀 수 없습니다.</p></div>
+    <div class="card mt-3"><p class="font-black mb-2">원천 조회 상태</p>
+      <p class="text-sm ${st.level === 'ok' ? 'text-emerald-400' : st.level === 'stop' ? 'text-amber-300' : 'text-rose-300'}">${esc(st.text)}</p>
+      ${snapshot && snapshot.counts ? `<p class="text-xs text-slate-400 mt-1">마지막 정상 자료: 품목 ${fmt(snapshot.counts.items)} · 결제 ${fmt(snapshot.counts.payments)} · 마감기록 ${fmt(snapshot.counts.closings)} (${esc(snapshot.range.from)} ~ ${esc(snapshot.range.to)})</p>` : ''}
+      <p class="text-xs text-slate-400 mt-1">이 기기 미전송: ${pendingCount == null ? '확인 불가' : fmt(pendingCount) + '건'} — 다른 단말의 미전송은 이 화면에서 알 수 없습니다.</p>
+      <label class="block mt-3" style="max-width:260px"><span class="text-xs text-slate-400 font-bold">카드 미정산 경고 기준(일)</span><input type="number" min="1" class="inp mt-1" id="setCardDays" value="${esc(state.settings.cardSettleDays)}"></label>
     </div>`;
   };
 
@@ -335,19 +355,21 @@
 
   VIEWS.close = () => {
     const y = period.slice(0, 4);
-    const err = books.warnings.filter(w => w.level === 'error');
     const closed = (state.settings.closedYears || []).includes(y);
     const lockedList = Object.keys(state.locks || {}).sort();
+    const rd = isLocked(period) ? null : A.closeReadiness(books, period, readinessCtx());
+    const yr = closed ? null : A.attemptYearClose(state, books, y, readinessCtx());
+    const checklist = r => `<ul class="text-xs mt-2 space-y-1">${r.checks.map(c => `<li><span class="font-black ${c.ok ? 'text-emerald-400' : 'text-rose-400'}">${c.ok ? '충족' : '미충족'}</span> ${esc(c.label)} <span class="text-slate-500">— ${esc(c.detail)}</span></li>`).join('')}</ul>`;
     return `<div class="grid lg:grid-cols-2 gap-4">
       <div class="card"><p class="font-black mb-1">월 마감 (잠금)</p>
         <p class="text-xs text-slate-400 mb-3">잠그면 그 달의 자동 전표가 지금 상태로 고정되고 수기 전표를 바꿀 수 없습니다. 이후 발권취소 등이 생기면 경고만 띄우고, 정정은 다음 달 전표로 합니다.</p>
         ${isLocked(period) ? `<p class="text-sm mb-2">${period} 은 <b class="text-rose-300">${esc(new Date(state.locks[period].locked_at).toLocaleString('ko-KR'))}</b>에 마감됐습니다.</p><button class="btn btn-d" id="unlockBtn">마감 해제</button>`
-          : `<button class="btn btn-p" id="lockBtn" ${err.length ? 'disabled title="오류를 먼저 해결하세요"' : ''}>${period} 마감하기</button>${err.length ? `<p class="text-xs text-rose-400 mt-2">오류 ${err.length}건이 있어 마감할 수 없습니다.</p>` : ''}`}
+          : `<button class="btn btn-p" id="lockBtn" ${rd.ok ? '' : 'disabled title="최종 마감 조건 미충족"'}>${period} 최종 마감</button>${checklist(rd)}`}
         ${lockedList.length ? `<p class="text-xs text-slate-500 mt-3">마감된 달: ${lockedList.join(', ')}</p>` : ''}
         <hr class="border-slate-800 my-4">
         <p class="font-black mb-1">연 마감 (손익 대체)</p>
         <p class="text-xs text-slate-400 mb-2">${y}년 수익·비용을 0으로 만들고 순손익을 자본금으로 넘깁니다 (개인사업자 기준 — 법인이면 이익잉여금으로 바꿔야 함). 12월 마감 후 실행하세요.</p>
-        <button class="btn ${closed ? 'btn-d' : ''}" id="yearCloseBtn">${closed ? y + '년 연 마감 취소' : y + '년 연 마감 분개 생성'}</button></div>
+        <button class="btn ${closed ? 'btn-d' : ''}" id="yearCloseBtn" ${closed || yr.ok ? '' : 'disabled title="연 마감 조건 미충족"'}>${closed ? y + '년 연 마감 취소' : y + '년 연 마감 분개 생성'}</button>${yr ? checklist(yr.readiness || { checks: [] }) : ''}</div>
       <div class="card"><p class="font-black mb-1">엑셀로 내보내기</p>
         <p class="text-xs text-slate-400 mb-3">회계_최소셋.xlsx '전표' 시트 A7 칸에 그대로 붙여넣을 수 있는 형식입니다 (A~J 열).</p>
         <div class="flex flex-wrap gap-2">
@@ -411,13 +433,26 @@
     try {
       if (t.dataset.step) { step = t.dataset.step; localStorage.setItem('bongplay_accounting_step', step); render(); return; }
       if (t.dataset.tb) { tbMode = t.dataset.tb; render(); return; }
-      if (t.dataset.del) { if (!confirm(t.dataset.del + ' 전표를 삭제할까요?')) return; e.preventDefault(); state.manual = state.manual.filter(v => v.no !== t.dataset.del); saveState(); rebuild(); return; }
-      if (t.dataset.keepmanual) { const v = state.manual.find(x => x.no === t.dataset.keepmanual); if (v && !state.settings.manualSalesDates.includes(v.date)) state.settings.manualSalesDates.push(v.date); saveState(); rebuild(); return; }
-      if (t.dataset.unkeep) { state.settings.manualSalesDates = state.settings.manualSalesDates.filter(d => d !== t.dataset.unkeep); saveState(); rebuild(); return; }
+      if (t.dataset.del) { if (!confirm(t.dataset.del + ' 전표를 삭제할까요?')) return; e.preventDefault(); state.manual = state.manual.filter(v => v.no !== t.dataset.del); delete state.salesReviews[t.dataset.del]; saveState(); rebuild(); return; }
+      // 잠재 충돌 검토 — 자동 삭제·상계·제외 없이 검토 기록만 남긴다 (전표가 바뀌면 서명이 달라져 재검토)
+      if (t.dataset.reviewSep) {
+        const v = state.manual.find(x => x.no === t.dataset.reviewSep); if (!v || isLocked(A.periodOf(v.date))) return;
+        const ref = (prompt(v.no + ' 를 자동 매출과 별개 거래로 확인합니다.\n원천 근거를 적으세요 (예: 세금계산서 번호, 대관 계약, 통장 입금 내역).') || '').trim();
+        if (!ref) return;
+        state.salesReviews[v.no] = { decision: 'separate', reference: ref, signature: A.voucherSignature(v), reviewed_at: new Date().toISOString(), policy_version: policy.version };
+        saveState(); rebuild(); return;
+      }
+      if (t.dataset.reviewDup) {
+        const v = state.manual.find(x => x.no === t.dataset.reviewDup); if (!v || isLocked(A.periodOf(v.date))) return;
+        if (!confirm(v.no + ' 를 자동 매출과 같은 매출(중복)로 판정합니다.\n수기 전표는 자동으로 지우지 않으며, 직접 정정·삭제할 때까지 오류로 남습니다.')) return;
+        state.salesReviews[v.no] = { decision: 'duplicate', reference: '', signature: A.voucherSignature(v), reviewed_at: new Date().toISOString(), policy_version: policy.version };
+        saveState(); rebuild(); return;
+      }
+      if (t.dataset.reviewClear) { if (!confirm(t.dataset.reviewClear + ' 검토 기록을 취소할까요?')) return; delete state.salesReviews[t.dataset.reviewClear]; saveState(); rebuild(); return; }
       if (t.dataset.togsch) { const s = state.schedules[Number(t.dataset.togsch)]; s.disabled = !s.disabled; saveState(); rebuild(); return; }
       if (t.dataset.delsch) { if (!confirm('일정을 삭제할까요? 이미 마감된 달의 분개는 남습니다.')) return; state.schedules.splice(Number(t.dataset.delsch), 1); saveState(); rebuild(); return; }
       switch (t.id) {
-        case 'reloadBtn': t.disabled = true; t.textContent = '불러오는 중…'; loadLocalSource(); await loadServer(period); t.disabled = false; t.textContent = '불러오기'; rebuild(); break;
+        case 'reloadBtn': t.disabled = true; t.textContent = '불러오는 중…'; try { await collect(); } finally { t.disabled = false; t.textContent = '불러오기'; } rebuild(); break;
         case 'tplPreviewBtn': { const { r } = tplBuild(); $('tplPreview').innerHTML = voucherTable([{ no: '(미리보기)', date: readTplFields().__date, source: 'manual', title: r.title, lines: r.lines }], { open: true }) + (r.schedule ? `<p class="text-xs text-violet-300">저장하면 ${r.schedule.kind === 'dep' ? '감가상각' : '기간배분'} 일정(${r.schedule.months}개월, ${r.schedule.start}~)이 함께 등록됩니다.</p>` : ''); break; }
         case 'tplSaveBtn': {
           const { r, date } = tplBuild();
@@ -435,13 +470,23 @@
           const s = kind === 'dep' ? { kind: 'dep', name: g('name'), asset_code: g('code') || '160', cost: total, salvage: 0, months: months, start: g('start') }
             : { kind: 'amort', name: g('name'), expense_code: g('code') || '510', prepaid_code: '190', total: total, months: months, start: g('start') };
           s.id = 'm' + Date.now().toString(36); state.schedules.push(s); saveState(); rebuild(); break; }
-        case 'lockBtn': if (!confirm(period + ' 을 마감할까요? 자동 전표가 현재 상태로 고정됩니다.')) return;
-          state.locks[period] = { locked_at: new Date().toISOString(), snapshot: A.lockSnapshot(books, period) }; saveState(); rebuild(); break;
+        case 'lockBtn': {
+          if (!confirm(period + ' 최종 마감을 시도합니다. 원천을 다시 조회하고 모든 조건을 재검사합니다.')) return;
+          await collect(); rebuild();                                   // 마감 직전 재조회·재검사
+          const r = A.attemptLock(state, books, period, readinessCtx());  // 버튼과 같은 검사 — 통과해야만 잠금 기록 생성
+          if (!r.ok) { render(); throw new Error('마감할 수 없습니다.\n' + (r.readiness ? r.readiness.checks.filter(c => !c.ok).map(c => '· ' + c.label + ' — ' + c.detail).join('\n') : r.reason)); }
+          state.locks[period] = r.lock; saveState(); rebuild(); break; }
         case 'unlockBtn': if (!confirm(period + ' 마감을 해제할까요? 자동 전표가 최신 원천 데이터로 다시 계산됩니다.')) return;
           delete state.locks[period]; saveState(); rebuild(); break;
         case 'yearCloseBtn': { const y = period.slice(0, 4); const ys = state.settings.closedYears;
           if (ys.includes(y)) { if (!confirm(y + '년 연 마감을 취소할까요?')) return; state.settings.closedYears = ys.filter(x => x !== y); }
-          else { if (!confirm(y + '년 수익·비용을 자본금으로 대체하는 마감분개를 만들까요?')) return; ys.push(y); }
+          else {
+            if (!confirm(y + '년 수익·비용을 자본금으로 대체하는 마감분개를 만들까요? 원천을 다시 조회하고 조건을 재검사합니다.')) return;
+            await collect(); rebuild();
+            const r = A.attemptYearClose(state, books, y, readinessCtx());
+            if (!r.ok) { render(); throw new Error('연 마감할 수 없습니다.\n' + (r.readiness ? r.readiness.checks.filter(c => !c.ok).map(c => '· ' + c.label + ' — ' + c.detail).join('\n') : r.reason)); }
+            state.settings.closedYears.push(y);
+          }
           saveState(); rebuild(); break; }
         case 'copyTsvBtn': { const tsv = A.toTsv(A.toMinisetRows(exportVouchers())); await navigator.clipboard.writeText(tsv); alert('복사했습니다. 엑셀 전표 시트의 빈 행 A열을 클릭하고 붙여넣으세요 (Ctrl+V).'); break; }
         case 'csvBtn': download(`봉플레이_전표_${period}.csv`, A.toCsv([A.MINISET_HEADER].concat(A.toMinisetRows(exportVouchers())))); break;
@@ -455,10 +500,9 @@
   document.addEventListener('change', async (e) => {
     const el = e.target;
     try {
-      if (el.id === 'periodInput' && el.value) { period = el.value; localStorage.setItem('bongplay_accounting_period', period); rebuild(); loadServer(period).then(rebuild); }
+      if (el.id === 'periodInput' && el.value) { period = el.value; localStorage.setItem('bongplay_accounting_period', period); rebuild(); collect().then(rebuild); }
       if (el.id === 'tplSel') { tplId = el.value; render(); }
       if (el.id === 'ledgerSel') { ledgerCode = el.value; render(); }
-      if (el.id === 'setAutoStart') { state.settings.autoSalesStart = el.value; saveState(); rebuild(); }
       if (el.id === 'setCardDays') { state.settings.cardSettleDays = Math.max(1, Number(el.value) || 5); saveState(); rebuild(); }
       if (el.id === 'importFile' && el.files[0]) {
         const X = await loadXlsx();
@@ -476,7 +520,8 @@
         const s = JSON.parse(await el.files[0].text());
         if (!s || s.version !== 1 || !Array.isArray(s.manual)) throw new Error('봉플레이 회계 백업 파일이 아닙니다.');
         if (!confirm(`백업(수기 전표 ${s.manual.length}장)으로 현재 장부를 교체할까요?`)) return;
-        state = s; saveState(); el.value = ''; rebuild();
+        state = s; state.salesReviews = state.salesReviews || {}; state.settings = Object.assign({ closedYears: [], cardSettleDays: 5 }, state.settings || {});
+        saveState(); el.value = ''; rebuild();
       }
     } catch (err) { alert(err.message || String(err)); if (el.type === 'file') el.value = ''; }
   });
@@ -508,9 +553,8 @@
 
   /* ---------- 시작 ---------- */
   $('periodInput').value = period;
-  loadLocalSource();
   rebuild();
-  if (window.BongplaySync && BongplaySync.isConfigured()) loadServer(period).then(rebuild);
+  refreshPending().then(collect).then(rebuild);
 })();
 </script>
 </body>

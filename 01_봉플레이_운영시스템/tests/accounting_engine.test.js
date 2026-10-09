@@ -139,20 +139,23 @@ test('연 마감: 손익계정 0, 자본 대체, 재무상태표 평형', () => 
   assert.equal(tb.rows.find(r => r.code === '301').cumulative, -(10000000 + 2500000 - 200000));
 });
 
-test('검증: 수기·자동 매출 중복, 부가세 H열 누락, 카드 미정산 경과', () => {
+const POLICY = { auto_sales_start: '2026-10-01', policy_version: 'acct-auto-sales/1', source: '합성 시험' };
+
+test('검증: 수기·자동 매출 잠재 충돌, 부가세 H열 누락, 카드 미정산 경과', () => {
   const manualSales = { no: 'V-2026-10-005', date: '2026-10-03', lines: [
     { evidence: '카드전표', memo: '일일매출', code: '103', debit: 11000, credit: 0, vat: 0 },
     { evidence: '기타', memo: '부가세', code: '220', debit: 0, credit: 1000, vat: 0 },
     { evidence: '카드전표', memo: '매출', code: '401', debit: 0, credit: 10000, vat: 0 }] };
   const items = [item('x', 'ox', 'ticket', 11000, '2026-10-03T02:00:00Z')];
   const pays = [pay('xp', 'ox', 'card', 11000, '2026-10-03T02:00:00Z')];
-  const books = A.assembleBooks({ manual: [manualSales] }, { items: items, payments: pays }, { today: '2026-10-20' });
+  const books = A.assembleBooks({ manual: [manualSales] }, { items: items, payments: pays }, { policy: POLICY, today: '2026-10-20' });
   const codes = books.warnings.map(w => w.code);
-  assert.ok(codes.includes('DUPLICATE_SALES'));
+  assert.ok(codes.includes('SALES_CONFLICT_POTENTIAL'));
   assert.ok(codes.includes('VAT_LINE_MISMATCH'));
   assert.ok(codes.includes('CARD_UNSETTLED'));
-  const fixed = A.assembleBooks({ manual: [manualSales], settings: { autoSalesStart: '2026-10-04' } }, { items: items, payments: pays }, { today: '2026-10-05' });
-  assert.ok(!fixed.warnings.some(w => w.code === 'DUPLICATE_SALES'), '자동매출 시작일 이후로 미루면 중복 해소');
+  assert.ok(books.vouchers.some(v => v.no === 'S-2026-10-03') && books.vouchers.some(v => v.no === 'V-2026-10-005'), '자동 삭제·제외 없음');
+  const later = A.assembleBooks({ manual: [manualSales] }, { items: items, payments: pays }, { policy: Object.assign({}, POLICY, { auto_sales_start: '2026-10-04' }), today: '2026-10-05' });
+  assert.ok(!later.warnings.some(w => w.code === 'SALES_CONFLICT_POTENTIAL'), '공통 정책 시작일 이전 매출은 수기 전표가 원천');
 });
 
 test('엑셀 전표 시트 왕복: 내보내기 → 불러오기 동일', () => {
@@ -168,9 +171,9 @@ test('엑셀 전표 시트 왕복: 내보내기 → 불러오기 동일', () => 
 test('월 잠금: 스냅샷 고정, 이후 발권취소는 경고만', () => {
   const items = [item('a', 'o', 'ticket', 11000, '2026-10-06T01:00:00Z')];
   const pays = [pay('p', 'o', 'card', 11000, '2026-10-06T01:00:00Z')];
-  const books = A.assembleBooks({}, { items: items, payments: pays }, { today: '2026-11-02' });
+  const books = A.assembleBooks({}, { items: items, payments: pays }, { policy: POLICY, today: '2026-11-02' });
   const state = { locks: { '2026-10': { snapshot: A.lockSnapshot(books, '2026-10') } } };
-  const after = A.assembleBooks(state, { items: [Object.assign({}, items[0], { status: 'cancelled' })], payments: [Object.assign({}, pays[0], { status: 'cancelled' })] }, { today: '2026-11-02' });
+  const after = A.assembleBooks(state, { items: [Object.assign({}, items[0], { status: 'cancelled' })], payments: [Object.assign({}, pays[0], { status: 'cancelled' })] }, { policy: POLICY, today: '2026-11-02' });
   assert.ok(after.vouchers.some(v => v.no === 'S-2026-10-06'), '잠긴 달 전표 유지');
   assert.ok(after.warnings.some(w => w.code === 'LOCKED_SOURCE_CHANGED'));
 });

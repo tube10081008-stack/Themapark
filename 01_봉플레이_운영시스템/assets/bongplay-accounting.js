@@ -149,7 +149,7 @@
   /* ---------- 3. ② 분개 — 일일매출 자동 전표 ---------- */
   //  items    : order_items 행 (로컬+서버 병합, 중복 허용 — id 로 제거)
   //  payments : order_payments 행
-  //  opts     : { from, to, startDate(이 날짜부터 자동), excludeDates: [] }
+  //  opts     : { from, to, startDate(이 날짜부터 자동 — 공통 정책 auto_sales_start) }
   function buildDailySalesVouchers(items, payments, opts) {
     opts = opts || {};
     const warnings = [];
@@ -165,7 +165,7 @@
     const days = {};
     const dayOf = d => (days[d] = days[d] || { date: d, revenue: {}, debit: {}, orders: {}, unmapped: 0 });
     const inRange = d => d && (!opts.from || d >= opts.from) && (!opts.to || d <= opts.to)
-      && (!opts.startDate || d >= opts.startDate) && !(opts.excludeDates || []).includes(d);
+      && (!opts.startDate || d >= opts.startDate);
 
     its.forEach(it => {
       const d = kstDate(it.purchased_at || it.created_at);
@@ -553,12 +553,15 @@
     opts = opts || {};
     const issues = [];
     const known = {}; chart.forEach(a => { known[a.code] = a; });
-    const add = (level, code, message, no) => issues.push({ level: level, code: code, message: message, voucher: no || '' });
+    let curDate = '';
+    const add = (level, code, message, no, date) => issues.push({ level: level, code: code, message: message, voucher: no || '', date: date != null ? date : curDate });
     const salesDates = {}, addedSeen = {};
+    const reviews = opts.reviews || {};
     (vouchers || []).forEach(v => {
       if (v.source === 'auto_sales' && !/-CASH$/.test(v.no)) salesDates[v.date] = v.no;
     });
     (vouchers || []).forEach(v => {
+      curDate = v.date || '';
       const ls = v.lines || [];
       const bal = ls.reduce((s, l) => s + won(l.debit) - won(l.credit), 0);
       if (bal !== 0) add('error', 'UNBALANCED', `차변과 대변이 ${fmt(bal)}원 다릅니다.`, v.no);
@@ -572,25 +575,35 @@
         if (l.vat > 0 && known[l.code] && known[l.code].vat !== '과세') add('warn', 'VAT_ON_NON_TAXABLE', `${at}: 과세 계정이 아닌 ${l.code} 에 부가세액이 있습니다.`, v.no);
         if (known[l.code] && known[l.code].added && !opts.chartSynced && !addedSeen[l.code]) { addedSeen[l.code] = 1; add('info', 'ADDED_ACCOUNT', `${l.code} ${known[l.code].name} 은 엑셀에 없는 계정입니다. 엑셀 '계정과목' 시트에 같은 코드로 추가하세요 (${known[l.code].why || ''}).`, v.no); }
       });
-      // 수기 매출 전표와 자동 매출 전표가 같은 날 겹치면 매출이 두 번 잡힌다
-      if (v.source === 'manual' && salesDates[v.date] && ls.some(l => (l.code === '401' || l.code === '403') && l.credit) && ls.some(l => ['101', '103', '104'].includes(l.code) && l.debit))
-        add('error', 'DUPLICATE_SALES', `${v.date} 에 자동 매출전표(${salesDates[v.date]})가 있는데 수기 매출전표도 있습니다. 둘 중 하나만 남기세요 (설정 → 자동매출 시작일).`, v.no);
+      // 수기 수익 전표와 자동 매출 전표가 같은 날 있으면 '잠재 충돌' (상대계정과 무관하게 수익 대변으로 판단).
+      // 같은 날 수기 매출이 모두 중복은 아니므로 자동 삭제·상계·제외하지 않고, 명시적 검토 기록으로만 해소한다.
+      if (v.source === 'manual' && salesDates[v.date] && ls.some(l => known[l.code] && known[l.code].type === '수익' && won(l.credit) > 0)) {
+        const rv = reviews[v.no];
+        const current = rv && rv.signature === voucherSignature(v);
+        if (current && rv.decision === 'separate')
+          add('info', 'SALES_CONFLICT_REVIEWED', `${v.date} 수기 수익 전표는 자동 매출전표(${salesDates[v.date]})와 별개 거래로 검토됐습니다 (근거: ${rv.reference || '-'}).`, v.no);
+        else if (current && rv.decision === 'duplicate')
+          add('error', 'SALES_DUPLICATE_CONFIRMED', `${v.date} 수기 수익 전표가 자동 매출전표(${salesDates[v.date]})와 같은 매출로 판정됐습니다. 수기 전표를 직접 정정·삭제하세요 (자동 처리하지 않음).`, v.no);
+        else
+          add('warn', 'SALES_CONFLICT_POTENTIAL', `${v.date} 자동 매출전표(${salesDates[v.date]})와 같은 날 수기 수익 전표가 있습니다. 같은 매출인지 검토하세요.${rv ? ' 검토 후 전표가 바뀌어 다시 검토해야 합니다.' : ''}`, v.no);
+      }
       // 학습된 실수 패턴: 연간 비용을 한 달에 몰아 처리
       ls.forEach(l => { if (['510', '513'].includes(l.code) && l.debit >= (opts.largeExpense || 3000000) && v.source === 'manual')
         add('info', 'LUMP_EXPENSE', `${l.memo || l.code} ${fmt(l.debit)}원이 한 달 비용으로 잡혔습니다. 여러 달 쓰는 비용이면 '선급 비용' 템플릿으로 바꾸면 월별 손익이 정확해집니다.`, v.no); });
       ls.forEach(l => { if (l.code === '516' && /우유|원두|식자재|재료|시럽|과일|사과/.test(l.memo + l.note))
         add('info', 'COGS_AS_SUPPLIES', `${l.memo}: 판매용 재료는 516 소모품비보다 509 원재료비로 분리하면 카페 마진을 볼 수 있습니다.`, v.no); });
     });
+    curDate = '';
     const lines = flatten(vouchers);
     const tb = trialBalance(lines, chart, {});
     if (!tb.balanced) add('error', 'TB_UNBALANCED', `전체 차변(${fmt(tb.totalDebit)})과 대변(${fmt(tb.totalCredit)})이 다릅니다.`);
     if (!tb.complete) add('error', 'TB_INCOMPLETE', `계정별 합계가 전체 합계와 다릅니다 (계정표 누락).`);
     const vr = vatReport(lines, chart, '0000-01-01', '9999-12-31');
-    vr.voucherMismatches.forEach(m => add('warn', 'VAT_LINE_MISMATCH', `${m.kind}: 부가세 계정에는 ${fmt(m.booked)}원, 공급가액 라인의 부가세액(H열) 합계는 ${fmt(m.onLines)}원입니다. 신고자료가 ${fmt(m.booked - m.onLines)}원 어긋납니다.`, m.no));
+    vr.voucherMismatches.forEach(m => add('warn', 'VAT_LINE_MISMATCH', `${m.kind}: 부가세 계정에는 ${fmt(m.booked)}원, 공급가액 라인의 부가세액(H열) 합계는 ${fmt(m.onLines)}원입니다. 신고자료가 ${fmt(m.booked - m.onLines)}원 어긋납니다.`, m.no, m.date));
     // 현금 잔액이 음수가 되는 날
     const cash = generalLedger(lines, chart, '101');
     const neg = cash.rows.find(r => r.balance < 0);
-    if (neg) add('warn', 'NEGATIVE_CASH', `${neg.date} 현금 잔액이 ${fmt(neg.balance)}원으로 음수입니다. 입금·지출 전표 누락을 확인하세요.`, neg.no);
+    if (neg) add('warn', 'NEGATIVE_CASH', `${neg.date} 현금 잔액이 ${fmt(neg.balance)}원으로 음수입니다. 입금·지출 전표 누락을 확인하세요.`, neg.no, neg.date);
     // 카드 미정산 경과일 (선입선출)
     const asOf = opts.asOf || kstDate(new Date().toISOString());
     const aging = cardAging(lines, asOf);
@@ -609,9 +622,24 @@
     return { open: open, unsettled: open.reduce((s, x) => s + x.amt, 0), overdue: overdue, oldest: open.length ? open[0].date : '' };
   }
 
-  /* ---------- 8. ① 수집 → ⑦ 마감 까지 한 번에: 장부 조립 ---------- */
-  //  state  : { manual:[voucher], schedules:[], settings:{autoSalesStart, closedYears:[]}, locks:{ 'YYYY-MM': {snapshot:[voucher]} } }
-  //  source : { items, payments, closings }
+  /* ---------- 8. 자동매출 정책 (공통 설정 SSOT: bongplay-site.js accounting) ---------- */
+  // 시작일은 대표 결정 사항이라 화면·기기별로 바꾸지 않는다. null 이면 자동매출·시재 자동분개·최종 마감 차단.
+  function normalizePolicy(p) {
+    p = p || {};
+    const raw = p.autoSalesStart !== undefined ? p.autoSalesStart : p.auto_sales_start;
+    const valid = typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw) && !isNaN(Date.parse(raw + 'T00:00:00Z'))
+      && new Date(Date.parse(raw + 'T00:00:00Z')).toISOString().slice(0, 10) === raw;
+    return { autoSalesStart: valid ? raw : null, version: String(p.version || p.policy_version || ''), source: String(p.source || ''),
+      invalid: raw != null && raw !== '' && !valid };
+  }
+  function voucherSignature(v) {
+    return JSON.stringify([v.date, (v.lines || []).map(l => [String(l.code), won(l.debit), won(l.credit)])]);
+  }
+
+  /* ---------- 9. ① 수집 → ⑦ 마감 까지 한 번에: 장부 조립 ---------- */
+  //  state  : { manual:[voucher], schedules:[], salesReviews:{no:{decision,reference,signature}}, settings:{closedYears:[]}, locks:{ 'YYYY-MM': {snapshot:[voucher]} } }
+  //  source : { items, payments, closings }  — 완전 조회된 스냅샷(또는 미확정 로컬 자료)
+  //  opts   : { policy:{autoSalesStart, version, source}, today, toPeriod }
   function assembleBooks(state, source, opts) {
     state = state || {}; source = source || {}; opts = opts || {};
     const settings = state.settings || {};
@@ -619,11 +647,21 @@
     const warnings = [];
     const manual = (state.manual || []).map(v => Object.assign({ source: 'manual' }, v));
     const locks = state.locks || {};
+    const policy = normalizePolicy(opts.policy);
 
-    const sales = buildDailySalesVouchers(source.items, source.payments, { startDate: settings.autoSalesStart || '', excludeDates: settings.manualSalesDates || [] });
-    const cashOS = buildCashOverShortVouchers(source.closings, { startDate: settings.autoSalesStart || '' });
-    warnings.push(...sales.warnings, ...cashOS.warnings);
-    let auto = sales.vouchers.concat(cashOS.vouchers);
+    let auto = [];
+    if (policy.autoSalesStart) {
+      const sales = buildDailySalesVouchers(source.items, source.payments, { startDate: policy.autoSalesStart });
+      const cashOS = buildCashOverShortVouchers(source.closings, { startDate: policy.autoSalesStart });
+      warnings.push(...sales.warnings.map(w => Object.assign({ date: String(w.voucher || '').slice(2, 12) }, w)), ...cashOS.warnings);
+      auto = sales.vouchers.concat(cashOS.vouchers);
+    } else {
+      warnings.push({ level: 'warn', code: policy.invalid ? 'AUTO_SALES_POLICY_INVALID' : 'AUTO_SALES_POLICY_UNSET', voucher: '', date: '',
+        message: policy.invalid ? '공통 설정의 자동매출 시작일 형식이 잘못돼 자동매출·시재 자동분개를 멈췄습니다 (YYYY-MM-DD).'
+          : '자동매출 시작일이 정해지지 않아(공통 설정 null) 자동매출·시재 자동분개와 최종 마감을 멈췄습니다. 수기 장부 조회·백업은 가능합니다.' });
+    }
+    if (settings.autoSalesStart || (settings.manualSalesDates || []).length)
+      warnings.push({ level: 'info', code: 'LEGACY_LOCAL_SETTING_IGNORED', voucher: '', date: '', message: '이 기기에 저장된 예전 자동매출 시작일·수기 유지 날짜 설정은 더 이상 쓰지 않습니다 (공통 설정 기준).' });
 
     // 자동 전표가 다룰 기간: 첫 거래월 ~ 기준월(오늘)
     const today = opts.today || kstDate(new Date().toISOString());
@@ -642,7 +680,7 @@
       const snap = (locks[p] && locks[p].snapshot) || [];
       const fresh = auto.concat(adjust).filter(v => periodOf(v.date) === p);
       const sig = vs => JSON.stringify(vs.map(v => [v.no, v.lines.map(l => [l.code, l.debit, l.credit])]).sort());
-      if (sig(fresh) !== sig(snap)) warnings.push({ level: 'warn', code: 'LOCKED_SOURCE_CHANGED', message: `${p} 은 마감(잠금)됐지만 이후 원천 데이터가 바뀌었습니다 (발권취소 등). 잠금 스냅샷 기준으로 표시합니다. 정정이 필요하면 다음 달에 수정 전표를 입력하세요.` });
+      if (sig(fresh) !== sig(snap)) warnings.push({ level: 'warn', code: 'LOCKED_SOURCE_CHANGED', voucher: '', date: p + '-01', message: `${p} 은 마감(잠금)됐지만 이후 원천 데이터가 바뀌었습니다 (발권취소 등). 잠금 스냅샷 기준으로 표시합니다. 정정이 필요하면 다음 달에 수정 전표를 입력하세요.` });
       auto = auto.filter(v => periodOf(v.date) !== p);
       adjust = adjust.filter(v => periodOf(v.date) !== p);
       snap.forEach(v => (v.source === 'adjust' ? adjust : auto).push(v));
@@ -652,8 +690,8 @@
     (settings.closedYears || []).forEach(y => { all = all.concat(buildYearCloseVouchers(flatten(all), chart, y)); });
     all.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.no < b.no ? -1 : 1));
     const lines = flatten(all);
-    const issues = validate(all, chart, { asOf: today, chartSynced: settings.chartSynced, cardSettleDays: settings.cardSettleDays });
-    return { chart: chart, vouchers: all, lines: lines, periods: periods, warnings: warnings.concat(issues), today: today };
+    const issues = validate(all, chart, { asOf: today, chartSynced: settings.chartSynced, cardSettleDays: settings.cardSettleDays, reviews: state.salesReviews });
+    return { chart: chart, vouchers: all, lines: lines, periods: periods, warnings: warnings.concat(issues), today: today, policy: policy };
   }
 
   function lockSnapshot(books, period) {
@@ -661,7 +699,200 @@
       .map(v => JSON.parse(JSON.stringify(v)));
   }
 
-  /* ---------- 9. 엑셀 연동 (회계_최소셋 전표 시트 A~J) ---------- */
+  /* ---------- 10. 원천 수집 — 키 기반(keyset) 완전 조회 ---------- */
+  // select(table, query) → { ok, data, from_local_cache? }  (BongplaySync.select 와 같은 계약 — 공통 sync 파일은 수정하지 않음)
+  // · offset 대신 '마지막으로 받은 키 다음부터'(key=gt.last, order=key.asc) → 서버 행 상한이 작아도 누락 없음.
+  //   키: order_items.item_id(FINAL 스키마 PK) · order_payments.id(PK) · closing_records.id(PK). createOrder 가 1회 생성하고
+  //   patch 는 키를 바꾸지 않는다. 운영 DB 의 실제 PK 는 미검증 → 조회 중 키 중복·빈 키는 실패로 처리한다.
+  // · 빈 페이지까지 읽고, 반복 행·진행 없음·시간/행/페이지 상한·요청 실패는 '불완전'으로 실패시킨다.
+  // · 본 조회 뒤 키·상태 열만 한 번 더 읽어 서명이 다르면 동시 변경(CONCURRENT_CHANGE)으로 실패시킨다.
+  // · 실패하면 자료를 돌려주지 않는다 (호출 측이 마지막 정상 스냅샷을 유지).
+  const SOURCE_SPECS = [
+    { name: 'items', table: 'order_items', key: 'item_id', time: 'purchased_at', timeKind: 'ts', verify: ['item_id', 'status', 'paid_amount', 'purchased_at'] },
+    { name: 'payments', table: 'order_payments', key: 'id', time: 'paid_at', timeKind: 'ts', verify: ['id', 'status', 'amount', 'paid_at'] },
+    { name: 'closings', table: 'closing_records', key: 'id', time: 'date', timeKind: 'date', verify: ['id', 'date', 'diff_amount'] }
+  ];
+  const SOURCE_FAIL_TEXT = {
+    REQUEST_FAILED: '서버 요청 실패', NULL_KEY: '키가 비어 있는 행이 있어 빠짐없이 셀 수 없음', NULL_TIME: '기준 시각이 비어 있는 행이 있어 기간에 넣을 수 없음',
+    NO_PROGRESS: '다음 페이지가 진행되지 않음', REPEATED_ROWS: '이미 받은 행이 다시 옴 (키 중복 또는 정렬 불일치)',
+    ROW_LIMIT: '행 상한 초과', TIME_LIMIT: '시간 상한 초과', PAGE_LIMIT: '페이지 상한 초과', CONCURRENT_CHANGE: '조회 중 원천이 바뀜 (다시 조회 필요)',
+    BAD_RANGE: '조회 기간이 올바르지 않음'
+  };
+  function nextDay(d) { return new Date(Date.parse(d + 'T00:00:00Z') + 86400000).toISOString().slice(0, 10); }
+  function rangeFilter(spec, from, to) {
+    if (spec.timeKind === 'date') return `&${spec.time}=gte.${from}&${spec.time}=lte.${to}`;
+    return `&${spec.time}=gte.${encodeURIComponent(from + 'T00:00:00+09:00')}&${spec.time}=lt.${encodeURIComponent(nextDay(to) + 'T00:00:00+09:00')}`;
+  }
+  async function scanTable(select, spec, range, opts) {
+    opts = opts || {};
+    const pageSize = opts.pageSize || 1000, maxRows = opts.maxRows || 300000, maxPages = opts.maxPages || 5000, maxMs = opts.maxMs || 120000;
+    const now = opts.now || (() => Date.now());
+    const t0 = now();
+    const rf = rangeFilter(spec, range.from, range.to);
+    const fail = (reason, detail) => ({ ok: false, table: spec.table, reason: reason, detail: detail || SOURCE_FAIL_TEXT[reason] || '' });
+    const call = async (q) => {
+      let r;
+      try { r = await select(spec.table, q); } catch (e) { return { bad: 'exception: ' + (e && e.message) }; }
+      if (!r || r.ok !== true || !Array.isArray(r.data) || r.from_local_cache) return { bad: (r && (r.from_local_cache ? 'local_cache' : r.reason)) || 'error' };
+      return { data: r.data };
+    };
+    let r = await call(`?select=${spec.key}${rf}&${spec.key}=is.null&limit=1`);
+    if (r.bad) return fail('REQUEST_FAILED', r.bad);
+    if (r.data.length) return fail('NULL_KEY');
+    r = await call(`?select=${spec.key}&${spec.time}=is.null&limit=1`);
+    if (r.bad) return fail('REQUEST_FAILED', r.bad);
+    if (r.data.length) return fail('NULL_TIME');
+
+    async function pass(cols) {
+      const seen = new Set(), rows = [];
+      let last = null, pages = 0;
+      for (;;) {
+        if (now() - t0 > maxMs) return { err: 'TIME_LIMIT' };
+        if (pages >= maxPages) return { err: 'PAGE_LIMIT' };
+        const q = `?select=${cols}${rf}&order=${spec.key}.asc&limit=${pageSize}` + (last == null ? '' : `&${spec.key}=gt.${encodeURIComponent(last)}`);
+        const res = await call(q); pages++;
+        if (res.bad) return { err: 'REQUEST_FAILED', detail: `${res.bad} (${pages}번째 페이지)` };
+        if (!res.data.length) return { rows: rows, pages: pages };
+        let fresh = 0;
+        for (const row of res.data) {
+          const k = row ? row[spec.key] : null;
+          if (k == null || k === '') return { err: 'NULL_KEY' };
+          if (seen.has(String(k))) continue;
+          seen.add(String(k)); fresh++; rows.push(row);
+        }
+        if (fresh === 0) return { err: 'NO_PROGRESS' };
+        if (fresh < res.data.length) return { err: 'REPEATED_ROWS' };
+        if (rows.length > maxRows) return { err: 'ROW_LIMIT' };
+        last = String(res.data[res.data.length - 1][spec.key]);
+      }
+    }
+    const sig = rows => rows.map(x => JSON.stringify(spec.verify.map(c => x[c] == null ? null : String(x[c])))).sort().join('\n');
+    const main = await pass('*');
+    if (main.err) return fail(main.err, main.detail);
+    const check = await pass(spec.verify.join(','));
+    if (check.err) return fail(check.err, check.detail);
+    if (check.rows.length !== main.rows.length || sig(check.rows) !== sig(main.rows)) return fail('CONCURRENT_CHANGE');
+    return { ok: true, table: spec.table, rows: main.rows, count: main.rows.length, pages: main.pages + check.pages };
+  }
+  // 세 원천을 모두 완전하게 받았을 때만 ok. 하나라도 실패하면 자료 없이 실패 내역만 반환한다.
+  async function collectSources(select, range, opts) {
+    opts = opts || {};
+    const at = opts.nowIso ? opts.nowIso() : new Date().toISOString();
+    if (!range || !/^\d{4}-\d{2}-\d{2}$/.test(range.from || '') || !/^\d{4}-\d{2}-\d{2}$/.test(range.to || '') || range.from > range.to)
+      return { ok: false, at: at, range: range || null, failures: [{ table: '-', reason: 'BAD_RANGE', detail: SOURCE_FAIL_TEXT.BAD_RANGE }] };
+    const data = {}, counts = {}, failures = [];
+    for (const spec of SOURCE_SPECS) {
+      const r = await scanTable(select, spec, range, opts);
+      if (!r.ok) { failures.push({ table: r.table, reason: r.reason, detail: r.detail }); break; }
+      data[spec.name] = r.rows; counts[spec.name] = r.count;
+    }
+    if (failures.length) return { ok: false, at: at, range: { from: range.from, to: range.to }, failures: failures };
+    return { ok: true, at: at, range: { from: range.from, to: range.to }, data: data, counts: counts };
+  }
+  // 범위별 교체: 성공하면 그 범위의 자료를 통째로 바꾼다 (재조회 시 취소·삭제된 행이 남지 않음).
+  // 실패하면 마지막 정상 스냅샷을 그대로 두고 lastAttempt 에 실패를 기록한다 (부분 자료를 섞지 않음).
+  function applyCollectResult(prev, result) {
+    if (result && result.ok) return { complete: true, range: result.range, fetchedAt: result.at, counts: result.counts, data: result.data, lastAttempt: { ok: true, at: result.at, range: result.range } };
+    const base = prev || { complete: false, range: null, fetchedAt: null, counts: null, data: null };
+    return Object.assign({}, base, { lastAttempt: { ok: false, at: result && result.at, range: result && result.range, failures: (result && result.failures) || [] } });
+  }
+  // 스냅샷이 [from, to] 를 완전하게 덮고, 가장 최근 시도도 성공했는가
+  function snapshotCovers(snap, from, to) {
+    return !!(snap && snap.complete && snap.range && snap.data && snap.lastAttempt && snap.lastAttempt.ok && snap.range.from <= from && snap.range.to >= to);
+  }
+  // 장부에 필요한 원천 범위 = 자동매출 시작일 ~ 기준월 말일. 시작일 전은 수기 전표가 장부의 원천이다.
+  // 누적 재무상태표·카드 미정산 경과는 이 전체 범위가 있어야 맞는다 — 기준월만 받으면 안 된다.
+  function requiredSourceRange(policy, period) {
+    const p = normalizePolicy(policy);
+    if (!p.autoSalesStart) return null;
+    const to = lastDayOf(period);
+    if (to < p.autoSalesStart) return { from: p.autoSalesStart, to: p.autoSalesStart, empty: true };
+    return { from: p.autoSalesStart, to: to };
+  }
+
+  /* ---------- 11. 최종 마감 준비 검사 — 버튼 표시와 실제 처리가 같은 함수를 쓴다 ---------- */
+  // ctx: { policy, snapshot, pendingCount(이 기기 미전송, 모르면 null), seal(서버 기간 확정 증명 — 현재 계약 없음 → null),
+  //        today, nowMs, maxAgeMs, nowIso }
+  function closeReadiness(books, period, ctx) {
+    ctx = ctx || {};
+    const checks = [];
+    const add = (id, label, ok, detail, kind) => checks.push({ id: id, label: label, ok: !!ok, detail: detail || '', kind: kind || 'required' });
+    const policy = normalizePolicy(ctx.policy);
+    const today = ctx.today || kstDate(new Date().toISOString());
+    const end = lastDayOf(period);
+    add('PERIOD_ENDED', '기간 종료', end < today, end < today ? `${period} 종료` : `${period} 이 아직 끝나지 않았습니다 (${end} 이후 마감)`);
+    add('POLICY', '자동매출 시작일 정책 확정', !!policy.autoSalesStart,
+      policy.autoSalesStart ? `${policy.autoSalesStart} · ${policy.version || '버전 없음'} · ${policy.source || '출처 없음'}` : '공통 설정 accounting.auto_sales_start 가 null — 대표 결정 필요');
+
+    // 조회 완전성: 시작일~기준월 말일 전체를 최근에 빠짐없이 받았는가
+    const need = requiredSourceRange(ctx.policy, period);
+    const snap = ctx.snapshot;
+    const maxAge = ctx.maxAgeMs != null ? ctx.maxAgeMs : 10 * 60 * 1000;
+    const nowMs = ctx.nowMs != null ? ctx.nowMs : Date.now();
+    let srcOk = false, srcDetail = '';
+    if (!need) srcDetail = '정책 미확정으로 필요한 조회 범위를 정할 수 없음';
+    else if (!snapshotCovers(snap, need.from, need.to)) {
+      const la = snap && snap.lastAttempt;
+      srcDetail = la && !la.ok ? `최근 조회 실패: ${(la.failures || []).map(f => `${f.table} ${f.reason}`).join(', ')}`
+        : `${need.from} ~ ${need.to} 전체를 완전하게 받은 자료가 없음${snap && snap.range ? ` (보유: ${snap.range.from} ~ ${snap.range.to})` : ''}`;
+    } else if (!(nowMs - Date.parse(snap.fetchedAt) <= maxAge)) srcDetail = `조회 후 ${Math.round((nowMs - Date.parse(snap.fetchedAt)) / 60000)}분 지남 — 마감 직전에 다시 조회해야 함`;
+    else { srcOk = true; srcDetail = `${need.from} ~ ${need.to} · 품목 ${snap.counts.items} · 결제 ${snap.counts.payments} · 마감기록 ${snap.counts.closings}`; }
+    add('SOURCE_COMPLETE', '원천 조회 완전성', srcOk, srcDetail);
+
+    // 원천 확정: 다른 단말 미전송·사후 변경이 없음을 서버가 증명해야 한다. 현재 서버 계약이 없어 항상 미충족.
+    const seal = ctx.seal;
+    let sealOk = false, sealDetail = '서버에 기간 확정(봉인) 계약이 없어 다른 단말의 미전송·사후 변경이 없음을 증명할 수 없음';
+    if (seal && srcOk) {
+      const inP = (rows, f) => (rows || []).filter(x => periodOf(kstDate(x[f])) === period && x.status !== 'cancelled');
+      const its = inP(snap.data.items, 'purchased_at'), pays = inP(snap.data.payments, 'paid_at');
+      const mine = { items_count: its.length, items_sum: its.reduce((s, x) => s + itemAmount(x), 0), payments_count: pays.length, payments_sum: pays.reduce((s, x) => s + won(x.amount), 0) };
+      const diff = Object.keys(mine).filter(k => won(seal[k]) !== mine[k]);
+      sealOk = seal.period === period && !!seal.sealed_at && !diff.length;
+      sealDetail = sealOk ? `서버 봉인 ${seal.sealed_at} 와 일치` : `서버 봉인과 불일치: ${seal.period !== period ? '기간 ' : ''}${diff.join(', ')}`;
+    } else if (seal) sealDetail = '조회 완전성이 먼저 충족돼야 봉인과 대조할 수 있음';
+    add('SOURCE_SEALED', '원천 확정 (서버 봉인)', sealOk, sealDetail);
+
+    // 대사·검증: 이 기간(또는 날짜 없는 전역) 오류, 미검토 잠재 충돌, 잠금 후 원천 변동
+    const blocking = (books.warnings || []).filter(w => (w.level === 'error' || w.code === 'SALES_CONFLICT_POTENTIAL')
+      && (!w.date || periodOf(w.date) === period));
+    add('RECONCILE', '대사·검증 오류와 미검토 충돌 0건', blocking.length === 0, blocking.length ? blocking.slice(0, 5).map(w => `${w.voucher ? w.voucher + ' ' : ''}${w.code}`).join(', ') + (blocking.length > 5 ? ` 외 ${blocking.length - 5}건` : '') : '없음');
+
+    // 보조 조건 (필요하지만 충분하지 않음 — 다른 단말의 상태는 증명하지 못한다)
+    add('LOCAL_OUTBOX', '이 기기 미전송 0건 (보조 — 다른 단말은 증명 못 함)', ctx.pendingCount === 0, ctx.pendingCount == null ? '확인 불가' : `${ctx.pendingCount}건`, 'aux');
+    const salesDays = (books.vouchers || []).filter(v => v.source === 'auto_sales' && !/-CASH$/.test(v.no) && periodOf(v.date) === period).map(v => v.date);
+    const closed = {}; ((snap && snap.data && snap.data.closings) || []).forEach(c => { closed[normDate(c.date || String(c.id || '').replace(/^cls_/, ''))] = 1; });
+    const missing = salesDays.filter(d => !closed[d]);
+    add('DAILY_CLOSING', '매출일마다 일일 마감 기록 (보조)', srcOk && missing.length === 0,
+      !srcOk ? '조회 완전성 미충족' : missing.length ? `마감 기록 없음: ${missing.join(', ')}` : `${salesDays.length}일 모두 있음`, 'aux');
+
+    return { period: period, ok: checks.every(c => c.ok), checks: checks };
+  }
+  // 실제 처리 함수 — 화면 버튼과 같은 검사를 다시 수행하고, 통과할 때만 잠금 기록을 만든다 (우회 경로 없음).
+  function attemptLock(state, books, period, ctx) {
+    ctx = ctx || {};
+    if (state && state.locks && state.locks[period]) return { ok: false, reason: 'ALREADY_LOCKED' };
+    const readiness = closeReadiness(books, period, ctx);
+    if (!readiness.ok) return { ok: false, reason: 'NOT_READY', readiness: readiness };
+    const policy = normalizePolicy(ctx.policy);
+    return { ok: true, readiness: readiness, lock: { locked_at: ctx.nowIso || new Date().toISOString(), snapshot: lockSnapshot(books, period),
+      policy: { autoSalesStart: policy.autoSalesStart, version: policy.version, source: policy.source },
+      source: { range: ctx.snapshot.range, fetchedAt: ctx.snapshot.fetchedAt, counts: ctx.snapshot.counts }, seal: ctx.seal || null,
+      readiness: readiness.checks.map(c => ({ id: c.id, ok: c.ok, detail: c.detail })) } };
+  }
+  // 연 마감: 12월 최종 마감 조건 + 그해 거래가 있는 다른 달이 모두 잠겨 있어야 한다.
+  function attemptYearClose(state, books, year, ctx) {
+    const y = String(year);
+    if (((state && state.settings && state.settings.closedYears) || []).includes(y)) return { ok: false, reason: 'ALREADY_CLOSED' };
+    const readiness = closeReadiness(books, `${y}-12`, ctx);
+    const months = {}; (books.vouchers || []).forEach(v => { if (String(v.date).slice(0, 4) === y && v.source !== 'closing') months[periodOf(v.date)] = 1; });
+    const unlocked = Object.keys(months).filter(p => p !== `${y}-12` && !(state && state.locks && state.locks[p])).sort();
+    if (unlocked.length) readiness.checks.push({ id: 'MONTHS_LOCKED', label: '그해 거래월 모두 마감', ok: false, detail: `미마감: ${unlocked.join(', ')}`, kind: 'required' });
+    readiness.ok = readiness.checks.every(c => c.ok);
+    if (!readiness.ok) return { ok: false, reason: 'NOT_READY', readiness: readiness };
+    return { ok: true, readiness: readiness };
+  }
+
+  /* ---------- 12. 엑셀 연동 (회계_최소셋 전표 시트 A~J) ---------- */
   const MINISET_HEADER = ['전표번호', '날짜', '증빙', '적요', '계정코드', '차변', '대변', '부가세액', '거래처', '비고'];
   function toMinisetRows(vouchers) {
     const rows = [];
@@ -697,7 +928,7 @@
   function fmt(n) { return (Math.round(Number(n) || 0)).toLocaleString('ko-KR'); }
 
   const api = {
-    VERSION: '2026-10-08.1',
+    VERSION: '2026-10-09.1',
     BASE_CHART: BASE_CHART, ADDED_CHART: ADDED_CHART, TYPES: TYPES, EVIDENCE: EVIDENCE, TEMPLATES: TEMPLATES, METHOD_RULES: METHOD_RULES, MINISET_HEADER: MINISET_HEADER,
     buildChart: buildChart, findAccount: findAccount, revenueCodeOf: revenueCodeOf, vatOfGross: vatOfGross,
     kstDate: kstDate, normDate: normDate, periodOf: periodOf, lastDayOf: lastDayOf, addMonths: addMonths, periodsBetween: periodsBetween,
@@ -706,7 +937,9 @@
     scheduleAmount: scheduleAmount, buildScheduleVouchers: buildScheduleVouchers, buildVatClearingVouchers: buildVatClearingVouchers, buildYearCloseVouchers: buildYearCloseVouchers,
     flatten: flatten, generalLedger: generalLedger, trialBalance: trialBalance, incomeStatement: incomeStatement, monthlyPnl: monthlyPnl,
     balanceSheet: balanceSheet, vatReport: vatReport, validate: validate, cardAging: cardAging,
-    assembleBooks: assembleBooks, lockSnapshot: lockSnapshot,
+    assembleBooks: assembleBooks, lockSnapshot: lockSnapshot, normalizePolicy: normalizePolicy, voucherSignature: voucherSignature,
+    SOURCE_SPECS: SOURCE_SPECS, SOURCE_FAIL_TEXT: SOURCE_FAIL_TEXT, scanTable: scanTable, collectSources: collectSources, applyCollectResult: applyCollectResult,
+    snapshotCovers: snapshotCovers, requiredSourceRange: requiredSourceRange, closeReadiness: closeReadiness, attemptLock: attemptLock, attemptYearClose: attemptYearClose,
     toMinisetRows: toMinisetRows, toTsv: toTsv, toCsv: toCsv, parseMinisetRows: parseMinisetRows, parseTsv: parseTsv, parseChartRows: parseChartRows, fmt: fmt
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
