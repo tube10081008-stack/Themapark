@@ -141,7 +141,8 @@ test('ANT-006 / BEN-022 발권 대기열 시스템 전수 검증', async (t) => 
     assert.equal(callOccupied.ok, false);
     assert.equal(callOccupied.error, 'DESK_ALREADY_OCCUPIED');
 
-    // 1번 창구 발권 완료 처리 후 창구 슬롯 반환
+    // 1번 창구 발권 시작 및 완료 처리 후 창구 슬롯 반환
+    store.startProcessing(call1.item.id, 1);
     store.completeIssuance(call1.item.id, 'ord_done_1', ['tkt_done_1']);
 
     // 더 이상 대기팀이 없을 때 추가 호출 시 empty_queue 반환
@@ -196,6 +197,7 @@ test('ANT-006 / BEN-022 발권 대기열 시스템 전수 검증', async (t) => 
     const t2 = store.enqueue({ consent_id: 'cst_t2', queue_date: dateStr });
 
     store.callNext(1, 'staff_1');
+    store.startProcessing(t1.item.id, 1);
     store.completeIssuance(t1.item.id, 'ord_1', ['tkt_1']);
 
     // 1번 팀의 발권이 취소됨 (매표소 환불/발권취소 액션)
@@ -461,6 +463,7 @@ test('ANT-006 / BEN-022 발권 대기열 시스템 전수 검증', async (t) => 
 
     // 11-3. 발권 완료(issued) 건에 대한 취소 시도 차단
     store.callNext(1, 'staff_1');
+    store.startProcessing(enq.item.id, 1);
     store.completeIssuance(enq.item.id, 'ord_99', ['tkt_99']);
     const cancelRes = store.cancelEntry(enq.item.id, '단순 변심');
     assert.equal(cancelRes.ok, false);
@@ -470,10 +473,18 @@ test('ANT-006 / BEN-022 발권 대기열 시스템 전수 검증', async (t) => 
   // ---------------------------------------------------------------------------
   // 12. [R1 Fix 3] 발권 완료 증명 (order_id, ticket_ids 필수) 및 창구 슬롯 반환 검증
   // ---------------------------------------------------------------------------
-  await t.test('12. [R1 Fix 3] 발권 완료 시 order_id / ticket_ids 무결성 증명 필수 검증', () => {
+  await t.test('12. [R1 Fix 3 & R3] 발권 완료 시 order_id / ticket_ids 무결성 증명 및 processing 상태 필수 검증', () => {
     const store = BongplayQueue.createStore();
     const enq = store.enqueue({ consent_id: 'cst_proof_1' });
     store.callNext(1, 'staff_1');
+
+    // [R3] called 상태에서 완료 시도 시 거부 검증
+    const failCalled = store.completeIssuance(enq.item.id, 'ord_valid', ['tkt_1', 'tkt_2']);
+    assert.equal(failCalled.ok, false);
+    assert.equal(failCalled.error, 'INVALID_STATUS', 'called 상태에서는 발권 완료 불가');
+
+    // 정상 처리 시작
+    store.startProcessing(enq.item.id, 1);
 
     // order_id 누락 시 실패
     const fail1 = store.completeIssuance(enq.item.id, '', ['tkt_1']);
@@ -528,7 +539,8 @@ test('ANT-006 / BEN-022 발권 대기열 시스템 전수 검증', async (t) => 
     const aheadForT1 = BongplayQueue.computeAheadCount(store.entries, updatedT1.queue_number, dateStr);
     assert.equal(aheadForT1, 2, '복귀한 팀1은 팀2, 팀3 뒤에 있으므로 앞선 대기팀 수는 2팀이어야 함');
 
-    // 팀2 발권 완료
+    // 팀2 발권 처리 시작 및 완료
+    store.startProcessing(t2.id, 1);
     store.completeIssuance(t2.id, 'ord_t2', ['tkt_t2']);
 
     // [핵심 검증]: 다음 호출 시 복귀한 팀1이 아니라 팀3이 먼저 호출되어야 함 (새치기 원천 차단!)
@@ -536,7 +548,8 @@ test('ANT-006 / BEN-022 발권 대기열 시스템 전수 검증', async (t) => 
     assert.equal(nextCall.ok, true);
     assert.equal(nextCall.item.id, t3.id, '복귀한 1번 팀이 새치기하지 않고 3번 팀이 먼저 호출되어야 함');
 
-    // 팀3 발권 완료
+    // 팀3 발권 처리 시작 및 완료
+    store.startProcessing(t3.id, 1);
     store.completeIssuance(t3.id, 'ord_t3', ['tkt_t3']);
 
     // 이제 마지막으로 팀1이 호출됨
@@ -699,9 +712,9 @@ test('ANT-006 / BEN-022 발권 대기열 시스템 전수 검증', async (t) => 
   });
 
   // ---------------------------------------------------------------------------
-  // 18. [R2 Fix 4] 발권 확정 원장 무결성 대사 및 동일 주문 멱등 재시도
+  // 18. [R2 Fix 4 & R3] 발권 확정 원장 대사(결제·서약·티켓·품목) 및 동일 주문 멱등 재시도 전수 검증
   // ---------------------------------------------------------------------------
-  await t.test('18. [R2 Fix 4] 발권 확정 원장 대사(결제·서약·티켓) 및 동일 주문 멱등 재시도 검증', () => {
+  await t.test('18. [R2 Fix 4 & R3] 발권 확정 원장 대사(결제·서약·티켓·품목) 및 동일 주문 멱등 재시도 검증', () => {
     const store = BongplayQueue.createStore();
     const dateStr = BongplayQueue.getKstDateStr();
 
@@ -711,21 +724,39 @@ test('ANT-006 / BEN-022 발권 대기열 시스템 전수 검증', async (t) => 
 
     // 모의 원장 데이터 설정
     const validPayments = [
-      { order_id: 'ord_ledger_100', status: 'paid', cancelled_at: null }
+      { order_id: 'ord_ledger_100', consent_id: 'cst_ledger_1', amount: 30000, status: 'paid', cancelled_at: null }
     ];
     const validConsents = [
       { id: 'cst_ledger_1', status: 'active', cancelled_at: null }
     ];
     const validTickets = [
-      { ticket_id: 'tkt_01', order_id: 'ord_ledger_100', cancelled_at: null },
-      { ticket_id: 'tkt_02', order_id: 'ord_ledger_100', cancelled_at: null }
+      { ticket_id: 'tkt_01', consent_id: 'cst_ledger_1', order_id: 'ord_ledger_100', cancelled_at: null },
+      { ticket_id: 'tkt_02', consent_id: 'cst_ledger_1', order_id: 'ord_ledger_100', cancelled_at: null }
+    ];
+    const validOrderItems = [
+      { order_id: 'ord_ledger_100', quantity: 2, unit_price: 15000, total_price: 30000 }
     ];
 
-    // 18-1. 결제 미확정 (order_payments 누락) 시 발권 거부
-    const failPayment = store.completeIssuance(qId, 'ord_ledger_100', ['tkt_01', 'tkt_02'], null, {
-      orderPayments: [{ order_id: 'ord_ledger_100', status: 'cancelled' }], // 취소된 결제
+    // 18-0. [R3] 호출(called) 상태에서 완료 시도 시 거부 검증
+    const failCalled = store.completeIssuance(qId, 'ord_ledger_100', ['tkt_01', 'tkt_02'], null, {
+      orderPayments: validPayments,
       safetyConsents: validConsents,
-      ticketLedger: validTickets
+      ticketLedger: validTickets,
+      orderItems: validOrderItems
+    });
+    assert.equal(failCalled.ok, false);
+    assert.equal(failCalled.error, 'INVALID_STATUS', 'called 상태에서는 발권 완료 불가');
+
+    // 정상 발권 처리 시작 (status -> PROCESSING)
+    const procRes = store.startProcessing(qId, 1);
+    assert.equal(procRes.ok, true);
+
+    // 18-1. 결제 미확정 (order_payments 취소) 시 발권 거부
+    const failPayment = store.completeIssuance(qId, 'ord_ledger_100', ['tkt_01', 'tkt_02'], null, {
+      orderPayments: [{ order_id: 'ord_ledger_100', consent_id: 'cst_ledger_1', amount: 30000, status: 'cancelled' }], // 취소된 결제
+      safetyConsents: validConsents,
+      ticketLedger: validTickets,
+      orderItems: validOrderItems
     });
     assert.equal(failPayment.ok, false);
     assert.equal(failPayment.error, 'PAYMENT_NOT_CONFIRMED');
@@ -734,7 +765,8 @@ test('ANT-006 / BEN-022 발권 대기열 시스템 전수 검증', async (t) => 
     const failConsent = store.completeIssuance(qId, 'ord_ledger_100', ['tkt_01', 'tkt_02'], null, {
       orderPayments: validPayments,
       safetyConsents: [{ id: 'cst_ledger_1', status: 'cancelled' }],
-      ticketLedger: validTickets
+      ticketLedger: validTickets,
+      orderItems: validOrderItems
     });
     assert.equal(failConsent.ok, false);
     assert.equal(failConsent.error, 'CONSENT_INVALID');
@@ -743,37 +775,94 @@ test('ANT-006 / BEN-022 발권 대기열 시스템 전수 검증', async (t) => 
     const failTickets = store.completeIssuance(qId, 'ord_ledger_100', ['tkt_01', 'tkt_02'], null, {
       orderPayments: validPayments,
       safetyConsents: validConsents,
-      ticketLedger: [{ ticket_id: 'tkt_01', order_id: 'ord_ledger_100', cancelled_at: null }] // tkt_02 누락
+      ticketLedger: [{ ticket_id: 'tkt_01', consent_id: 'cst_ledger_1', order_id: 'ord_ledger_100', cancelled_at: null }], // tkt_02 누락
+      orderItems: validOrderItems
     });
     assert.equal(failTickets.ok, false);
     assert.equal(failTickets.error, 'TICKET_LEDGER_INCOMPLETE');
 
-    // 18-4. 전체 원장 일치 시 정상 발권 성공
+    // 18-4. [R3] 다른 팀 주문 연결 거부 (ORDER_CONSENT_MISMATCH)
+    const failOtherOrder = store.completeIssuance(qId, 'ord_other_team', ['tkt_01', 'tkt_02'], null, {
+      orderPayments: [{ order_id: 'ord_other_team', consent_id: 'cst_OTHER_TEAM', amount: 30000, status: 'paid' }],
+      safetyConsents: validConsents,
+      ticketLedger: validTickets,
+      orderItems: [{ order_id: 'ord_other_team', quantity: 2, total_price: 30000 }]
+    });
+    assert.equal(failOtherOrder.ok, false);
+    assert.equal(failOtherOrder.error, 'ORDER_CONSENT_MISMATCH', '다른 팀의 서약서에 연결된 주문은 거부되어야 함');
+
+    // 18-5. [R3] 다른 팀 티켓 포함 거부 (TICKET_CONSENT_MISMATCH)
+    const failOtherTicket = store.completeIssuance(qId, 'ord_ledger_100', ['tkt_01', 'tkt_OTHER'], null, {
+      orderPayments: validPayments,
+      safetyConsents: validConsents,
+      ticketLedger: [
+        { ticket_id: 'tkt_01', consent_id: 'cst_ledger_1', order_id: 'ord_ledger_100' },
+        { ticket_id: 'tkt_OTHER', consent_id: 'cst_OTHER_TEAM', order_id: 'ord_ledger_100' }
+      ],
+      orderItems: validOrderItems
+    });
+    assert.equal(failOtherTicket.ok, false);
+    assert.equal(failOtherTicket.error, 'TICKET_CONSENT_MISMATCH', '다른 팀/서약서 소속 티켓은 거부되어야 함');
+
+    // 18-6. [R3] 주문 수량 대비 적은 티켓 발권 거부 (TICKET_QUANTITY_MISMATCH)
+    const failQtyMismatch = store.completeIssuance(qId, 'ord_ledger_100', ['tkt_01'], null, {
+      orderPayments: validPayments,
+      safetyConsents: validConsents,
+      ticketLedger: validTickets,
+      orderItems: validOrderItems // 수량 2매인데 티켓 1매만 요청
+    });
+    assert.equal(failQtyMismatch.ok, false);
+    assert.equal(failQtyMismatch.error, 'TICKET_QUANTITY_MISMATCH', '주문 수량보다 적은 티켓은 거부되어야 함');
+
+    // 18-7. [R3] 부분 수납 거부 (PARTIAL_PAYMENT_REJECTED)
+    const failPartialPay = store.completeIssuance(qId, 'ord_ledger_100', ['tkt_01', 'tkt_02'], null, {
+      orderPayments: [{ order_id: 'ord_ledger_100', consent_id: 'cst_ledger_1', amount: 10000, status: 'paid' }], // 10,000 < 30,000
+      safetyConsents: validConsents,
+      ticketLedger: validTickets,
+      orderItems: validOrderItems
+    });
+    assert.equal(failPartialPay.ok, false);
+    assert.equal(failPartialPay.error, 'PARTIAL_PAYMENT_REJECTED', '결제 총액 미달 시 거부되어야 함');
+
+    // 18-8. [R3] 필수 원장 누락 시 거부 (LEDGER_TABLE_MISSING)
+    const failMissingLedger = store.completeIssuance(qId, 'ord_ledger_100', ['tkt_01', 'tkt_02'], null, {
+      requireLedger: true,
+      orderPayments: null,
+      safetyConsents: validConsents,
+      ticketLedger: validTickets
+    });
+    assert.equal(failMissingLedger.ok, false);
+    assert.equal(failMissingLedger.error, 'LEDGER_TABLE_MISSING', '원장 누락 시 거부되어야 함');
+
+    // 18-9. 전체 원장 일치 시 정상 발권 성공
     const successComplete = store.completeIssuance(qId, 'ord_ledger_100', ['tkt_01', 'tkt_02'], null, {
       orderPayments: validPayments,
       safetyConsents: validConsents,
-      ticketLedger: validTickets
+      ticketLedger: validTickets,
+      orderItems: validOrderItems
     });
     assert.equal(successComplete.ok, true);
     assert.equal(successComplete.duplicate, false);
     assert.equal(successComplete.item.status, BongplayQueue.STATUS.ISSUED);
 
-    // 18-5. [멱등 재시도] 동일 order_id 로 다시 완료 요청 시 동일 성공 결과 반환
+    // 18-10. [멱등 재시도] 동일 order_id 로 다시 완료 요청 시 동일 성공 결과 반환
     const retrySameOrder = store.completeIssuance(qId, 'ord_ledger_100', ['tkt_01', 'tkt_02'], null, {
       orderPayments: validPayments,
       safetyConsents: validConsents,
-      ticketLedger: validTickets
+      ticketLedger: validTickets,
+      orderItems: validOrderItems
     });
     assert.equal(retrySameOrder.ok, true, '동일 주문 재시도는 성공해야 함');
     assert.equal(retrySameOrder.duplicate, true, '재시도 플래그 설정');
     assert.equal(retrySameOrder.already_completed, true);
     assert.equal(retrySameOrder.item.order_id, 'ord_ledger_100');
 
-    // 18-6. 다른 order_id 로 완료 시도 시 ALREADY_ISSUED_OTHER_ORDER 에러
+    // 18-11. 다른 order_id 로 완료 시도 시 ALREADY_ISSUED_OTHER_ORDER 에러
     const retryDifferentOrder = store.completeIssuance(qId, 'ord_ledger_DIFFERENT', ['tkt_01'], null, {
       orderPayments: validPayments,
       safetyConsents: validConsents,
-      ticketLedger: validTickets
+      ticketLedger: validTickets,
+      orderItems: validOrderItems
     });
     assert.equal(retryDifferentOrder.ok, false);
     assert.equal(retryDifferentOrder.error, 'ALREADY_ISSUED_OTHER_ORDER');

@@ -104,7 +104,7 @@ CREATE OR REPLACE FUNCTION private.verify_staff_permission(
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = private, extensions, public
+SET search_path = private, extensions, public, pg_temp
 AS $$
 DECLARE
     v_hash TEXT;
@@ -160,7 +160,7 @@ CREATE OR REPLACE FUNCTION public.enqueue_consent_team(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
     v_today DATE := ((NOW() AT TIME ZONE 'Asia/Seoul')::DATE);
@@ -271,7 +271,7 @@ CREATE OR REPLACE FUNCTION public.call_next_queue_team(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
     v_today DATE := ((NOW() AT TIME ZONE 'Asia/Seoul')::DATE);
@@ -350,7 +350,7 @@ CREATE OR REPLACE FUNCTION public.recall_queue_team(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
     v_now TIMESTAMPTZ := NOW();
@@ -391,7 +391,7 @@ CREATE OR REPLACE FUNCTION public.start_queue_processing(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
     v_now TIMESTAMPTZ := NOW();
@@ -433,7 +433,7 @@ CREATE OR REPLACE FUNCTION public.hold_queue_team(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
     v_now TIMESTAMPTZ := NOW();
@@ -484,7 +484,7 @@ CREATE OR REPLACE FUNCTION public.restore_queue_team(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
     v_now TIMESTAMPTZ := NOW();
@@ -543,7 +543,7 @@ CREATE OR REPLACE FUNCTION public.cancel_queue_team(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
     v_now TIMESTAMPTZ := NOW();
@@ -598,7 +598,7 @@ CREATE OR REPLACE FUNCTION public.complete_queue_issuance(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
     v_now TIMESTAMPTZ := NOW();
@@ -606,13 +606,16 @@ DECLARE
     v_duration INTEGER := 60;
     v_tickets_count INTEGER;
     v_matched_tickets INTEGER := 0;
+    v_order_qty INTEGER := 0;
+    v_order_total BIGINT := 0;
+    v_paid_total BIGINT := 0;
 BEGIN
-    -- [R2 Fix 3] 서버 직원·시설 권한 검증
+    -- 1. [R2 Fix 3] 서버 직원·시설 권한 검증
     IF NOT private.verify_staff_permission(p_access_code, p_site_id) THEN
         RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED_STAFF', 'message', '직원 인증에 실패했거나 시설 권한이 없습니다.');
     END IF;
 
-    -- [Fix 3] order_id 및 ticket_ids 유효성 검사
+    -- 2. [Fix 3] order_id 및 ticket_ids 유효성 검사
     IF p_order_id IS NULL OR trim(p_order_id) = '' THEN
         RETURN jsonb_build_object('ok', false, 'error', 'ORDER_ID_REQUIRED', 'message', '유효한 주문번호가 필요합니다.');
     END IF;
@@ -627,7 +630,7 @@ BEGIN
         RETURN jsonb_build_object('ok', false, 'error', 'not_found', 'message', '대기 정보를 찾을 수 없습니다.');
     END IF;
 
-    -- [R2 Fix 4] 멱등성 재시도 검증: 동일 order_id로 이미 완료된 경우 동일 성공 결과 반환
+    -- 3. [R2 Fix 4] 멱등성 재시도 검증: 동일 order_id로 이미 완료된 경우 동일 성공 결과 반환
     IF v_rec.status = 'issued' THEN
         IF v_rec.order_id = p_order_id THEN
             RETURN jsonb_build_object(
@@ -646,57 +649,125 @@ BEGIN
         END IF;
     END IF;
 
-    -- [Fix 3] 호출 또는 처리 중 상태에서만 완료 가능 (waiting/canceled/no_show 차단)
-    IF v_rec.status NOT IN ('called', 'processing') THEN
-        RETURN jsonb_build_object('ok', false, 'error', 'INVALID_STATUS', 'message', '호출 또는 처리 중인 팀만 발권 완료할 수 있습니다.');
+    -- 4. [R3] 계약 §2.1: 처리 중(processing) 상태인 팀만 발권 완료 가능 (호출된 called 상태 완료 불가)
+    IF v_rec.status <> 'processing' THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'INVALID_STATUS', 'message', '처리 중(processing) 상태인 팀만 발권 완료할 수 있습니다.');
     END IF;
 
-    -- [R2 Fix 4] 주문 결제 확정 상태 검증 (order_payments status = 'paid' & cancelled_at IS NULL)
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'order_payments') THEN
-        IF NOT EXISTS (
-            SELECT 1 FROM public.order_payments
-            WHERE order_id = p_order_id
-              AND status = 'paid'
-              AND cancelled_at IS NULL
-        ) THEN
-            RETURN jsonb_build_object('ok', false, 'error', 'PAYMENT_NOT_CONFIRMED', 'message', '결제가 확정되지 않았거나 유효한 결제 내역이 없습니다.');
-        END IF;
+    -- 5. [R3] 원장 테이블 부재 시 실패 강제 (order_payments, ticket_ledger, order_items, safety_consents)
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'order_payments')
+       OR NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ticket_ledger')
+       OR NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'order_items')
+       OR NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'safety_consents') THEN
+        RETURN jsonb_build_object(
+            'ok', false, 
+            'error', 'LEDGER_TABLE_MISSING', 
+            'message', '필수 원장 테이블(order_payments, ticket_ledger, order_items, safety_consents)이 누락되어 발권을 완료할 수 없습니다.'
+        );
     END IF;
 
-    -- [R2 Fix 4] 안전 서약서 유효 상태 검증 (safety_consents 존재 여부 대사)
-    IF v_rec.consent_id IS NOT NULL AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'safety_consents') THEN
-        IF NOT EXISTS (
-            SELECT 1 FROM public.safety_consents
-            WHERE id = v_rec.consent_id
-        ) THEN
-            RETURN jsonb_build_object('ok', false, 'error', 'CONSENT_INVALID', 'message', '유효한 서약서 원장이 확인되지 않습니다.');
-        END IF;
+    -- 6. [R2 Fix 4 / R3] 안전 서약서 유효 상태 검증
+    IF v_rec.consent_id IS NULL OR NOT EXISTS (
+        SELECT 1 FROM public.safety_consents
+        WHERE id = v_rec.consent_id
+    ) THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'CONSENT_INVALID', 'message', '유효한 서약서 원장이 확인되지 않습니다.');
     END IF;
 
-    -- [R2 Fix 4] 티켓 전체 유효 원장 검증 (ticket_ledger 에 전체 티켓 존재 및 취소 여부)
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ticket_ledger') THEN
-        SELECT COUNT(*) INTO v_matched_tickets
-        FROM public.ticket_ledger
+    -- 7. [R3] 다른 팀 주문 연결 차단 (order_payments의 consent_id 대사)
+    IF EXISTS (
+        SELECT 1 FROM public.order_payments
         WHERE order_id = p_order_id
-          AND cancelled_at IS NULL
-          AND ticket_id IN (SELECT jsonb_array_elements_text(p_ticket_ids));
-
-        IF v_matched_tickets <> v_tickets_count THEN
-            RETURN jsonb_build_object(
-                'ok', false, 
-                'error', 'TICKET_LEDGER_INCOMPLETE', 
-                'message', '티켓 원장에 등록되지 않았거나 취소된 티켓이 포함되어 있습니다. (유효: ' || v_matched_tickets || '/' || v_tickets_count || ')'
-            );
-        END IF;
+          AND consent_id IS NOT NULL
+          AND v_rec.consent_id IS NOT NULL
+          AND consent_id <> v_rec.consent_id
+    ) THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'ORDER_CONSENT_MISMATCH', 'message', '해당 주문의 서약서가 대기열 서약서와 일치하지 않습니다.');
     END IF;
 
-    -- 처리 시간 산출 (processing_started_at 우선, 없으면 called_at 기준)
+    -- 8. [R3] 다른 팀 티켓 연결 차단 (ticket_ledger의 consent_id 대사)
+    IF EXISTS (
+        SELECT 1 FROM public.ticket_ledger
+        WHERE ticket_id IN (SELECT jsonb_array_elements_text(p_ticket_ids))
+          AND consent_id IS NOT NULL
+          AND v_rec.consent_id IS NOT NULL
+          AND consent_id <> v_rec.consent_id
+    ) THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'TICKET_CONSENT_MISMATCH', 'message', '다른 팀/서약서의 티켓이 포함되어 있습니다.');
+    END IF;
+
+    -- 9. [R3] 다른 주문의 티켓 포함 여부 검사
+    IF EXISTS (
+        SELECT 1 FROM public.ticket_ledger
+        WHERE ticket_id IN (SELECT jsonb_array_elements_text(p_ticket_ids))
+          AND order_id <> p_order_id
+    ) THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'TICKET_ORDER_MISMATCH', 'message', '다른 주문의 티켓이 포함되어 있습니다.');
+    END IF;
+
+    -- 10. [R3] 주문 품목 수량 대사 (order_items 수량 vs 발권 티켓 수)
+    SELECT COALESCE(SUM(quantity), 0), COALESCE(SUM(total_price), 0)
+    INTO v_order_qty, v_order_total
+    FROM public.order_items
+    WHERE order_id = p_order_id;
+
+    IF v_order_qty <= 0 THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'ORDER_ITEMS_EMPTY', 'message', '주문 품목 원장이 없거나 수량이 0입니다.');
+    END IF;
+
+    IF v_tickets_count < v_order_qty THEN
+        RETURN jsonb_build_object(
+            'ok', false, 
+            'error', 'TICKET_QUANTITY_MISMATCH', 
+            'message', '발권된 티켓 수(' || v_tickets_count || ')가 주문 수량(' || v_order_qty || ')보다 적습니다.'
+        );
+    END IF;
+
+    -- 11. [R3] 결제 확정 및 결제 금액 합계 대사 (order_payments vs order_items total_price)
+    SELECT COALESCE(SUM(amount), 0) INTO v_paid_total
+    FROM public.order_payments
+    WHERE order_id = p_order_id
+      AND (consent_id IS NULL OR consent_id = v_rec.consent_id)
+      AND status = 'paid'
+      AND cancelled_at IS NULL;
+
+    IF v_paid_total <= 0 THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'PAYMENT_NOT_CONFIRMED', 'message', '결제가 확정되지 않았거나 유효한 결제 내역이 없습니다.');
+    END IF;
+
+    IF v_order_total > 0 AND v_paid_total < v_order_total THEN
+        RETURN jsonb_build_object(
+            'ok', false,
+            'error', 'PARTIAL_PAYMENT_REJECTED',
+            'message', '결제 수납 금액(' || v_paid_total || '원)이 주문 총액(' || v_order_total || '원)에 미달합니다.'
+        );
+    END IF;
+
+    -- 12. [R2 Fix 4 / R3] 티켓 전체 유효 원장 검증 (ticket_ledger 에 전체 티켓 존재 및 취소 여부)
+    SELECT COUNT(*) INTO v_matched_tickets
+    FROM public.ticket_ledger
+    WHERE order_id = p_order_id
+      AND (consent_id IS NULL OR consent_id = v_rec.consent_id)
+      AND cancelled_at IS NULL
+      AND (status IS NULL OR status <> 'cancelled')
+      AND ticket_id IN (SELECT jsonb_array_elements_text(p_ticket_ids));
+
+    IF v_matched_tickets <> v_tickets_count THEN
+        RETURN jsonb_build_object(
+            'ok', false, 
+            'error', 'TICKET_LEDGER_INCOMPLETE', 
+            'message', '티켓 원장에 등록되지 않았거나 취소된 티켓이 포함되어 있습니다. (유효: ' || v_matched_tickets || '/' || v_tickets_count || ')'
+        );
+    END IF;
+
+    -- 13. 처리 시간 산출 (processing_started_at 우선, 없으면 called_at 기준)
     IF v_rec.processing_started_at IS NOT NULL THEN
         v_duration := GREATEST(10, EXTRACT(EPOCH FROM (v_now - v_rec.processing_started_at))::INTEGER);
     ELSIF v_rec.called_at IS NOT NULL THEN
         v_duration := GREATEST(10, EXTRACT(EPOCH FROM (v_now - v_rec.called_at))::INTEGER);
     END IF;
 
+    -- 14. 대기열 상태 갱신 (issued)
     UPDATE public.ticket_queue
     SET status = 'issued',
         issued_at = v_now,
@@ -707,6 +778,7 @@ BEGIN
         updated_at = v_now
     WHERE id = p_queue_id;
 
+    -- 15. 창구 슬롯 해제
     IF v_rec.desk_no IS NOT NULL THEN
         UPDATE public.ticket_queue_desks
         SET current_queue_id = NULL,
@@ -739,7 +811,7 @@ CREATE OR REPLACE FUNCTION public.get_customer_queue_status(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
     v_now TIMESTAMPTZ := NOW();
@@ -889,7 +961,7 @@ CREATE OR REPLACE FUNCTION public.get_queue_public_display(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
     v_called JSONB;
@@ -932,7 +1004,7 @@ CREATE OR REPLACE FUNCTION public.get_staff_queue_list(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
     v_waiting JSONB;
@@ -1035,7 +1107,7 @@ CREATE OR REPLACE FUNCTION public.set_desk_pause_status(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
     v_now TIMESTAMPTZ := NOW();

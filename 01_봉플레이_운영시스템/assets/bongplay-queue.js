@@ -266,6 +266,7 @@
     this.orderPayments = [];     // [R2 Fix 4] 주문 결제 원장 모의 저장소
     this.safetyConsents = [];    // [R2 Fix 4] 안전 서약서 원장 모의 저장소
     this.ticketLedger = [];      // [R2 Fix 4] 티켓 발권 원장 모의 저장소
+    this.orderItems = [];        // [R3] 주문 품목 원장 모의 저장소
     this.desks = {               // 매표 창구 관제 슬롯
       1: { desk_no: 1, is_active: true, is_paused: false, staff_id: null, current_queue_id: null },
       2: { desk_no: 2, is_active: true, is_paused: false, staff_id: null, current_queue_id: null }
@@ -581,51 +582,122 @@
     if (!Array.isArray(ticketIds) || ticketIds.length === 0) {
       return { ok: false, error: 'TICKETS_REQUIRED', message: '발권된 팔찌 티켓 목록이 필요합니다.' };
     }
-    if (item.status !== STATUS.CALLED && item.status !== STATUS.PROCESSING) {
-      return { ok: false, error: 'INVALID_STATUS', message: '호출 또는 처리 중인 팀만 발권 완료할 수 있습니다.' };
+    // [R3] 처리 중(processing) 상태의 팀만 발권 완료 가능 (호출된 called 상태 완료 불가)
+    if (item.status !== STATUS.PROCESSING) {
+      return { ok: false, error: 'INVALID_STATUS', message: '처리 중(processing) 상태인 팀만 발권 완료할 수 있습니다.' };
     }
 
-    // [R2 Fix 4] 주문 결제 확정(order_payments) 검증
-    var payments = (opts && opts.orderPayments) || this.orderPayments;
-    if (payments && payments.length > 0) {
+    // [R3] 원장 데이터 대사 (결제, 서약서, 티켓, 주문품목)
+    var payments = (opts && 'orderPayments' in opts) ? opts.orderPayments : this.orderPayments;
+    var consents = (opts && 'safetyConsents' in opts) ? opts.safetyConsents : this.safetyConsents;
+    var ledger = (opts && 'ticketLedger' in opts) ? opts.ticketLedger : this.ticketLedger;
+    var items = (opts && 'orderItems' in opts) ? opts.orderItems : this.orderItems;
+
+    var hasLedgerContext = (opts && opts.requireLedger) ||
+      (payments && payments.length > 0) ||
+      (consents && consents.length > 0) ||
+      (ledger && ledger.length > 0) ||
+      (items && items.length > 0);
+
+    if (hasLedgerContext) {
+      // 1. [R3] 원장 데이터 부재 시 실패 강제
+      if (opts && opts.requireLedger) {
+        if (!payments || !ledger || !consents) {
+          return { ok: false, error: 'LEDGER_TABLE_MISSING', message: '필수 원장이 누락되어 발권을 완료할 수 없습니다.' };
+        }
+      }
+
+      // 2. [R2 Fix 4 / R3] 안전 서약서 유효 상태(safety_consents) 검증
+      if (item.consent_id) {
+        if (!consents || consents.length === 0) {
+          return { ok: false, error: 'CONSENT_INVALID', message: '유효한 서약서 원장이 확인되지 않습니다.' };
+        }
+        var validConsent = false;
+        for (var c = 0; c < consents.length; c++) {
+          var cst = consents[c];
+          if (cst.id === item.consent_id && !cst.cancelled_at && cst.status !== 'cancelled') {
+            validConsent = true;
+            break;
+          }
+        }
+        if (!validConsent) {
+          return { ok: false, error: 'CONSENT_INVALID', message: '유효한 서약서 원장이 확인되지 않습니다.' };
+        }
+      }
+
+      // 3. [R3] 다른 팀 주문 연결 차단 및 주문 결제 확정(order_payments) 검증
+      if (!payments || payments.length === 0) {
+        return { ok: false, error: 'PAYMENT_NOT_CONFIRMED', message: '결제가 확정되지 않았거나 유효한 결제 내역이 없습니다.' };
+      }
+
       var hasPaid = false;
+      var paidTotal = 0;
       for (var p = 0; p < payments.length; p++) {
         var pay = payments[p];
-        if (pay.order_id === orderId && pay.status === 'paid' && !pay.cancelled_at) {
-          hasPaid = true;
-          break;
+        if (pay.order_id === orderId) {
+          // 서약서 일치 여부 대사 (다른 팀 주문 차단)
+          if (pay.consent_id && item.consent_id && pay.consent_id !== item.consent_id) {
+            return { ok: false, error: 'ORDER_CONSENT_MISMATCH', message: '해당 주문의 서약서가 대기열 서약서와 일치하지 않습니다.' };
+          }
+          if (pay.status === 'paid' && !pay.cancelled_at) {
+            hasPaid = true;
+            paidTotal += (Number(pay.amount) || 0);
+          }
         }
       }
       if (!hasPaid) {
         return { ok: false, error: 'PAYMENT_NOT_CONFIRMED', message: '결제가 확정되지 않았거나 유효한 결제 내역이 없습니다.' };
       }
-    }
 
-    // [R2 Fix 4] 안전 서약서 유효 상태(safety_consents) 검증
-    var consents = (opts && opts.safetyConsents) || this.safetyConsents;
-    if (consents && consents.length > 0 && item.consent_id) {
-      var validConsent = false;
-      for (var c = 0; c < consents.length; c++) {
-        var cst = consents[c];
-        if (cst.id === item.consent_id && !cst.cancelled_at && cst.status !== 'cancelled') {
-          validConsent = true;
-          break;
+      // 4. [R3] 주문 품목 수량 및 총액 대사 (order_items)
+      if (items && items.length > 0) {
+        var orderQty = 0;
+        var orderTotal = 0;
+        for (var it = 0; it < items.length; it++) {
+          var orderItem = items[it];
+          if (orderItem.order_id === orderId) {
+            orderQty += (Number(orderItem.quantity) || 1);
+            orderTotal += (Number(orderItem.total_price) || ((Number(orderItem.unit_price) || 0) * (Number(orderItem.quantity) || 1)));
+          }
+        }
+        if (orderQty > 0 && ticketIds.length < orderQty) {
+          return {
+            ok: false,
+            error: 'TICKET_QUANTITY_MISMATCH',
+            message: '발권된 티켓 수(' + ticketIds.length + ')가 주문 수량(' + orderQty + ')보다 적습니다.'
+          };
+        }
+        if (orderTotal > 0 && paidTotal < orderTotal) {
+          return {
+            ok: false,
+            error: 'PARTIAL_PAYMENT_REJECTED',
+            message: '결제 수납 금액(' + paidTotal + '원)이 주문 총액(' + orderTotal + '원)에 미달합니다.'
+          };
         }
       }
-      if (!validConsent) {
-        return { ok: false, error: 'CONSENT_INVALID', message: '유효한 서약서 원장이 확인되지 않습니다.' };
-      }
-    }
 
-    // [R2 Fix 4] 티켓 전체 유효 원장(ticket_ledger) 검증
-    var ledger = (opts && opts.ticketLedger) || this.ticketLedger;
-    if (ledger && ledger.length > 0) {
+      // 5. [R3] 다른 팀 티켓 연결 차단 및 티켓 전체 유효 원장(ticket_ledger) 검증
+      if (!ledger || ledger.length === 0) {
+        return { ok: false, error: 'TICKET_LEDGER_INCOMPLETE', message: '티켓 원장이 누락되었습니다.' };
+      }
+
+      // 다른 팀 티켓 연결 차단
+      for (var tk = 0; tk < ticketIds.length; tk++) {
+        var tid = ticketIds[tk];
+        for (var lg = 0; lg < ledger.length; lg++) {
+          var lRow = ledger[lg];
+          if (lRow.ticket_id === tid && lRow.consent_id && item.consent_id && lRow.consent_id !== item.consent_id) {
+            return { ok: false, error: 'TICKET_CONSENT_MISMATCH', message: '다른 팀/서약서의 티켓이 포함되어 있습니다.' };
+          }
+        }
+      }
+
       var matchedCount = 0;
       for (var t = 0; t < ticketIds.length; t++) {
-        var tid = ticketIds[t];
+        var reqTid = ticketIds[t];
         for (var l = 0; l < ledger.length; l++) {
           var row = ledger[l];
-          if (row.ticket_id === tid && row.order_id === orderId && !row.cancelled_at) {
+          if (row.ticket_id === reqTid && row.order_id === orderId && !row.cancelled_at && row.status !== 'cancelled') {
             matchedCount++;
             break;
           }
