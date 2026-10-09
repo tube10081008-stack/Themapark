@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>지오(Aside) 전용 합성 시험 관제 대시보드 - 리틀포레스트 봉플레이</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen p-4 sm:p-6 font-sans">
+  <div class="max-w-6xl mx-auto space-y-6">
+
+    <!-- 상단 헤더 -->
+    <header class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <div>
+        <div class="flex items-center gap-3">
+          <span class="bg-indigo-600 text-white text-xs font-black px-2.5 py-1 rounded-md tracking-wider">SYNTHETIC ENV</span>
+          <h1 class="text-2xl font-black tracking-tight text-white flex items-center gap-2">
+            🧪 지오(Aside) 합성 시험 관제소
+          </h1>
+        </div>
+        <p class="text-slate-400 text-sm mt-1">
+          Netlify 크레딧 0 소모 로컬 모의 환경 · ANT-006 R2 발권 대기열 실사용 검증 전용
+        </p>
+      </div>
+
+      <!-- 판본 및 상태 배지 -->
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="bg-slate-800/80 border border-slate-700 px-3 py-1.5 rounded-xl text-xs">
+          <span class="text-slate-400">기준 판본:</span>
+          <span class="text-indigo-400 font-mono font-bold ml-1">ANT-006 R2 (7481270)</span>
+        </div>
+        <div class="bg-slate-800/80 border border-slate-700 px-3 py-1.5 rounded-xl text-xs">
+          <span class="text-slate-400">백엔드:</span>
+          <span class="text-emerald-400 font-bold ml-1">메모리 모의 (In-Memory)</span>
+        </div>
+        <button onclick="shutdownServer()" class="bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800 text-xs px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5">
+          <i class="fa-solid fa-power-off"></i> 서버 종료
+        </button>
+      </div>
+    </header>
+
+    <!-- 실시간 상태 요약 카드 -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+        <div class="text-xs text-slate-400 font-semibold">총 등록 팀</div>
+        <div id="statTotal" class="text-3xl font-black text-white mt-1">0</div>
+        <div class="text-[11px] text-slate-500 mt-0.5">금일 누적 접수</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+        <div class="text-xs text-amber-400 font-semibold">대기 중인 팀</div>
+        <div id="statWaiting" class="text-3xl font-black text-amber-400 mt-1">0</div>
+        <div class="text-[11px] text-slate-500 mt-0.5">호출 대기</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+        <div class="text-xs text-blue-400 font-semibold">호출 / 처리 중</div>
+        <div id="statCalled" class="text-3xl font-black text-blue-400 mt-1">0</div>
+        <div class="text-[11px] text-slate-500 mt-0.5">창구 배정 팀</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+        <div class="text-xs text-emerald-400 font-semibold">발권 완료 팀</div>
+        <div id="statCompleted" class="text-3xl font-black text-emerald-400 mt-1">0</div>
+        <div class="text-[11px] text-slate-500 mt-0.5">원장 대사 완료</div>
+      </div>
+    </div>
+
+    <!-- 검증 대상 핵심 화면 원터치 바로가기 -->
+    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
+      <h2 class="text-base font-bold text-slate-200 mb-4 flex items-center gap-2">
+        <i class="fa-solid fa-arrow-up-right-from-square text-indigo-400"></i> 검증 대상 화면 바로가기 (지오 브라우저 탐색용)
+      </h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <a href="/pages/consent.html" target="_blank" class="block bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 hover:border-indigo-500 rounded-xl p-4 transition group">
+          <div class="flex items-center justify-between text-indigo-400 mb-2">
+            <i class="fa-solid fa-file-signature text-xl"></i>
+            <span class="text-xs text-slate-400 group-hover:text-white"><i class="fa-solid fa-external-link"></i></span>
+          </div>
+          <div class="font-bold text-slate-200 group-hover:text-indigo-300 text-sm">고객 서약서 & 접수</div>
+          <div class="text-xs text-slate-500 mt-1">/pages/consent.html</div>
+        </a>
+
+        <a href="/pages/queue-status.html" target="_blank" class="block bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 hover:border-indigo-500 rounded-xl p-4 transition group">
+          <div class="flex items-center justify-between text-amber-400 mb-2">
+            <i class="fa-solid fa-mobile-screen-button text-xl"></i>
+            <span class="text-xs text-slate-400 group-hover:text-white"><i class="fa-solid fa-external-link"></i></span>
+          </div>
+          <div class="font-bold text-slate-200 group-hover:text-amber-300 text-sm">고객 내 대기 순서</div>
+          <div class="text-xs text-slate-500 mt-1">/pages/queue-status.html</div>
+        </a>
+
+        <a href="/pages/queue-display.html" target="_blank" class="block bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 hover:border-indigo-500 rounded-xl p-4 transition group">
+          <div class="flex items-center justify-between text-blue-400 mb-2">
+            <i class="fa-solid fa-tv text-xl"></i>
+            <span class="text-xs text-slate-400 group-hover:text-white"><i class="fa-solid fa-external-link"></i></span>
+          </div>
+          <div class="font-bold text-slate-200 group-hover:text-blue-300 text-sm">대기실 TV 전광판</div>
+          <div class="text-xs text-slate-500 mt-1">/pages/queue-display.html</div>
+        </a>
+
+        <a href="/pages/consent-desk.html" target="_blank" class="block bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 hover:border-indigo-500 rounded-xl p-4 transition group">
+          <div class="flex items-center justify-between text-emerald-400 mb-2">
+            <i class="fa-solid fa-desktop text-xl"></i>
+            <span class="text-xs text-slate-400 group-hover:text-white"><i class="fa-solid fa-external-link"></i></span>
+          </div>
+          <div class="font-bold text-slate-200 group-hover:text-emerald-300 text-sm">매표소 데스크 관제</div>
+          <div class="text-xs text-slate-500 mt-1">/pages/consent-desk.html (직원코드: 1234)</div>
+        </a>
+      </div>
+    </section>
+
+    <!-- 합성 조작 및 시드 제어 -->
+    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+        <h2 class="text-base font-bold text-slate-200 flex items-center gap-2">
+          <i class="fa-solid fa-sliders text-indigo-400"></i> 합성 데이터 및 상태 제어
+        </h2>
+        <div class="text-xs text-slate-400">
+          마지막 갱신: <span id="lastUpdatedTime" class="font-mono text-slate-300">-</span>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap gap-3">
+        <button onclick="triggerReset()" class="bg-rose-900/40 hover:bg-rose-900/70 border border-rose-700 text-rose-200 text-sm font-bold px-4 py-2.5 rounded-xl transition flex items-center gap-2">
+          <i class="fa-solid fa-trash-can"></i> 환경 완전 초기화 (Reset)
+        </button>
+        <button onclick="triggerSeed(5)" class="bg-indigo-900/50 hover:bg-indigo-800 border border-indigo-600 text-indigo-200 text-sm font-bold px-4 py-2.5 rounded-xl transition flex items-center gap-2">
+          <i class="fa-solid fa-users"></i> 합성 대기열 5팀 자동 주입 (Seed 5)
+        </button>
+        <button onclick="triggerSeed(1)" class="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 text-sm font-bold px-4 py-2.5 rounded-xl transition flex items-center gap-2">
+          <i class="fa-solid fa-user-plus"></i> 1팀 추가 접수
+        </button>
+        <button onclick="refreshDashboard()" class="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 text-sm font-bold px-4 py-2.5 rounded-xl transition flex items-center gap-2 ml-auto">
+          <i class="fa-solid fa-arrows-rotate"></i> 상태 새로고침
+        </button>
+      </div>
+    </section>
+
+    <!-- 오류 주입 (Fault Injection) 제어판 -->
+    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+        <div>
+          <h2 class="text-base font-bold text-slate-200 flex items-center gap-2">
+            <i class="fa-solid fa-bug text-rose-400"></i> 오류 주입 (Fault Injection) 스위치
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">
+            특정 결함 상황을 활성화하여 지오가 프런트엔드의 방어 및 복구 로직을 검증할 수 있습니다.
+          </p>
+        </div>
+        <button onclick="resetAllFaults()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs px-3 py-1.5 rounded-lg text-slate-300 font-bold transition">
+          모든 오류 해제
+        </button>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <!-- Rate Limit -->
+        <label class="flex items-center justify-between p-3.5 bg-slate-800/40 border border-slate-800 rounded-xl cursor-pointer hover:border-slate-700 transition">
+          <div>
+            <div class="text-xs font-bold text-slate-200">고객 Rate Limit 초과 (429)</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">RATE_LIMIT_EXCEEDED 차단</div>
+          </div>
+          <input type="checkbox" id="fault_rate_limit_exceeded" onchange="toggleFault('rate_limit_exceeded', this.checked)" class="w-4 h-4 accent-indigo-500 rounded">
+        </label>
+
+        <!-- Token Expired -->
+        <label class="flex items-center justify-between p-3.5 bg-slate-800/40 border border-slate-800 rounded-xl cursor-pointer hover:border-slate-700 transition">
+          <div>
+            <div class="text-xs font-bold text-slate-200">고객 토큰 24시간 만료 (401)</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">TOKEN_EXPIRED 반환</div>
+          </div>
+          <input type="checkbox" id="fault_token_expired" onchange="toggleFault('token_expired', this.checked)" class="w-4 h-4 accent-indigo-500 rounded">
+        </label>
+
+        <!-- Unauthorized Staff -->
+        <label class="flex items-center justify-between p-3.5 bg-slate-800/40 border border-slate-800 rounded-xl cursor-pointer hover:border-slate-700 transition">
+          <div>
+            <div class="text-xs font-bold text-slate-200">직원 인증 거부 (403)</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">UNAUTHORIZED_STAFF 에러</div>
+          </div>
+          <input type="checkbox" id="fault_unauthorized_staff" onchange="toggleFault('unauthorized_staff', this.checked)" class="w-4 h-4 accent-indigo-500 rounded">
+        </label>
+
+        <!-- Payment Not Confirmed -->
+        <label class="flex items-center justify-between p-3.5 bg-slate-800/40 border border-slate-800 rounded-xl cursor-pointer hover:border-slate-700 transition">
+          <div>
+            <div class="text-xs font-bold text-slate-200">결제 미확정 (발권 완료 실패)</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">PAYMENT_NOT_CONFIRMED 원장 대사 실패</div>
+          </div>
+          <input type="checkbox" id="fault_payment_not_confirmed" onchange="toggleFault('payment_not_confirmed', this.checked)" class="w-4 h-4 accent-indigo-500 rounded">
+        </label>
+
+        <!-- Ticket Ledger Incomplete -->
+        <label class="flex items-center justify-between p-3.5 bg-slate-800/40 border border-slate-800 rounded-xl cursor-pointer hover:border-slate-700 transition">
+          <div>
+            <div class="text-xs font-bold text-slate-200">티켓 원장 결손 (발권 완료 실패)</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">TICKET_LEDGER_INCOMPLETE 누락</div>
+          </div>
+          <input type="checkbox" id="fault_ticket_ledger_incomplete" onchange="toggleFault('ticket_ledger_incomplete', this.checked)" class="w-4 h-4 accent-indigo-500 rounded">
+        </label>
+
+        <!-- 500 Server Error -->
+        <label class="flex items-center justify-between p-3.5 bg-slate-800/40 border border-slate-800 rounded-xl cursor-pointer hover:border-slate-700 transition">
+          <div>
+            <div class="text-xs font-bold text-rose-300">500 서버 내부 장애</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">HTTP 500 전면 장애 응답</div>
+          </div>
+          <input type="checkbox" id="fault_server_error_500" onchange="toggleFault('server_error_500', this.checked)" class="w-4 h-4 accent-rose-500 rounded">
+        </label>
+
+        <!-- Offline Mode -->
+        <label class="flex items-center justify-between p-3.5 bg-slate-800/40 border border-slate-800 rounded-xl cursor-pointer hover:border-slate-700 transition">
+          <div>
+            <div class="text-xs font-bold text-rose-300">오프라인 네트워크 단절</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">HTTP 503 단절 시뮬레이션</div>
+          </div>
+          <input type="checkbox" id="fault_offline_mode" onchange="toggleFault('offline_mode', this.checked)" class="w-4 h-4 accent-rose-500 rounded">
+        </label>
+
+        <!-- Network Latency Delay -->
+        <div class="p-3.5 bg-slate-800/40 border border-slate-800 rounded-xl flex items-center justify-between gap-3 sm:col-span-2">
+          <div>
+            <div class="text-xs font-bold text-slate-200">인위적 네트워크 지연 (Latency)</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">로딩 상태 및 경합 검증용 (현재: <span id="delayLabel" class="font-mono text-amber-300">0</span>ms)</div>
+          </div>
+          <div class="flex items-center gap-2">
+            <input type="range" id="fault_delay_slider" min="0" max="3000" step="500" value="0" oninput="updateDelay(this.value)" class="w-28 sm:w-36 accent-amber-500">
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 현재 대기열 목록 실시간 미리보기 -->
+    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+      <h2 class="text-base font-bold text-slate-200 flex items-center gap-2">
+        <i class="fa-solid fa-list-ol text-indigo-400"></i> 현재 대기열 목록 스냅샷
+      </h2>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs border-collapse">
+          <thead>
+            <tr class="border-b border-slate-800 text-slate-400">
+              <th class="py-2.5 px-3">대기번호</th>
+              <th class="py-2.5 px-3">보호자 / 인원</th>
+              <th class="py-2.5 px-3">상태</th>
+              <th class="py-2.5 px-3">창구</th>
+              <th class="py-2.5 px-3">고객 토큰 (시뮬레이션 링크)</th>
+            </tr>
+          </thead>
+          <tbody id="queueTableBody" class="divide-y divide-slate-800/60 font-mono">
+            <tr>
+              <td colspan="5" class="py-8 text-center text-slate-500 font-sans">등록된 대기 팀이 없습니다.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </div>
+
+  <script>
+    async function refreshDashboard() {
+      try {
+        const res = await fetch('/api/synthetic/status');
+        if (!res.ok) throw new Error('Status fetch failed');
+        const data = await res.json();
+
+        // 1) 통계
+        document.getElementById('statTotal').textContent = data.queue_stats?.total_entries || 0;
+        document.getElementById('statWaiting').textContent = data.queue_stats?.waiting || 0;
+        document.getElementById('statCalled').textContent = data.queue_stats?.called || 0;
+        document.getElementById('statCompleted').textContent = data.queue_stats?.completed || 0;
+        document.getElementById('lastUpdatedTime').textContent = new Date().toLocaleTimeString();
+
+        // 2) 오류 주입 스위치 상태 반영
+        const cfg = data.fault_config || {};
+        ['rate_limit_exceeded', 'token_expired', 'unauthorized_staff', 'payment_not_confirmed', 'ticket_ledger_incomplete', 'server_error_500', 'offline_mode'].forEach(k => {
+          const el = document.getElementById('fault_' + k);
+          if (el) el.checked = Boolean(cfg[k]);
+        });
+        const slider = document.getElementById('fault_delay_slider');
+        if (slider) slider.value = cfg.network_delay_ms || 0;
+        document.getElementById('delayLabel').textContent = cfg.network_delay_ms || 0;
+
+        // 3) 대기열 테이블 스냅샷 조회
+        const listRes = await fetch('/mock-supabase/rest/v1/rpc/get_staff_queue_list', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ p_access_code: '1234', p_date: new Date().toISOString().slice(0, 10) })
+        });
+        if (listRes.ok) {
+          const listData = await listRes.json();
+          renderQueueTable(listData);
+        }
+      } catch (err) {
+        console.warn('Dashboard refresh failed:', err);
+      }
+    }
+
+    function renderQueueTable(data) {
+      const tbody = document.getElementById('queueTableBody');
+      const all = [];
+      if (Array.isArray(data.called_teams)) all.push(...data.called_teams);
+      if (Array.isArray(data.waiting_teams)) all.push(...data.waiting_teams);
+      if (Array.isArray(data.held_teams)) all.push(...data.held_teams);
+
+      if (all.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="py-8 text-center text-slate-500 font-sans">등록된 대기 팀이 없습니다.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = all.map(t => {
+        let statusBadge = '<span class="bg-amber-950 text-amber-300 border border-amber-800 px-2 py-0.5 rounded text-[11px]">대기 중</span>';
+        if (t.status === 'called') statusBadge = '<span class="bg-blue-950 text-blue-300 border border-blue-800 px-2 py-0.5 rounded text-[11px]">호출 중</span>';
+        if (t.status === 'processing') statusBadge = '<span class="bg-purple-950 text-purple-300 border border-purple-800 px-2 py-0.5 rounded text-[11px]">발권 진행</span>';
+        if (t.status === 'issued') statusBadge = '<span class="bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded text-[11px]">발권 완료</span>';
+        if (t.status === 'no_show') statusBadge = '<span class="bg-rose-950 text-rose-300 border border-rose-800 px-2 py-0.5 rounded text-[11px]">부재 보류</span>';
+
+        return `
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="py-2.5 px-3 font-bold text-white">${t.formatted_number || ('#' + t.queue_number)}</td>
+            <td class="py-2.5 px-3 text-slate-300">${t.guardian_name || '미입력'} (${t.party_size || 1}명)</td>
+            <td class="py-2.5 px-3">${statusBadge}</td>
+            <td class="py-2.5 px-3 text-slate-400">${t.desk_no ? t.desk_no + '번 창구' : '-'}</td>
+            <td class="py-2.5 px-3">
+              <a href="/pages/queue-status.html?token=${t.customer_token}" target="_blank" class="text-indigo-400 hover:text-indigo-300 underline font-mono text-[11px]">
+                ${t.customer_token ? t.customer_token.slice(0, 10) + '...' : '-'} (화면 열기)
+              </a>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    async function triggerReset() {
+      if (!confirm('대기열과 모의 원장을 모두 초기화하시겠습니까?')) return;
+      await fetch('/api/synthetic/reset', { method: 'POST' });
+      await refreshDashboard();
+    }
+
+    async function triggerSeed(count) {
+      await fetch('/api/synthetic/seed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ count })
+      });
+      await refreshDashboard();
+    }
+
+    async function toggleFault(key, enabled) {
+      await fetch('/api/synthetic/faults', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [key]: enabled })
+      });
+      await refreshDashboard();
+    }
+
+    async function updateDelay(val) {
+      document.getElementById('delayLabel').textContent = val;
+      await fetch('/api/synthetic/faults', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ network_delay_ms: parseInt(val, 10) })
+      });
+    }
+
+    async function resetAllFaults() {
+      await fetch('/api/synthetic/faults/reset', { method: 'POST' });
+      await refreshDashboard();
+    }
+
+    async function shutdownServer() {
+      if (!confirm('합성 시험 서버를 종료하시겠습니까?')) return;
+      await fetch('/api/synthetic/shutdown', { method: 'POST' });
+      alert('서버가 종료되었습니다. 브라우저 탭을 닫아주세요.');
+    }
+
+    // 2초 주기 자동 갱신
+    setInterval(refreshDashboard, 2000);
+    refreshDashboard();
+  </script>
+</body>
+</html>
