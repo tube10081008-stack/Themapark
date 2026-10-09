@@ -23,7 +23,29 @@ const ROOT_OPS = path.resolve(__dirname, '..');
 const BongplayQueue = require(path.join(ROOT_OPS, 'assets', 'bongplay-queue.js'));
 
 const DEFAULT_PORT = 4185;
-const PORT = parseInt(process.env.PORT || process.argv.find(a => a.startsWith('--port='))?.split('=')[1] || DEFAULT_PORT, 10);
+
+function parsePort() {
+  if (process.env.PORT) {
+    const p = parseInt(process.env.PORT, 10);
+    if (!isNaN(p) && p > 0) return p;
+  }
+  for (let i = 2; i < process.argv.length; i++) {
+    const arg = process.argv[i];
+    if (arg === '--port' || arg === '-p') {
+      const next = parseInt(process.argv[i + 1], 10);
+      if (!isNaN(next) && next > 0) return next;
+    } else if (arg.startsWith('--port=')) {
+      const p = parseInt(arg.split('=')[1], 10);
+      if (!isNaN(p) && p > 0) return p;
+    } else if (/^\d+$/.test(arg)) {
+      const p = parseInt(arg, 10);
+      if (!isNaN(p) && p > 0) return p;
+    }
+  }
+  return DEFAULT_PORT;
+}
+
+const PORT = parsePort();
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 const PID_FILE = path.join(__dirname, '.synthetic_server.pid');
 
@@ -276,6 +298,7 @@ const server = http.createServer(async (req, res) => {
         commit: COMMIT_SHA,
         backend_mode: 'in_memory_mock',
         port: PORT,
+        server_pid: process.pid,
         base_url: BASE_URL,
         queue_stats: {
           total_entries: store.entries.length,
@@ -545,12 +568,14 @@ const server = http.createServer(async (req, res) => {
   // [C] config.js 가상 서빙 (합성 직원 인증 세션 자동 주입)
   // -------------------------------------------------------------------------
   if (reqPath.endsWith('/config.js')) {
+    const hostHeader = req.headers.host || `127.0.0.1:${PORT}`;
+    const dynamicOrigin = `http://${hostHeader}`;
     const mockConfig = `
 /* ============================================================
    지오(Aside) 전용 합성 환경 설정 및 자동 인증 세션
    ============================================================ */
 window.BONGPLAY_CONFIG = {
-  SUPABASE_URL: '${BASE_URL}/mock-supabase',
+  SUPABASE_URL: '${dynamicOrigin}/mock-supabase',
   SUPABASE_ANON_KEY: 'test-anon-key',
   STAFF_SESSION_HOURS: 24,
   MASTER_VERSION: '2026.v1',
@@ -623,7 +648,7 @@ try {
 // ---------------------------------------------------------------------------
 // 6. 서버 기동 및 안내 배너 출력
 // ---------------------------------------------------------------------------
-server.listen(PORT, '127.0.0.1', () => {
+server.listen(PORT, '0.0.0.0', () => {
   try {
     fs.writeFileSync(PID_FILE, String(process.pid));
   } catch (e) {}
@@ -634,25 +659,27 @@ server.listen(PORT, '127.0.0.1', () => {
 ================================================================
 • 기준 판본: ${VERSION_TAG}
 • 백엔드 모드: 메모리 모의 환경 (In-Memory Mock, Netlify 크레딧 0)
-• 로컬 주소: ${BASE_URL}
+• 로컬 주소: http://127.0.0.1:${PORT} (또는 http://localhost:${PORT})
+• 포트: ${PORT} (0.0.0.0 바인딩 완료)
 • 서버 PID: ${process.pid} (기록 파일: ${PID_FILE})
 
 [주요 접속 경로]
-  🎛️ 관제 대시보드 : ${BASE_URL}/pages/synthetic-control.html
-  📱 고객 서약서   : ${BASE_URL}/pages/consent.html
-  🎫 고객 대기화면 : ${BASE_URL}/pages/queue-status.html
-  📺 대기실 전광판 : ${BASE_URL}/pages/queue-display.html
-  🖥️ 매표소 데스크 : ${BASE_URL}/pages/consent-desk.html
+  🎛️ 관제 대시보드 : http://127.0.0.1:${PORT}/pages/synthetic-control.html
+                   http://localhost:${PORT}/pages/synthetic-control.html
+  📱 고객 서약서   : http://127.0.0.1:${PORT}/pages/consent.html
+  🎫 고객 대기화면 : http://127.0.0.1:${PORT}/pages/queue-status.html
+  📺 대기실 전광판 : http://127.0.0.1:${PORT}/pages/queue-display.html
+  🖥️ 매표소 데스크 : http://127.0.0.1:${PORT}/pages/consent-desk.html
 
 [합성 인증 정보]
   • 직원 인증 코드: 1234 (자동 주입 완료)
   • 담당 시설: bongplay_bonghwa (봉플레이 봉화)
 
 [제어 명령]
-  • 상태 조회: curl ${BASE_URL}/api/synthetic/status
-  • 환경 초기화: curl -X POST ${BASE_URL}/api/synthetic/reset
-  • 5팀 시드 주입: curl -X POST ${BASE_URL}/api/synthetic/seed
-  • 서버 종료: curl -X POST ${BASE_URL}/api/synthetic/shutdown (또는 Ctrl+C)
+  • 상태 조회: curl http://127.0.0.1:${PORT}/api/synthetic/status
+  • 환경 초기화: curl -X POST http://127.0.0.1:${PORT}/api/synthetic/reset
+  • 5팀 시드 주입: curl -X POST http://127.0.0.1:${PORT}/api/synthetic/seed
+  • 서버 종료: curl -X POST http://127.0.0.1:${PORT}/api/synthetic/shutdown (또는 stop_synthetic_env.ps1)
 ================================================================
 `);
 });
