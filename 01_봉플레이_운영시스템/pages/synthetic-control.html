@@ -41,7 +41,7 @@
     </header>
 
     <!-- 실시간 상태 요약 카드 -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
       <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
         <div class="text-xs text-slate-400 font-semibold">총 등록 팀</div>
         <div id="statTotal" class="text-3xl font-black text-white mt-1">0</div>
@@ -56,6 +56,11 @@
         <div class="text-xs text-blue-400 font-semibold">호출 / 처리 중</div>
         <div id="statCalled" class="text-3xl font-black text-blue-400 mt-1">0</div>
         <div class="text-[11px] text-slate-500 mt-0.5">창구 배정 팀</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+        <div class="text-xs text-rose-400 font-semibold">부재 보류 팀</div>
+        <div id="statHeld" class="text-3xl font-black text-rose-400 mt-1">0</div>
+        <div class="text-[11px] text-slate-500 mt-0.5">부재 일시 보류</div>
       </div>
       <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
         <div class="text-xs text-emerald-400 font-semibold">발권 완료 팀</div>
@@ -230,9 +235,19 @@
 
     <!-- 현재 대기열 목록 실시간 미리보기 -->
     <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
-      <h2 class="text-base font-bold text-slate-200 flex items-center gap-2">
-        <i class="fa-solid fa-list-ol text-indigo-400"></i> 현재 대기열 목록 스냅샷
-      </h2>
+      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+        <h2 class="text-base font-bold text-slate-200 flex items-center gap-2">
+          <i class="fa-solid fa-list-ol text-indigo-400"></i> 현재 대기열 목록 스냅샷
+          <span id="queueTableCount" class="text-xs font-normal text-slate-400 ml-2">전체 0팀</span>
+        </h2>
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <button id="filterBtn_all" onclick="setFilter('all')" class="px-3 py-1 bg-indigo-600 text-white rounded-lg text-xs font-bold transition">전체</button>
+          <button id="filterBtn_waiting" onclick="setFilter('waiting')" class="px-3 py-1 bg-slate-800 text-slate-400 hover:text-white rounded-lg text-xs font-bold transition">대기 중</button>
+          <button id="filterBtn_called" onclick="setFilter('called')" class="px-3 py-1 bg-slate-800 text-slate-400 hover:text-white rounded-lg text-xs font-bold transition">호출/진행</button>
+          <button id="filterBtn_held" onclick="setFilter('held')" class="px-3 py-1 bg-slate-800 text-slate-400 hover:text-white rounded-lg text-xs font-bold transition">부재 보류</button>
+          <button id="filterBtn_issued" onclick="setFilter('issued')" class="px-3 py-1 bg-slate-800 text-slate-400 hover:text-white rounded-lg text-xs font-bold transition">발권 완료</button>
+        </div>
+      </div>
       <div class="overflow-x-auto">
         <table class="w-full text-left text-xs border-collapse">
           <thead>
@@ -256,6 +271,9 @@
   </div>
 
   <script>
+    let allEntriesCache = [];
+    let currentFilter = 'all';
+
     async function refreshDashboard() {
       try {
         const res = await fetch('/api/synthetic/status');
@@ -263,10 +281,13 @@
         const data = await res.json();
 
         // 1) 통계
-        document.getElementById('statTotal').textContent = data.queue_stats?.total_entries || 0;
-        document.getElementById('statWaiting').textContent = data.queue_stats?.waiting || 0;
-        document.getElementById('statCalled').textContent = data.queue_stats?.called || 0;
-        document.getElementById('statCompleted').textContent = data.queue_stats?.completed || 0;
+        const stats = data.queue_stats || {};
+        document.getElementById('statTotal').textContent = stats.total_entries || 0;
+        document.getElementById('statWaiting').textContent = stats.waiting || 0;
+        document.getElementById('statCalled').textContent = stats.called || 0;
+        const heldEl = document.getElementById('statHeld');
+        if (heldEl) heldEl.textContent = stats.held || 0;
+        document.getElementById('statCompleted').textContent = stats.completed || 0;
         document.getElementById('lastUpdatedTime').textContent = new Date().toLocaleTimeString();
 
         // 2) 오류 주입 스위치 상태 반영
@@ -279,39 +300,72 @@
         if (slider) slider.value = cfg.network_delay_ms || 0;
         document.getElementById('delayLabel').textContent = cfg.network_delay_ms || 0;
 
-        // 3) 대기열 테이블 스냅샷 조회
-        const listRes = await fetch('/mock-supabase/rest/v1/rpc/get_staff_queue_list', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ p_access_code: '1234', p_date: new Date().toISOString().slice(0, 10) })
-        });
-        if (listRes.ok) {
-          const listData = await listRes.json();
-          renderQueueTable(listData);
+        // 3) 대기열 목록: /api/synthetic/status의 전수 entries와 100% 일치 동기화
+        if (Array.isArray(data.entries)) {
+          allEntriesCache = data.entries;
+          renderQueueTable(allEntriesCache);
+        } else {
+          // fallback
+          const listRes = await fetch('/mock-supabase/rest/v1/rpc/get_staff_queue_list', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ p_access_code: '1234', p_date: new Date().toISOString().slice(0, 10) })
+          });
+          if (listRes.ok) {
+            const listData = await listRes.json();
+            const fallbackList = [];
+            if (Array.isArray(listData.called_teams)) fallbackList.push(...listData.called_teams);
+            if (Array.isArray(listData.waiting_teams)) fallbackList.push(...listData.waiting_teams);
+            if (Array.isArray(listData.held_teams)) fallbackList.push(...listData.held_teams);
+            allEntriesCache = fallbackList;
+            renderQueueTable(allEntriesCache);
+          }
         }
       } catch (err) {
         console.warn('Dashboard refresh failed:', err);
       }
     }
 
-    function renderQueueTable(data) {
-      const tbody = document.getElementById('queueTableBody');
-      const all = [];
-      if (Array.isArray(data.called_teams)) all.push(...data.called_teams);
-      if (Array.isArray(data.waiting_teams)) all.push(...data.waiting_teams);
-      if (Array.isArray(data.held_teams)) all.push(...data.held_teams);
+    function setFilter(filter) {
+      currentFilter = filter;
+      ['all', 'waiting', 'called', 'held', 'issued'].forEach(f => {
+        const btn = document.getElementById('filterBtn_' + f);
+        if (btn) {
+          btn.className = (f === filter)
+            ? 'px-3 py-1 bg-indigo-600 text-white rounded-lg text-xs font-bold transition'
+            : 'px-3 py-1 bg-slate-800 text-slate-400 hover:text-white rounded-lg text-xs font-bold transition';
+        }
+      });
+      renderQueueTable(allEntriesCache);
+    }
 
-      if (all.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="py-8 text-center text-slate-500 font-sans">등록된 대기 팀이 없습니다.</td></tr>';
+    function renderQueueTable(entries) {
+      const tbody = document.getElementById('queueTableBody');
+      const tableCountEl = document.getElementById('queueTableCount');
+      if (!Array.isArray(entries)) return;
+
+      let filtered = entries;
+      if (currentFilter === 'waiting') filtered = entries.filter(t => t.status === 'waiting');
+      else if (currentFilter === 'called') filtered = entries.filter(t => t.status === 'called' || t.status === 'processing');
+      else if (currentFilter === 'held') filtered = entries.filter(t => t.status === 'no_show');
+      else if (currentFilter === 'issued') filtered = entries.filter(t => t.status === 'issued');
+
+      if (tableCountEl) {
+        tableCountEl.textContent = `표시 ${filtered.length}팀 / 전체 ${entries.length}팀`;
+      }
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="py-8 text-center text-slate-500 font-sans">해당 조건의 대기 팀이 없습니다.</td></tr>';
         return;
       }
 
-      tbody.innerHTML = all.map(t => {
+      tbody.innerHTML = filtered.map(t => {
         let statusBadge = '<span class="bg-amber-950 text-amber-300 border border-amber-800 px-2 py-0.5 rounded text-[11px]">대기 중</span>';
         if (t.status === 'called') statusBadge = '<span class="bg-blue-950 text-blue-300 border border-blue-800 px-2 py-0.5 rounded text-[11px]">호출 중</span>';
         if (t.status === 'processing') statusBadge = '<span class="bg-purple-950 text-purple-300 border border-purple-800 px-2 py-0.5 rounded text-[11px]">발권 진행</span>';
         if (t.status === 'issued') statusBadge = '<span class="bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded text-[11px]">발권 완료</span>';
         if (t.status === 'no_show') statusBadge = '<span class="bg-rose-950 text-rose-300 border border-rose-800 px-2 py-0.5 rounded text-[11px]">부재 보류</span>';
+        if (t.status === 'canceled') statusBadge = '<span class="bg-slate-800 text-slate-300 border border-slate-700 px-2 py-0.5 rounded text-[11px]">접수 취소</span>';
 
         return `
           <tr class="hover:bg-slate-800/40 transition">

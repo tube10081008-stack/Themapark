@@ -287,9 +287,12 @@ const server = http.createServer(async (req, res) => {
     if (sub === 'status' && req.method === 'GET') {
       const store = BongplayQueue.store;
       const todayStr = BongplayQueue.getKstDateStr();
-      const waitingCount = store.entries.filter(e => e.queue_date === todayStr && e.status === BongplayQueue.STATUS.WAITING).length;
-      const calledCount = store.entries.filter(e => e.queue_date === todayStr && (e.status === BongplayQueue.STATUS.CALLED || e.status === BongplayQueue.STATUS.PROCESSING)).length;
-      const completedCount = store.entries.filter(e => e.queue_date === todayStr && e.status === BongplayQueue.STATUS.ISSUED).length;
+      const todayEntries = store.entries.filter(e => e.queue_date === todayStr);
+      const waitingCount = todayEntries.filter(e => e.status === BongplayQueue.STATUS.WAITING).length;
+      const calledCount = todayEntries.filter(e => (e.status === BongplayQueue.STATUS.CALLED || e.status === BongplayQueue.STATUS.PROCESSING)).length;
+      const completedCount = todayEntries.filter(e => e.status === BongplayQueue.STATUS.ISSUED).length;
+      const heldCount = todayEntries.filter(e => e.status === BongplayQueue.STATUS.NO_SHOW).length;
+      const canceledCount = todayEntries.filter(e => e.status === BongplayQueue.STATUS.CANCELED).length;
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({
@@ -301,12 +304,29 @@ const server = http.createServer(async (req, res) => {
         server_pid: process.pid,
         base_url: BASE_URL,
         queue_stats: {
-          total_entries: store.entries.length,
+          total_entries: todayEntries.length,
           waiting: waitingCount,
           called: calledCount,
           completed: completedCount,
+          held: heldCount,
+          canceled: canceledCount,
           desks: store.desks
         },
+        entries: todayEntries.map(e => ({
+          id: e.id,
+          queue_number: e.queue_number,
+          order_key: e.order_key,
+          formatted_number: e.formatted_number || ('#' + String(e.queue_number).padStart(3, '0')),
+          guardian_name: e.guardian_name,
+          guardian_phone: e.guardian_phone,
+          party_size: e.party_size,
+          status: e.status,
+          desk_no: e.desk_no,
+          customer_token: e.customer_token,
+          called_at: e.called_at,
+          issued_at: e.issued_at,
+          hold_reason: e.hold_reason
+        })),
         active_faults: getActiveFaultsList(),
         fault_config: faultConfig
       }));
