@@ -77,7 +77,13 @@
     </div>
 
     <!-- Clock & Sound Toggle & Fullscreen -->
-    <div class="flex items-center gap-4">
+    <div class="flex items-center gap-3">
+      <!-- Network / Sync Badge -->
+      <div id="displaySyncBadge" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-xs font-bold text-slate-400">
+        <span id="displaySyncDot" class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span id="displaySyncText">실시간 연결됨</span>
+      </div>
+
       <button id="btnSoundToggle" type="button" onclick="toggleSound()" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-slate-200 flex items-center gap-1.5 transition">
         <i data-lucide="volume-2" class="w-4 h-4 text-emerald-400"></i>
         <span id="soundToggleText">호출음 켜짐</span>
@@ -93,6 +99,15 @@
       </div>
     </div>
   </header>
+
+  <!-- Server Disconnect Notice Banner -->
+  <div id="displayErrorBanner" class="hidden bg-rose-950/90 border-b border-rose-700 px-6 py-2 text-rose-200 text-xs flex items-center justify-between">
+    <div class="flex items-center gap-2 font-bold">
+      <i data-lucide="wifi-off" class="w-4 h-4 text-rose-400"></i>
+      <span>서버 연결 장애 — 마지막 정상 갱신 정보를 유지 중입니다.</span>
+    </div>
+    <span class="text-[11px] font-mono text-rose-300">마지막 갱신 시각: <span id="displayLastUpdatedText">-</span></span>
+  </div>
 
   <!-- Main Board Grid -->
   <main class="flex-1 grid grid-cols-12 gap-6 p-6">
@@ -156,7 +171,7 @@
       <div class="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-950 p-5 shadow-lg">
         <p class="text-xs font-bold text-slate-400">현재 대기 현황</p>
         <div class="flex items-baseline gap-2 mt-2">
-          <span id="totalWaitingCountText" class="text-5xl font-black text-brand-400">0</span>
+          <span id="totalWaitingCountText" class="text-5xl font-black text-brand-400">-</span>
           <span class="text-base font-bold text-slate-300">팀 대기 중</span>
         </div>
         <p class="text-[11px] text-slate-500 mt-1">안전서약서 접수 순서대로 호출됩니다.</p>
@@ -184,13 +199,19 @@
   <!-- Bottom Privacy & Security Guarantee Banner -->
   <footer class="bg-slate-950 border-t border-slate-900 px-6 py-2.5 text-center text-xs text-slate-600 flex items-center justify-between">
     <span>🔒 본 전광판은 개인정보보호법에 의거하여 고객 성명 및 연락처를 일체 표기하지 않습니다.</span>
-    <span class="text-[11px] text-slate-500">실시간 연동 · 봉플레이 운영 관제</span>
+    <div class="flex items-center gap-3 text-[11px] text-slate-500">
+      <span>마지막 갱신: <span id="displayFooterLastUpdated" class="font-mono text-slate-400">-</span></span>
+      <span>·</span>
+      <span>실시간 연동 · 봉플레이 운영 관제</span>
+    </div>
   </footer>
 
   <script>
     let soundEnabled = true;
     let audioCtx = null;
     let prevCalledMap = {}; // desk_no -> { queue_number, called_at }
+    let lastKnownDisplayData = null;
+    let lastDisplaySuccessTime = null;
 
     document.addEventListener('DOMContentLoaded', function () {
       if (window.lucide) lucide.createIcons();
@@ -268,17 +289,69 @@
     async function loadPublicDisplay() {
       try {
         const res = await BongplayQueue.getPublicDisplay();
-        if (!res || !res.ok || !res.data) return;
+        if (!res || !res.ok || !res.data) {
+          handleDisplayError(res ? res.message : '서버 응답 오류');
+          return;
+        }
 
         const data = res.data;
-        renderDisplayBoard(data);
+        lastKnownDisplayData = data;
+        lastDisplaySuccessTime = BongplayQueue.getKstTimeStr();
+        handleDisplaySuccess(data, lastDisplaySuccessTime);
       } catch (e) {
         console.warn('Display load error:', e);
+        handleDisplayError(e ? e.message : '네트워크 통신 오류');
       }
     }
 
+    function handleDisplaySuccess(data, timeStr) {
+      const dot = document.getElementById('displaySyncDot');
+      const text = document.getElementById('displaySyncText');
+      const banner = document.getElementById('displayErrorBanner');
+
+      if (dot) dot.className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
+      if (text) {
+        text.textContent = '실시간 연결됨';
+        text.className = 'text-slate-300 font-bold';
+      }
+      if (banner) banner.classList.add('hidden');
+
+      const footerTime = document.getElementById('displayFooterLastUpdated');
+      if (footerTime) footerTime.textContent = timeStr;
+
+      renderDisplayBoard(data);
+    }
+
+    function handleDisplayError(reason) {
+      const dot = document.getElementById('displaySyncDot');
+      const text = document.getElementById('displaySyncText');
+      const banner = document.getElementById('displayErrorBanner');
+      const lastText = document.getElementById('displayLastUpdatedText');
+
+      if (dot) dot.className = 'w-2 h-2 rounded-full bg-rose-500 animate-ping';
+      if (text) {
+        text.textContent = '연결 장애 (재시도 중)';
+        text.className = 'text-rose-300 font-bold';
+      }
+      if (banner) banner.classList.remove('hidden');
+      if (lastText) lastText.textContent = lastDisplaySuccessTime || '- (연결 전)';
+
+      // 마지막 정상 자료 유지 & 실패를 대기 0팀으로 표시하지 않음
+      if (lastKnownDisplayData) {
+        renderDisplayBoard(lastKnownDisplayData);
+      } else {
+        // 최초 실패로 정상 데이터가 없는 경우 절대 '0'으로 표시하지 않음
+        const waitCountEl = document.getElementById('totalWaitingCountText');
+        if (waitCountEl) waitCountEl.textContent = '-';
+      }
+
+      if (window.lucide) lucide.createIcons();
+    }
+
     function renderDisplayBoard(data) {
-      document.getElementById('totalWaitingCountText').textContent = data.waiting_teams_count || 0;
+      if (typeof data.waiting_teams_count === 'number') {
+        document.getElementById('totalWaitingCountText').textContent = data.waiting_teams_count;
+      }
 
       const calledTeams = data.called_teams || [];
       const deskOccupancy = { 1: null, 2: null };

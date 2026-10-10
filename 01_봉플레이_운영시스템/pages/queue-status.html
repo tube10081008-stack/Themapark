@@ -93,11 +93,11 @@
       <div id="offlineAlertBanner" class="hidden rounded-2xl bg-amber-950/80 border border-amber-600/60 p-3.5 text-amber-200 text-xs">
         <div class="flex items-center gap-2 font-bold mb-1">
           <i data-lucide="wifi-off" class="w-4 h-4 text-amber-400"></i>
-          <span>네트워크 연결이 끊겼습니다</span>
+          <span id="offlineAlertTitle">네트워크 연결이 끊겼습니다</span>
         </div>
         <p class="text-[11px] text-amber-300/90 leading-snug">
           마지막 갱신 시각: <span id="lastUpdatedOfflineText" class="font-bold">-</span><br>
-          연결이 복구되면 순서와 호출 상태가 자동으로 갱신됩니다.
+          <span id="offlineAlertDesc">마지막 정상 대기 정보를 유지하고 있습니다. 서버 연결이 복구되면 순서와 호출 상태가 자동으로 갱신됩니다.</span>
         </p>
       </div>
 
@@ -188,6 +188,8 @@
     let currentCustomerToken = null;
     let pollInterval = null;
     let audioContext = null;
+    let lastKnownGoodItem = null;
+    let lastKnownGoodTime = null;
 
     document.addEventListener('DOMContentLoaded', function () {
       if (window.lucide) lucide.createIcons();
@@ -215,68 +217,110 @@
       }
 
       // 온라인/오프라인 감지 이벤트
-      window.addEventListener('online', onNetworkStatusChange);
-      window.addEventListener('offline', onNetworkStatusChange);
+      window.addEventListener('online', function () { onNetworkStatusChange(true); });
+      window.addEventListener('offline', function () { onNetworkStatusChange(false); });
 
       refreshQueueStatus();
       pollInterval = setInterval(refreshQueueStatus, 3000);
     });
 
-    function onNetworkStatusChange() {
-      const isOnline = navigator.onLine;
+    function setConnectionStatus(isOnline, isServerError, message) {
       const netBadge = document.getElementById('netStatusBadge');
       const netText = document.getElementById('netStatusText');
       const offlineAlert = document.getElementById('offlineAlertBanner');
+      const alertTitle = document.getElementById('offlineAlertTitle');
+      const offlineTimeEl = document.getElementById('lastUpdatedOfflineText');
 
-      if (isOnline) {
+      if (isOnline && !isServerError) {
         netBadge.className = 'flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 text-[11px] font-semibold text-slate-400';
         netText.textContent = '실시간 연결됨';
         offlineAlert.classList.add('hidden');
-        refreshQueueStatus();
       } else {
         netBadge.className = 'flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-950 border border-rose-800 text-[11px] font-semibold text-rose-300';
-        netText.textContent = '연결 끊김';
+        netText.textContent = isServerError ? '연결 장애 (재시도 중)' : '연결 끊김';
         offlineAlert.classList.remove('hidden');
-        document.getElementById('lastUpdatedOfflineText').textContent = BongplayQueue.getKstTimeStr();
+        if (alertTitle) {
+          alertTitle.textContent = isServerError ? '서버 연결 장애가 발생했습니다' : '네트워크 연결이 끊겼습니다';
+        }
+        if (offlineTimeEl) {
+          offlineTimeEl.textContent = lastKnownGoodTime || BongplayQueue.getKstTimeStr();
+        }
       }
       if (window.lucide) lucide.createIcons();
+    }
+
+    function onNetworkStatusChange(isOnlineEvent) {
+      const online = (typeof isOnlineEvent === 'boolean') ? isOnlineEvent : navigator.onLine;
+      if (online) {
+        setConnectionStatus(true, false);
+        refreshQueueStatus();
+      } else {
+        setConnectionStatus(false, false);
+      }
     }
 
     async function refreshQueueStatus(userClicked) {
       if (!currentCustomerToken) {
         document.getElementById('queueNumberBig').textContent = '#---';
+        document.getElementById('aheadCountText').textContent = '- 팀';
         document.getElementById('statusGuidanceText').textContent = '등록된 고객 대기 토큰이 없습니다. 서약서 작성 시 발급된 QR 또는 링크로 접속해 주세요.';
         return;
       }
 
-      const isOnline = navigator.onLine;
-      if (!isOnline) {
-        onNetworkStatusChange();
+      if (!navigator.onLine) {
+        setConnectionStatus(false, false);
         return;
       }
 
       try {
         const res = await BongplayQueue.getCustomerStatus(currentCustomerToken);
-        if (!res) return;
-        if (!res.ok) {
-          if (res.error === 'TOKEN_EXPIRED') {
+        if (!res || !res.ok) {
+          // 서버 실패 또는 RPC 에러
+          const errCode = res ? res.error : null;
+          if (errCode === 'TOKEN_EXPIRED') {
             document.getElementById('statusGuidanceText').textContent = '만료된 대기표 토큰입니다 (24시간 경과). 서약서를 새로 작성해 주세요.';
-          } else if (res.error === 'RATE_LIMIT_EXCEEDED') {
+            return;
+          } else if (errCode === 'RATE_LIMIT_EXCEEDED') {
             document.getElementById('statusGuidanceText').textContent = '요청이 너무 빈번합니다. 잠시 후 새로고침해 주세요.';
-          } else if (res.error === 'INVALID_TOKEN') {
+            return;
+          } else if (errCode === 'INVALID_TOKEN') {
             document.getElementById('statusGuidanceText').textContent = '유효하지 않은 대기표 토큰입니다. 서약서를 다시 확인해 주세요.';
+            return;
           }
+
+          // 그 외 서버/네트워크 오류: 마지막 정상 자료 유지 및 연결 장애 표시
+          handleRefreshError(res ? res.message : '서버 응답 실패');
           return;
         }
 
         const item = res.item;
+        lastKnownGoodItem = item;
+        lastKnownGoodTime = BongplayQueue.getKstTimeStr();
+
+        setConnectionStatus(true, false);
         renderQueueView(item);
 
-        const nowStr = BongplayQueue.getKstTimeStr();
-        document.getElementById('lastRefreshTimeText').textContent = nowStr;
-        document.getElementById('lastUpdatedOfflineText').textContent = nowStr;
+        document.getElementById('lastRefreshTimeText').textContent = lastKnownGoodTime;
+        document.getElementById('lastUpdatedOfflineText').textContent = lastKnownGoodTime;
       } catch (e) {
         console.warn('Queue refresh error:', e);
+        handleRefreshError(e.message || '네트워크 통신 오류');
+      }
+    }
+
+    function handleRefreshError(errMsg) {
+      setConnectionStatus(true, true, errMsg);
+
+      // 마지막 정상 자료 유지 & 대기 0팀 표시 금지
+      if (lastKnownGoodItem) {
+        renderQueueView(lastKnownGoodItem);
+      } else {
+        // 최초 실패로 이전 정상 데이터가 없는 경우 절대 '0 팀'으로 표시하지 않음
+        document.getElementById('aheadCountText').textContent = '- 팀 (확인 중)';
+      }
+
+      if (lastKnownGoodTime) {
+        document.getElementById('lastRefreshTimeText').textContent = lastKnownGoodTime;
       }
     }
 
