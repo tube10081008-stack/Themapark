@@ -34,34 +34,37 @@
     }
   </script>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased">
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased overflow-x-hidden">
 
   <!-- ================================================================= -->
   <!-- TOP HEADER                                                        -->
   <!-- ================================================================= -->
-  <header class="bg-slate-900/90 border-b border-slate-800 sticky top-0 z-40 backdrop-blur-md px-4 sm:px-6 py-3">
+  <header class="bg-slate-900/95 border-b border-slate-800 sticky top-0 z-40 backdrop-blur-md px-3 sm:px-6 py-3">
     <div class="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-3">
       
       <!-- Brand & Title -->
-      <div class="flex items-center gap-3">
-        <div class="w-9 h-9 rounded-2xl bg-gradient-to-tr from-indigo-600 to-sky-400 flex items-center justify-center text-white font-black text-sm shadow-lg shadow-indigo-600/30">
+      <div class="flex items-center gap-3 min-w-0">
+        <div class="w-9 h-9 rounded-2xl bg-gradient-to-tr from-indigo-600 to-sky-400 flex items-center justify-center text-white font-black text-sm shadow-lg shadow-indigo-600/30 shrink-0">
           실증
         </div>
-        <div>
-          <div class="flex items-center gap-2">
-            <h1 class="text-base sm:text-lg font-black tracking-tight text-white">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <h1 class="text-sm sm:text-base md:text-lg font-black tracking-tight text-white truncate">
               봉플레이 실증 데이터 관제
             </h1>
-            <span class="text-[10px] font-mono font-extrabold px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-800">
-              ANT-007 PROTOTYPE
+            <span class="text-[10px] font-mono font-extrabold px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-800 shrink-0">
+              ANT-007 v1.1.0-r2
+            </span>
+            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 shrink-0">
+              합성 환경
             </span>
           </div>
-          <p class="text-[11px] text-slate-400">운영 기록 분석 · 실험 검토 · 현장 전파 지침 (회계 연결 제외)</p>
+          <p class="text-[11px] text-slate-400 truncate">운영 기록 분석 · 실험 검토 · 현장 전파 지침 (회계 연결 제외)</p>
         </div>
       </div>
 
       <!-- Sync Status & Header Controls -->
-      <div class="flex items-center gap-2.5 flex-wrap">
+      <div class="flex items-center gap-2 flex-wrap shrink-0">
         <!-- Active Scenario Pill -->
         <span id="activeScenarioBadge" class="px-2.5 py-1 rounded-full text-xs font-black border bg-emerald-950 text-emerald-400 border-emerald-800">
           시나리오: 정상 운용
@@ -69,13 +72,13 @@
 
         <!-- Network / Sync Badge -->
         <div id="systemConnStatusBadge" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 text-[11px] font-bold text-slate-400">
-          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-          <span>실시간 연결됨</span>
+          <span class="w-2 h-2 rounded-full bg-slate-500 animate-pulse"></span>
+          <span>연결 확인 중...</span>
         </div>
 
-        <!-- Last Updated Time -->
-        <div class="text-[11px] text-slate-400 hidden sm:block">
-          갱신: <span id="lastUpdatedTimeText" class="font-mono text-slate-200 font-bold">-</span>
+        <!-- Last Success Time -->
+        <div class="text-[11px] text-slate-400 hidden lg:block">
+          마지막 성공: <span id="lastUpdatedTimeText" class="font-mono text-slate-200 font-bold">-</span>
         </div>
 
         <!-- Refresh Button -->
@@ -90,60 +93,105 @@
   <!-- ================================================================= -->
   <!-- SCENARIO & FAULT INJECTION TOOLBAR (검증용 스위치)                -->
   <!-- ================================================================= -->
-  <section class="bg-slate-900/60 border-b border-slate-800/80 px-4 sm:px-6 py-2.5">
-    <div class="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-      <div class="flex items-center gap-1.5 text-slate-400 font-bold">
-        <i data-lucide="sliders" class="w-3.5 h-3.5 text-indigo-400"></i>
-        <span>검증 시나리오 즉시 주입:</span>
+  <section class="bg-slate-900/80 border-b border-slate-800/80 px-3 sm:px-6 py-2.5">
+    <div class="max-w-7xl mx-auto space-y-2 text-xs">
+      <!-- 1차: 기본 시나리오 -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div class="flex items-center gap-1.5 text-slate-300 font-bold shrink-0">
+          <i data-lucide="sliders" class="w-3.5 h-3.5 text-indigo-400"></i>
+          <span>검증 시나리오 즉시 주입:</span>
+        </div>
+
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <button data-scenario="normal" class="px-2.5 py-1 rounded-lg bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-800 font-bold text-[11px] transition">
+            1. 정상
+          </button>
+          <button data-scenario="empty" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 font-bold text-[11px] transition">
+            2. 빈 자료
+          </button>
+          <button data-scenario="delay" class="px-2.5 py-1 rounded-lg bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-800 font-bold text-[11px] transition">
+            3. 지연 (1.5s)
+          </button>
+          <button data-scenario="fail" class="px-2.5 py-1 rounded-lg bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 font-bold text-[11px] transition">
+            4. 실패 (500)
+          </button>
+          <button data-scenario="normal" class="px-2.5 py-1 rounded-lg bg-indigo-950 hover:bg-indigo-900 text-indigo-300 border border-indigo-800 font-bold text-[11px] transition">
+            5. 복구 ↺
+          </button>
+          <button data-scenario="duplicate" class="px-2.5 py-1 rounded-lg bg-purple-950 hover:bg-purple-900 text-purple-300 border border-purple-800 font-bold text-[11px] transition">
+            6. 중복 자료
+          </button>
+        </div>
       </div>
 
-      <div class="flex items-center gap-1.5 flex-wrap">
-        <button data-scenario="normal" class="px-2.5 py-1 rounded-lg bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-800 font-bold text-[11px] transition">
-          1. 정상
-        </button>
-        <button data-scenario="empty" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 font-bold text-[11px] transition">
-          2. 빈 자료
-        </button>
-        <button data-scenario="delay" class="px-2.5 py-1 rounded-lg bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-800 font-bold text-[11px] transition">
-          3. 지연 (1.5s)
-        </button>
-        <button data-scenario="fail" class="px-2.5 py-1 rounded-lg bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 font-bold text-[11px] transition">
-          4. 실패 (500)
-        </button>
-        <button data-scenario="normal" class="px-2.5 py-1 rounded-lg bg-indigo-950 hover:bg-indigo-900 text-indigo-300 border border-indigo-800 font-bold text-[11px] transition">
-          5. 복구 ↺
-        </button>
-        <button data-scenario="duplicate" class="px-2.5 py-1 rounded-lg bg-purple-950 hover:bg-purple-900 text-purple-300 border border-purple-800 font-bold text-[11px] transition">
-          6. 중복 자료
-        </button>
+      <!-- 2차: 엣지 케이스 주입 (비용 null/0/값, 분모0, 표본계획미정, 경합시험) -->
+      <div class="pt-1.5 border-t border-slate-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div class="flex items-center gap-1.5 text-slate-400 font-bold shrink-0">
+          <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-amber-400"></i>
+          <span>엣지 케이스 주입 (벤 R1 검토 항목):</span>
+        </div>
+
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <button data-edge-cost="null" class="px-2 py-0.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-800/80 font-bold text-[10px] transition">
+            비용: null
+          </button>
+          <button data-edge-cost="zero" class="px-2 py-0.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-sky-300 border border-sky-800/80 font-bold text-[10px] transition">
+            비용: 0원
+          </button>
+          <button data-edge-cost="valued" class="px-2 py-0.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-emerald-300 border border-emerald-800/80 font-bold text-[10px] transition">
+            비용: 850원
+          </button>
+          <button data-edge-zero-denom="toggle" class="px-2 py-0.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-rose-300 border border-rose-800/80 font-bold text-[10px] transition">
+            분모: 0 토글
+          </button>
+          <button data-edge-sample-plan="unplanned" class="px-2 py-0.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-purple-300 border border-purple-800/80 font-bold text-[10px] transition">
+            표본계획: 미정
+          </button>
+          <button id="btnRaceTest" class="px-2 py-0.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 font-bold text-[10px] transition" title="오래된 응답 경합 시험">
+            경합 덮어쓰기 방지 시험
+          </button>
+        </div>
       </div>
     </div>
   </section>
 
   <!-- ================================================================= -->
-  <!-- ALERT BANNERS (조회 실패 / 중복 자료)                             -->
+  <!-- ALERT BANNERS (조회 실패 / 캐시 유지 / 중복 3대 분류)             -->
   <!-- ================================================================= -->
   <!-- Global Error Banner (조회 실패 시 표출, 절대 0건으로 왜곡 금지) -->
-  <div id="globalErrorAlertBanner" class="hidden bg-rose-950/90 border-b border-rose-700 px-4 sm:px-6 py-2.5 text-rose-200 text-xs shadow-md">
-    <div class="max-w-7xl mx-auto flex items-center justify-between gap-3">
-      <div class="flex items-center gap-2 font-bold">
+  <div id="globalErrorAlertBanner" class="hidden bg-rose-950/95 border-b border-rose-700 px-3 sm:px-6 py-2.5 text-rose-200 text-xs shadow-md">
+    <div class="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+      <div class="flex items-center gap-2 font-bold min-w-0">
         <i data-lucide="wifi-off" class="w-4 h-4 text-rose-400 shrink-0"></i>
-        <span id="globalErrorAlertText">데이터 파이프라인 연결 장애가 발생했습니다.</span>
+        <span id="globalErrorAlertText" class="truncate">데이터 파이프라인 연결 장애가 발생했습니다.</span>
       </div>
-      <span class="text-[11px] text-rose-300 shrink-0 font-mono">규칙: 조회 실패를 0건으로 표시하지 않음</span>
+      <div class="flex items-center gap-2 shrink-0">
+        <span class="text-[11px] text-rose-300 font-mono">규칙: 조회 실패를 0건으로 왜곡하지 않음</span>
+        <button id="btnEnterOfflineDemo" type="button" class="px-2 py-0.5 bg-rose-900 hover:bg-rose-800 text-rose-100 rounded border border-rose-700 font-bold text-[10px] transition">
+          오프라인 예제 모드로 보기
+        </button>
+      </div>
     </div>
   </div>
 
-  <!-- Duplicate Alert Banner -->
-  <div id="duplicateAlertBanner" class="hidden bg-purple-950/80 border-b border-purple-700 px-4 sm:px-6 py-2.5 text-purple-200 text-xs shadow-md">
-    <div class="max-w-7xl mx-auto flex items-center justify-between gap-3">
+  <!-- Duplicate Alert Banner (3대 범주 분류 안내) -->
+  <div id="duplicateAlertBanner" class="hidden bg-purple-950/90 border-b border-purple-700 px-3 sm:px-6 py-2.5 text-purple-200 text-xs shadow-md">
+    <div class="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-2">
       <div class="flex items-center gap-2 font-bold">
         <i data-lucide="copy" class="w-4 h-4 text-purple-400 shrink-0"></i>
-        <span>원장 정제 경고: 동일 고객 또는 중복 발권 키가 감지되었습니다.</span>
+        <span>중복 원장 정제 분석 (3대 기준 분류):</span>
       </div>
-      <span id="duplicateCountBadge" class="text-[11px] font-bold px-2 py-0.5 rounded bg-purple-900 text-purple-200 border border-purple-700">
-        18건 중복
-      </span>
+      <div id="duplicateDetailsContainer" class="flex items-center gap-2 flex-wrap text-[11px]">
+        <span class="px-2 py-0.5 rounded bg-purple-900 text-purple-200 border border-purple-700">
+          동일 내용 재전송: <strong>16건 (멱등 필터링)</strong>
+        </span>
+        <span class="px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-800">
+          다른 내용 충돌: <strong>4건 (무결성 격리)</strong>
+        </span>
+        <span class="px-2 py-0.5 rounded bg-slate-900 text-slate-300 border border-slate-700">
+          별개 독립 사건: <strong>210건 (정상 집계)</strong>
+        </span>
+      </div>
     </div>
   </div>
 
@@ -155,19 +203,19 @@
   <!-- ================================================================= -->
   <!-- MAIN TABS NAVIGATION                                              -->
   <!-- ================================================================= -->
-  <nav class="bg-slate-900 border-b border-slate-800 px-4 sm:px-6">
+  <nav class="bg-slate-900 border-b border-slate-800 px-3 sm:px-6">
     <div class="max-w-7xl mx-auto flex items-center gap-2 overflow-x-auto py-2">
-      <button id="tabBtn_quality" type="button" class="px-4 py-2.5 rounded-xl font-black text-xs sm:text-sm bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 flex items-center gap-2 transition">
+      <button id="tabBtn_quality" type="button" class="px-3.5 py-2.5 rounded-xl font-black text-xs sm:text-sm bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 flex items-center gap-2 transition shrink-0">
         <i data-lucide="database" class="w-4 h-4"></i>
         <span>1. 데이터 품질 화면</span>
       </button>
 
-      <button id="tabBtn_experiments" type="button" class="px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 flex items-center gap-2 transition">
+      <button id="tabBtn_experiments" type="button" class="px-3.5 py-2.5 rounded-xl font-bold text-xs sm:text-sm text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 flex items-center gap-2 transition shrink-0">
         <i data-lucide="flask-conical" class="w-4 h-4"></i>
         <span>2. 실험 카드 (웰컴 음료)</span>
       </button>
 
-      <button id="tabBtn_guidelines" type="button" class="px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 flex items-center gap-2 transition">
+      <button id="tabBtn_guidelines" type="button" class="px-3.5 py-2.5 rounded-xl font-bold text-xs sm:text-sm text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 flex items-center gap-2 transition shrink-0">
         <i data-lucide="file-check" class="w-4 h-4"></i>
         <span>3. 현장 전파 지침서 (SOP)</span>
       </button>
@@ -177,7 +225,7 @@
   <!-- ================================================================= -->
   <!-- MAIN CONTENT CONTAINER                                            -->
   <!-- ================================================================= -->
-  <main class="flex-1 max-w-7xl mx-auto w-full p-4 sm:p-6 space-y-6">
+  <main class="flex-1 max-w-7xl mx-auto w-full p-3 sm:p-6 space-y-6 overflow-x-hidden">
 
     <!-- =============================================================== -->
     <!-- TAB PANE 1: 데이터 품질 화면 (Data Quality Tab)                   -->
@@ -187,7 +235,7 @@
       <!-- 상단 요약 설명 -->
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 class="text-base sm:text-lg font-black text-white flex items-center gap-2">
+          <h2 class="text-sm sm:text-base md:text-lg font-black text-white flex items-center gap-2">
             <i data-lucide="gauge" class="w-5 h-5 text-indigo-400"></i>
             <span>원장 데이터 파이프라인 품질 감시</span>
           </h2>
@@ -199,7 +247,7 @@
         <!-- 4단계 필터 버튼군 -->
         <div class="flex items-center gap-1.5 flex-wrap">
           <button data-quality-filter="all" class="px-3 py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-black shadow transition">
-            전체 보기
+            전체
           </button>
           <button data-quality-filter="normal" class="px-3 py-1.5 bg-slate-900 text-slate-400 hover:text-white border border-slate-800 rounded-xl text-xs font-bold transition">
             정상
@@ -216,12 +264,15 @@
         </div>
       </div>
 
-      <!-- 4단계 품질 지표 카드 그리드 -->
-      <div id="qualitySummaryMetrics" class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+      <!-- 전역 장애 / 캐시 상태 알림 카드 (JS 제어) -->
+      <div id="qualityTabStatusNotice"></div>
+
+      <!-- 4대 품질 요약 카운터 -->
+      <div id="qualitySummaryMetrics" class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <!-- Rendered by JS -->
       </div>
 
-      <!-- 데이터셋 상세 목록 컨테이너 -->
+      <!-- 데이터셋 카드 목록 -->
       <div id="qualityDatasetsContainer" class="space-y-4">
         <!-- Rendered by JS -->
       </div>
@@ -229,34 +280,37 @@
     </div>
 
     <!-- =============================================================== -->
-    <!-- TAB PANE 2: 실험 카드 (Experiment Cards Tab)                      -->
+    <!-- TAB PANE 2: 실험 카드 화면 (Experiment Cards Tab)                 -->
     <!-- =============================================================== -->
     <div id="tabPane_experiments" class="hidden space-y-6">
       
-      <!-- 상단 헤더 & 원칙 안내 배너 -->
-      <div class="space-y-3">
+      <!-- 상단 헤더 -->
+      <div class="space-y-2">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
-            <h2 class="text-base sm:text-lg font-black text-white flex items-center gap-2">
+            <h2 class="text-sm sm:text-base md:text-lg font-black text-white flex items-center gap-2">
               <i data-lucide="flask-conical" class="w-5 h-5 text-indigo-400"></i>
-              <span>운영 실험 카드 (보호자 웰컴 음료 예시)</span>
+              <span>운영 실험 검토 카드 (보호자 웰컴 음료 예시)</span>
             </h2>
             <p class="text-xs text-slate-400 mt-0.5">
-              가설 수립부터 변경 내용, 대조 방식, 지표 측정, 표본 수 검증, 다음 결정까지 전 과정을 구조화해 관리합니다.
+              사전 표본 계획 유무 및 비교 방식에 따른 엄격한 판정 원칙을 적용합니다. 회계 비연결 원칙에 따라 수익성 판단은 제외됩니다.
             </p>
           </div>
-          <span class="text-xs px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-300 font-bold self-start sm:self-auto">
-            실증 원칙 준수 모드
+          <span class="text-xs px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-400 shrink-0 self-start sm:self-auto font-mono">
+            주제: 보호자 웰컴 음료
           </span>
         </div>
 
-        <!-- 3대 핵심 판정 원칙 알림 배너 -->
+        <!-- 전역 장애 / 캐시 상태 알림 카드 (JS 제어) -->
+        <div id="experimentsTabStatusNotice"></div>
+
+        <!-- 4대 핵심 판정 원칙 알림 배너 -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
           <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-3 flex items-start gap-2.5">
             <span class="w-2 h-2 rounded-full bg-rose-400 mt-1.5 shrink-0"></span>
             <div>
-              <strong class="text-white block font-black">1. 표본 부족 → 판단 보류</strong>
-              <p class="text-[11px] text-slate-400 mt-0.5">표본 수가 통계적 기준 미달 시 성공/실패 판정을 금지하고 '판단 보류'로 처리합니다.</p>
+              <strong class="text-white block font-black">1. 사전 표본 계획 부재 → 판단 보류</strong>
+              <p class="text-[11px] text-slate-400 mt-0.5">사전 계획이 없거나 표본 수가 미달하면 성공/유의성을 확정하지 않고 '판단 보류'로 처리합니다.</p>
             </div>
           </div>
 
@@ -269,10 +323,10 @@
           </div>
 
           <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-3 flex items-start gap-2.5">
-            <span class="w-2 h-2 rounded-full bg-orange-400 mt-1.5 shrink-0"></span>
+            <span class="w-2 h-2 rounded-full bg-sky-400 mt-1.5 shrink-0"></span>
             <div>
-              <strong class="text-white block font-black">3. 비용 미입력 → 0원 처리 금지</strong>
-              <p class="text-[11px] text-slate-400 mt-0.5">원가 미입력 상태를 0원이나 수익성 검증 완료로 왜곡하지 않고 산정 보류로 남깁니다.</p>
+              <strong class="text-white block font-black">3. 비용 null / 0원 구분 & 수익성 제외</strong>
+              <p class="text-[11px] text-slate-400 mt-0.5">비용 미입력(null)과 명시적 0원을 엄격히 구분하며, 모든 경우에 수익성 판단은 전면 제외됩니다.</p>
             </div>
           </div>
         </div>
@@ -292,7 +346,7 @@
       
       <!-- 상단 헤더 -->
       <div>
-        <h2 class="text-base sm:text-lg font-black text-white flex items-center gap-2">
+        <h2 class="text-sm sm:text-base md:text-lg font-black text-white flex items-center gap-2">
           <i data-lucide="book-open-check" class="w-5 h-5 text-indigo-400"></i>
           <span>현장 전파용 표준 운영 지침 (Transferable Guidelines)</span>
         </h2>
@@ -300,6 +354,9 @@
           실증된 실험 결과를 바탕으로 적용 조건, 실행 절차(SOP), 한계점, 타 현장(영주·안동 등) 재검증 항목을 표준화합니다.
         </p>
       </div>
+
+      <!-- 전역 장애 / 캐시 상태 알림 카드 (JS 제어) -->
+      <div id="guidelinesTabStatusNotice"></div>
 
       <!-- 지침서 목록 컨테이너 -->
       <div id="guidelinesContainer" class="space-y-6">
@@ -313,10 +370,10 @@
   <!-- ================================================================= -->
   <!-- FOOTER                                                            -->
   <!-- ================================================================= -->
-  <footer class="bg-slate-950 border-t border-slate-900 px-4 sm:px-6 py-4 mt-auto">
+  <footer class="bg-slate-950 border-t border-slate-900 px-3 sm:px-6 py-4 mt-auto">
     <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500 text-center sm:text-left">
       <div>
-        <span>🔒 리틀포레스트 봉플레이 실증 데이터 관제 시제품 (ANT-007 / BEN-026)</span>
+        <span>🔒 리틀포레스트 봉플레이 실증 데이터 관제 시제품 (ANT-007 / BEN-026 R2)</span>
         <span class="hidden sm:inline"> · </span>
         <span class="block sm:inline text-slate-600">회계 연결 제외 · 합성 데이터 격리 모드</span>
       </div>

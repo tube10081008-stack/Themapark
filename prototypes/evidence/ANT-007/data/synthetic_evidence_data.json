@@ -1,11 +1,12 @@
 {
   "meta": {
     "system": "리틀포레스트 봉플레이 실증 데이터 관제 시제품",
-    "version": "1.0.0-ant007",
+    "version": "1.1.0-r2",
     "site_id": "bongplay_bonghwa",
     "site_name": "봉플레이 봉화 본점",
-    "generated_at": "2026-10-11T12:00:00+09:00",
+    "generated_at": "2026-10-11T18:40:00+09:00",
     "is_synthetic": true,
+    "environment": "synthetic_prototype",
     "accounting_linked": false,
     "notes": "본 자료는 ANT-007 시제품 전용 합성 자료이며 실제 운영 DB나 회계 원장과 연결되지 않습니다."
   },
@@ -22,7 +23,7 @@
       "missing_records": 41,
       "duplicate_records": 0,
       "missing_fields": ["checkout_at", "guardian_phone_optin"],
-      "last_updated_at": "2026-10-11T11:45:00+09:00",
+      "last_updated_at": "2026-10-11T17:45:00+09:00",
       "staleness_hours": 0.5,
       "description": "게이트 태그 입장 및 퇴장 체류시간 기록. 퇴장 시 바코드 미태그로 인한 체류시간 누락 41건(8.5%) 존재.",
       "quality_summary": "체류시간 분석 시 결손치(41건)는 평균값 대체 대신 분석 대상에서 제외 처리 필요."
@@ -39,7 +40,7 @@
       "missing_records": 0,
       "duplicate_records": 0,
       "missing_fields": [],
-      "last_updated_at": "2026-10-11T12:05:00+09:00",
+      "last_updated_at": "2026-10-11T18:15:00+09:00",
       "staleness_hours": 0.1,
       "description": "매표소 발권 시 교부된 웰컴 음료 바우처 및 카페 창구 실교환 기록 100% 정상 수집.",
       "quality_summary": "발권 번호-바우처 ID 1:1 매핑 완전 일치. 교환율 91.4% (192건 교환 완료)."
@@ -57,9 +58,9 @@
       "duplicate_records": 0,
       "missing_fields": ["revisit_intent_score"],
       "last_updated_at": "2026-10-09T18:20:00+09:00",
-      "staleness_hours": 42.4,
+      "staleness_hours": 48.3,
       "description": "카카오 알림톡 설문 링크를 통해 수집된 피드백. 배치 동기화가 24시간 이상 지연되어 최근 주말 수치가 미반영 상태.",
-      "quality_summary": "최근 42시간 동안 신규 동기화 부재로 실시간 의사결정 시 보정치 필요."
+      "quality_summary": "최근 48시간 동안 신규 동기화 부재로 실시간 의사결정 시 보정치 필요."
     },
     {
       "id": "ds_beverage_cost",
@@ -74,7 +75,7 @@
       "duplicate_records": 0,
       "missing_fields": ["unit_cost_krw", "supplier_invoice_id", "labor_cost_krw"],
       "last_updated_at": "2026-10-10T09:00:00+09:00",
-      "staleness_hours": 27.0,
+      "staleness_hours": 33.1,
       "description": "음료 제조 수량은 집계되었으나 단위 원가 및 매입 계산서 미연결 상태.",
       "quality_summary": "⚠️ 비용 미입력: 원가 0원이나 수익성 검증 완료로 처리 금지. 순이익/ROI 산정 불가 상태로 표기."
     },
@@ -96,6 +97,39 @@
       "quality_summary": "❌ 조회 실패 상태: 0건으로 표시하지 않고 '확인 불가 (센서 연결 단절)'로 격리 표시."
     }
   ],
+  "duplicate_analysis": {
+    "total_ingested": 230,
+    "unique_events": 210,
+    "duplicate_categories": {
+      "same_id_same_content": {
+        "count": 16,
+        "type": "idempotent_retransmission",
+        "label": "동일 ID · 동일 내용 재전송",
+        "sub_label": "네트워크 일시 지연에 따른 클라이언트 멱등 재시도",
+        "action": "멱등 필터링 적용 (자동 중복 제거)",
+        "handling_status": "filtered_safe",
+        "example_event_id": "EVT-20261011-0042"
+      },
+      "same_id_diff_content": {
+        "count": 4,
+        "type": "data_conflict_collision",
+        "label": "동일 ID · 다른 내용 충돌",
+        "sub_label": "동일 트랜잭션 키에 상이한 속성값(음료종류/금액) 유입",
+        "action": "무결성 경고 격리 (정상 집계 배제, 담당자 검토 대기)",
+        "handling_status": "integrity_quarantine",
+        "example_event_id": "EVT-20261011-0108"
+      },
+      "distinct_events": {
+        "count": 210,
+        "type": "independent_events",
+        "label": "별개 독립 사건",
+        "sub_label": "고유 식별자와 정상 수집 타임스탬프를 보유한 유효 기록",
+        "action": "정상 집계 반영 (중복 오탐 방지)",
+        "handling_status": "normal_aggregated",
+        "example_event_id": "EVT-20261011-0001"
+      }
+    }
+  },
   "experiments": [
     {
       "id": "EXP-2026-001",
@@ -105,49 +139,48 @@
       "intervention": "매표소 발권 완료 시 보호자 1인당 웰컴 음료 지류/모바일 교환권 1매 교부 (카페 창구 즉시 수령 가능).",
       "target_cohort": "주말 유아/초등 동반 가족 방문객 보호자",
       "period": "2026-10-03 ~ 2026-10-05 (주말 3일간)",
-      "methodology": "A/B 테스트 (통제군: 일반 발권, 실험군: 웰컴 음료 교부)",
-      "method_type": "ab_test",
-      "metrics": [
-        {
-          "name": "보호자 만족도 점수 (5점 만점)",
-          "control_value": "4.10",
-          "experiment_value": "4.65",
-          "delta": "+0.55점",
-          "trend": "positive"
-        },
-        {
-          "name": "대기 관련 불만 접수율",
-          "control_value": "14.5%",
-          "experiment_value": "3.8%",
-          "delta": "-10.7%p (-73.8%)",
-          "trend": "positive"
-        },
-        {
-          "name": "평균 가족 체류 시간",
-          "control_value": "118분",
-          "experiment_value": "140분",
-          "delta": "+22분",
-          "trend": "positive"
-        },
-        {
-          "name": "음료 교환 수령률",
-          "control_value": "N/A",
-          "experiment_value": "91.8%",
-          "delta": "156명 중 143명 수령",
-          "trend": "neutral"
-        }
-      ],
+      "methodology": "ab_test",
+      "methodology_label": "A/B 테스트 (무작위 분할 배정)",
+      "sample_plan": {
+        "status": "planned",
+        "target_n": 150,
+        "rationale": "효과크기 d=0.45, 검정력 80%, 유의수준 5% 기준 사전 표본 산정 (최소 140팀 필요)"
+      },
       "sample_size": 154,
-      "sample_threshold": 60,
-      "is_sample_sufficient": true,
-      "evaluation_status": "positive_confirmed",
-      "evaluation_label": "가설 지지 (개선 확인)",
-      "cost_status": "cost_missing",
-      "cost_label": "비용 미입력 (수익성 미검증)",
-      "cost_warning": "음료 원가 및 조제 인건비 미기입으로 순수익 기여도(ROI)는 검증되지 않았습니다. 원가 대사 전까지 무료 전면 확대는 보류합니다.",
-      "results_summary": "음료 제공 시 대기 중 카페 라운지 분산 착석 효과가 확인되어 보호자 체류 만족도가 4.10점에서 4.65점으로 대폭 향상됨. 대기 불만도 73.8% 급감.",
-      "next_decision": "주말 운영 표준 SOP로 1차 승인하되, F&B 부서의 1잔당 원가(사과 농축액 등) 산정 완료 후 영주/안동 현장 전파 여부 확정.",
-      "decision_tag": "운영 지침화 추진"
+      "sample_status": "sufficient",
+      "evaluation": {
+        "synthetic_result": {
+          "status": "review_ready",
+          "label": "검토 가능 (합성 자료 관찰)",
+          "detail": "사전 표본 계획을 충족하고 합성 자료에서 지표 개선이 관찰되었습니다. 단, 단순 수치 충족만으로 개선·유의성을 확정하지 않으며 현장 검토 가능 단계로 분류합니다."
+        },
+        "operational_approval": {
+          "status": "provisional",
+          "label": "운영 승인: 조건부 검토 중",
+          "detail": "주말 시범 적용안에 대한 1차 검토 단계이며, 현장 관리자 최종 운영 승인은 아직 완료되지 않았습니다."
+        },
+        "site_replication": {
+          "status": "not_attempted",
+          "label": "타 현장 재현: 미실시",
+          "detail": "봉화 본점 합성 자료 관찰 단계이며 안동/영주 등 타 현장 재현 실측은 미실시 상태입니다."
+        }
+      },
+      "cost": {
+        "status": "cost_null",
+        "unit_cost_krw": null,
+        "cost_label": "비용 미입력 (null)",
+        "warning": "음료 원가 및 조제 인건비 미기입으로 순수익 기여도(ROI)는 검증되지 않았습니다. 원가 대사 전까지 무료 전면 확대는 보류하며 수익성 판단은 제외합니다.",
+        "profitability_excluded": true
+      },
+      "metrics": [
+        { "name": "보호자 만족도 점수 (5점 만점)", "control_value": "4.10", "experiment_value": "4.65", "delta": "+0.55점", "trend": "positive" },
+        { "name": "대기 관련 불만 접수율", "control_value": "14.5%", "experiment_value": "3.8%", "delta": "-10.7%p (-73.8%)", "trend": "positive" },
+        { "name": "평균 가족 체류 시간", "control_value": "118분", "experiment_value": "140분", "delta": "+22분", "trend": "positive" },
+        { "name": "음료 교환 수령률", "control_value": "N/A", "experiment_value": "91.8%", "delta": "156명 중 143명 수령", "trend": "neutral" }
+      ],
+      "results_summary": "음료 제공 시 대기 중 카페 라운지 분산 착석 효과가 확인되어 보호자 체류 만족도가 4.10점에서 4.65점으로 향상 관찰됨. 대기 불만도 73.8% 급감 관찰.",
+      "next_decision": "운영팀 현장 검토를 진행하되, 회계 비연결 원칙을 유지하며 F&B 단위 원가 산정 전까지 타 현장 전파는 보류.",
+      "decision_tag": "현장 검토 추진"
     },
     {
       "id": "EXP-2026-002",
@@ -157,33 +190,44 @@
       "intervention": "유치원/어린이집 단체 방문 시 인솔 교사 및 보호자 대상 보온 보틀 웰컴 허브티 세트 제공.",
       "target_cohort": "평일 오전 단체 인솔 교사 및 동반 학부모 (20명 이상 단체)",
       "period": "2026-10-06 ~ 2026-10-08",
-      "methodology": "단순 전후 비교 (이전 주 평일 단체 vs 금주 평일 단체)",
-      "method_type": "before_after",
-      "metrics": [
-        {
-          "name": "인솔자 체감 편의 만족도",
-          "control_value": "4.20 (전주)",
-          "experiment_value": "4.50 (금주)",
-          "delta": "+0.30점",
-          "trend": "positive"
-        },
-        {
-          "name": "차기 시즌 재예약 문의율",
-          "control_value": "28.5%",
-          "experiment_value": "35.7%",
-          "delta": "+7.2%p",
-          "trend": "positive"
-        }
-      ],
+      "methodology": "before_after",
+      "methodology_label": "단순 전후 비교 (비통제 시계열 관찰)",
+      "sample_plan": {
+        "status": "planned",
+        "target_n": 30,
+        "rationale": "평일 단체 방문 30팀 대상 관찰 표본"
+      },
       "sample_size": 42,
-      "sample_threshold": 30,
-      "is_sample_sufficient": true,
-      "evaluation_status": "observational_finding",
-      "evaluation_label": "관찰 결과 (단순 전후 비교)",
-      "cost_status": "cost_missing",
-      "cost_label": "비용 미입력 (수익성 미검증)",
-      "cost_warning": "보틀 포장재 및 티백 원가 미입력. 0원으로 계산하지 않으며 수익성 검증 미완료 상태.",
-      "results_summary": "수치상 만족도 및 재예약 문의가 증가했으나, 동시 진행된 가을 날씨 호조 및 요일별 단체 성격 차이 등 외생변수가 통제되지 않은 단순 관찰 결과임.",
+      "sample_status": "sufficient",
+      "evaluation": {
+        "synthetic_result": {
+          "status": "observational_finding",
+          "label": "관찰 결과 (단순 전후 비교)",
+          "detail": "동시 진행된 가을 날씨 호조 및 요일별 단체 성격 차이 등 외생변수가 통제되지 않은 단순 관찰 결과이며 인과관계를 입증할 수 없습니다."
+        },
+        "operational_approval": {
+          "status": "pending",
+          "label": "운영 승인: 보류",
+          "detail": "대조군 결여로 인과성 미입증 상태이므로 운영 승인 보류."
+        },
+        "site_replication": {
+          "status": "not_attempted",
+          "label": "타 현장 재현: 미실시",
+          "detail": "대조군 보완 A/B 테스트 재실험 완료 전 타 현장 전파 불가."
+        }
+      },
+      "cost": {
+        "status": "cost_null",
+        "unit_cost_krw": null,
+        "cost_label": "비용 미입력 (null)",
+        "warning": "보틀 포장재 및 티백 원가 미입력. 0원으로 계산하지 않으며 수익성 검증 및 ROI 판단은 전면 제외됩니다.",
+        "profitability_excluded": true
+      },
+      "metrics": [
+        { "name": "인솔자 체감 편의 만족도", "control_value": "4.20 (전주)", "experiment_value": "4.50 (금주)", "delta": "+0.30점", "trend": "positive" },
+        { "name": "차기 시즌 재예약 문의율", "control_value": "28.5%", "experiment_value": "35.7%", "delta": "+7.2%p", "trend": "positive" }
+      ],
+      "results_summary": "수치상 만족도 및 재예약 문의가 증가했으나 외생변수가 통제되지 않은 단순 관찰 결과임.",
       "next_decision": "동일 요일 분할 배정 형태의 대조군(Control Group)을 포함한 정밀 A/B 테스트 재실행 권고.",
       "decision_tag": "대조군 보완 재실험 권고"
     },
@@ -195,44 +239,104 @@
       "intervention": "우천 발령 시 매표 화면에서 웰컴 음료를 즉시 '따뜻한 대추사과차'로 변경 교부.",
       "target_cohort": "우천 시간대 방문 가족 보호자",
       "period": "2026-10-09 (우천 당일 4시간)",
-      "methodology": "A/B 테스트",
-      "method_type": "ab_test",
-      "metrics": [
-        {
-          "name": "환불 요구율",
-          "control_value": "12.5%",
-          "experiment_value": "0.0%",
-          "delta": "-12.5%p",
-          "trend": "positive"
-        },
-        {
-          "name": "보호자 라운지 체류 만족도",
-          "control_value": "3.80",
-          "experiment_value": "4.40",
-          "delta": "+0.60점",
-          "trend": "positive"
-        }
-      ],
+      "methodology": "ab_test",
+      "methodology_label": "A/B 테스트 (우천 한정)",
+      "sample_plan": {
+        "status": "planned",
+        "target_n": 30,
+        "rationale": "우천 방문객 최소 유효 표본 30팀 사전 설계"
+      },
       "sample_size": 8,
-      "sample_threshold": 30,
-      "is_sample_sufficient": false,
-      "evaluation_status": "pending_inconclusive",
-      "evaluation_label": "판단 보류 (표본 부족: N=8)",
-      "cost_status": "cost_missing",
-      "cost_label": "비용 미입력 (수익성 미검증)",
-      "cost_warning": "비용 데이터 누락. 0원으로 왜곡 처리 금지.",
-      "results_summary": "실험군 환불 0건 및 만족도 상승이 관측되었으나, 유효 표본이 8팀에 불과하여 통계적 유의성이 전혀 없음.",
+      "sample_status": "insufficient",
+      "evaluation": {
+        "synthetic_result": {
+          "status": "pending_inconclusive",
+          "label": "판단 보류 (표본 부족: N=8/30)",
+          "detail": "실험군 환불 0건이 관측되었으나 유효 표본이 8팀에 불과하여 통계적 신뢰도가 전무하므로 판단을 보류합니다."
+        },
+        "operational_approval": {
+          "status": "pending",
+          "label": "운영 승인: 대기",
+          "detail": "최소 표본 도달 전 운영 승인 불가."
+        },
+        "site_replication": {
+          "status": "prerequisites_unmet",
+          "label": "타 현장 재현: 전제 미충족",
+          "detail": "본점 유효 표본 미도달로 전파 전제 미충족."
+        }
+      },
+      "cost": {
+        "status": "cost_null",
+        "unit_cost_krw": null,
+        "cost_label": "비용 미입력 (null)",
+        "warning": "비용 데이터 누락. 0원으로 왜곡 처리 금지하며 수익성 판단은 제외됩니다.",
+        "profitability_excluded": true
+      },
+      "metrics": [
+        { "name": "환불 요구율", "control_value": "12.5%", "experiment_value": "0.0%", "delta": "-12.5%p", "trend": "positive" },
+        { "name": "보호자 라운지 체류 만족도", "control_value": "3.80", "experiment_value": "4.40", "delta": "+0.60점", "trend": "positive" }
+      ],
+      "results_summary": "실험군 환불 0건 및 만족도 상승이 관측되었으나, 유효 표본이 8팀에 불과하여 통계적 유의성이 없음.",
       "next_decision": "우천 일수 추가 누적으로 최소 표본(30팀) 도달 시까지 결론을 보류하고 추가 데이터 수집 유지.",
       "decision_tag": "표본 누적 대기"
+    },
+    {
+      "id": "EXP-2026-004",
+      "title": "야외 플레이존 입장 게이트 모바일 웰컴 안내 메시지 발송",
+      "topic": "보호자 웰컴 음료",
+      "hypothesis": "게이트 통과 시 모바일 웰컴 안내를 발송하면 카페 라운지 분산 착석율이 상승할 것이다.",
+      "intervention": "입장 바코드 태그 시 카카오 알림톡으로 웰컴 라운지 위치 및 혼잡도 안내 발송.",
+      "target_cohort": "주말 모바일 사전 예약 방문객",
+      "period": "2026-10-10",
+      "methodology": "ab_test",
+      "methodology_label": "A/B 테스트",
+      "sample_plan": {
+        "status": "unplanned",
+        "target_n": null,
+        "rationale": "사전 표본 크기 산정 계획 미수립 (표본 계획 미정)"
+      },
+      "sample_size": 85,
+      "sample_status": "unplanned",
+      "evaluation": {
+        "synthetic_result": {
+          "status": "pending_inconclusive",
+          "label": "판단 보류 (사전 표본 계획 부재)",
+          "detail": "표본 수가 85건으로 적지 않으나 사전 표본 계획(검정력·효과크기 설계)이 없으므로 임의 수치만으로 개선 또는 유의성을 확정하지 않고 판단을 보류합니다."
+        },
+        "operational_approval": {
+          "status": "pending",
+          "label": "운영 승인: 보류",
+          "detail": "사전 표본 설계 미비로 운영 승인 심사 대상 제외."
+        },
+        "site_replication": {
+          "status": "not_attempted",
+          "label": "타 현장 재현: 미실시",
+          "detail": "실험 설계 보완 전 타 현장 적용 불가."
+        }
+      },
+      "cost": {
+        "status": "cost_zero",
+        "unit_cost_krw": 0,
+        "cost_label": "명시적 비용 0원",
+        "warning": "자체 알림톡 발송으로 직접비용은 0원으로 등록되었으나, 간접비(시스템 감가상각·통신망 유지비) 미포함으로 수익성 판단은 전면 제외됩니다.",
+        "profitability_excluded": true
+      },
+      "metrics": [
+        { "name": "메시지 확인율", "control_value": "N/A", "experiment_value": "78.8%", "delta": "67명 확인", "trend": "positive" },
+        { "name": "웰컴 라운지 방문율", "control_value": "41.2%", "experiment_value": "52.9%", "delta": "+11.7%p", "trend": "positive" }
+      ],
+      "results_summary": "메시지 발송에 따른 라운지 방문율 증가가 관찰되었으나 사전 표본 계획 부재로 결과 확정 불가.",
+      "next_decision": "통계적 검정력 분석을 포함한 정규 실험 계획서 수립 후 재실험 진행.",
+      "decision_tag": "실험 계획서 재작성 권고"
     }
   ],
   "guidelines": [
     {
       "id": "SOP-BP-007",
       "title": "보호자 웰컴 음료 제공 운영 지침서 (타 현장 전파용)",
-      "version": "1.0",
+      "version": "1.1",
       "target_scene": "가족형 야외/실내 복합 레저 현장 (매표 및 대기 단계)",
-      "evidence_ref": "EXP-2026-001 (A/B 테스트 만족도 +0.55pt, 불만 -73.8% 실증)",
+      "evidence_ref": "EXP-2026-001 (사전 계획 A/B 테스트 검토 가능 단계 관찰)",
       "prerequisites": [
         "F&B 카페 창구와 매표소 간 반경 30m 이내 접근 동선 확보",
         "주말 기준 카페 음료 제조 캐파 분당 최소 3~4잔 이상 가동 가능",
@@ -263,7 +367,7 @@
       ],
       "limitations": [
         "피크타임(14:00~16:00) 방문객 집중 시 카페 주문 대기열이 2차 병목을 유발할 위험 존재",
-        "현재 음료 1잔당 제조 원가 및 부자재 비용이 미확정되어, 1인당 순이익 기여도(ROI) 검증이 미완료된 한계가 있음",
+        "현재 음료 1잔당 제조 원가 및 부자재 비용이 미확정되어, 1인당 순이익 기여도(ROI) 검증이 미완료된 한계가 있음 (회계 비연결 원칙 준수)",
         "기상 상황(혹서기/혹한기)에 따라 아이스/핫 선호 편차가 극심하여 고정 단일 메뉴 적용 불가"
       ],
       "reverification_items": [
