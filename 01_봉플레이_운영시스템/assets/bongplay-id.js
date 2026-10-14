@@ -854,7 +854,8 @@
         items: [],
         payments: [],
         total_amount: 0,
-        total_quantity: 0
+        total_quantity: 0,
+        savePromise: Promise.resolve({ ok: false, queued: false, error: 'EMPTY_ORDER_ITEMS', results: [] })
       };
     }
 
@@ -875,7 +876,8 @@
           items: [],
           payments: [],
           total_amount: 0,
-          total_quantity: 0
+          total_quantity: 0,
+          savePromise: Promise.resolve({ ok: false, queued: false, error: 'DEPRECATED_PRODUCT_BLOCKED', results: [] })
         };
       }
     }
@@ -939,6 +941,7 @@
       }));
 
     // Save locally
+    const savePromises = [];
     try {
       const existingRaw = localStorage.getItem(STORAGE_KEYS.ORDER_ITEMS) || '[]';
       const list = JSON.parse(existingRaw);
@@ -953,25 +956,75 @@
       // Sync each item to Supabase
       if (global.BongplaySync && typeof global.BongplaySync.upsert === 'function') {
         orderItems.forEach(rec => {
-          global.BongplaySync.upsert('order_items', rec);
+          try {
+            const p = global.BongplaySync.upsert('order_items', rec);
+            savePromises.push(Promise.resolve(p));
+          } catch (err) {
+            savePromises.push(Promise.resolve({ ok: false, error: err }));
+          }
         });
         orderPayments.forEach(rec => {
-          global.BongplaySync.upsert('order_payments', rec);
+          try {
+            const p = global.BongplaySync.upsert('order_payments', rec);
+            savePromises.push(Promise.resolve(p));
+          } catch (err) {
+            savePromises.push(Promise.resolve({ ok: false, error: err }));
+          }
         });
       }
     } catch (e) {
       console.error('Failed to save order items:', e);
     }
 
-    return {
+    // 서버 저장 확정 판단: ok === true && !queued 인 경우만 확정 (전송 대기/아웃박스는 미확정)
+    const expectedCount = orderItems.length + orderPayments.length;
+    const savePromise = (savePromises.length > 0)
+      ? Promise.all(savePromises).then(results => {
+          const allConfirmed = results.length === expectedCount &&
+            results.length > 0 &&
+            results.every(r => Boolean(r && r.ok === true && !r.queued));
+          const hasQueued = results.some(r => Boolean(r && r.queued));
+          return {
+            ok: allConfirmed,
+            queued: hasQueued,
+            results: results
+          };
+        }).catch(err => ({
+          ok: false,
+          queued: false,
+          error: err,
+          results: []
+        }))
+      : Promise.resolve({
+          ok: false,
+          queued: false,
+          reason: 'no_sync_client',
+          results: []
+        });
+
+    const result = {
       success: true,
       order_id: orderId,
       visit_id: visitId,
       items: orderItems,
       payments: orderPayments,
       total_amount: orderItems.reduce((sum, it) => sum + it.paid_amount, 0),
-      total_quantity: orderItems.reduce((sum, it) => sum + it.quantity, 0)
+      total_quantity: orderItems.reduce((sum, it) => sum + it.quantity, 0),
+      savePromise: savePromise,
+      waitForSave: function() { return savePromise; }
     };
+
+    return result;
+  }
+
+  async function createOrderAsync(orderParams) {
+    const order = createOrder(orderParams);
+    if (order.savePromise) {
+      const syncRes = await order.savePromise;
+      order.server_confirmed = syncRes.ok;
+      order.sync = syncRes;
+    }
+    return order;
   }
 
   /* ---------- 4-2-1. 일자별 실제 주문 원장 조회 (P0-1 Orders by Date) ---------- */
@@ -3527,6 +3580,7 @@
     markVisitEntry: markVisitEntry,
     markVisitExit: markVisitExit,
     createOrder: createOrder,
+    createOrderAsync: createOrderAsync,
     isDeprecatedProduct: isDeprecatedProduct,
     recordFacilityEvent: recordFacilityEvent,
     recordCongestionTelemetry: recordCongestionTelemetry,

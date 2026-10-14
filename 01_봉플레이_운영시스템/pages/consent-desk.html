@@ -1616,33 +1616,64 @@
         }
       } catch (e) {}
 
-      // 1) 품목 원장(order_items) + 수납 원장(order_payments, 복합 결제는 2건)
-      const order = BongplayID.createOrder({
-        visit_id: rec.visit_id,
-        sales_channel: 'desk_ticketing',
-        payment_method: primaryMethod,
-        approval_no: approvalNo || null,
-        consent_id: rec.id,
-        staff_id: 'desk_staff',
-        items: pricing.items,
-        payments: payments
-      });
+      // 1) 품목 원장(order_items) + 수납 원장(order_payments)
+      // 재시도 시 동일 order_id 재사용 (새 주문 생성 방지)
+      let order = payCtx.activeOrder;
+      if (!order) {
+        order = BongplayID.createOrder({
+          visit_id: rec.visit_id,
+          sales_channel: 'desk_ticketing',
+          payment_method: primaryMethod,
+          approval_no: approvalNo || null,
+          consent_id: rec.id,
+          staff_id: 'desk_staff',
+          items: pricing.items,
+          payments: payments
+        });
+        payCtx.activeOrder = order;
+      }
 
       if (!order || order.success === false) {
         alert(order && order.message ? `❌ 발권/주문 실패: ${order.message}` : '❌ 주문 원장 생성에 실패했습니다 (폐지 품목 또는 결제 오류).');
         return;
       }
 
-      // 2) 발권 원장 (ticket_ledger) — 입장권 계열 1매씩, 단가 포함 (Fix 3: await로 서버 원장 확정)
-      const ticketIds = Array.isArray(rec.ticket_ids) ? rec.ticket_ids.slice() : [];
-      let seq = ticketIds.length;
+      // 주문 원장 서버 저장 확정 대기 및 검증 (ok === true && !queued)
+      if (order.savePromise) {
+        const orderSaveRes = await order.savePromise;
+        if (!orderSaveRes || !orderSaveRes.ok) {
+          const isQueued = Boolean(orderSaveRes && orderSaveRes.queued);
+          alert(isQueued
+            ? '⚠️ 주문 원장(order_items/payments) 전송 대기 상태입니다 (오프라인/아웃박스). 서버 저장 확정 후 재시도해 주세요.'
+            : '❌ 주문 원장 서버 저장에 실패했습니다. 다시 시도해 주세요.');
+          return;
+        }
+      }
+
+      // 2) 발권 원장 (ticket_ledger) — 이번 주문의 입장권 티켓 id만 생성 (이전 발권분 섞지 않음)
+      const ticketItemCount = pricing.items
+        .filter(it => it.product_category === 'ticket')
+        .reduce((sum, it) => sum + (Number(it.quantity) || 1), 0);
+
+      let ticketIds = payCtx.activeTicketIds;
+      if (!ticketIds || ticketIds.length !== ticketItemCount) {
+        ticketIds = [];
+        let seq = (rec.ticket_ids && Array.isArray(rec.ticket_ids)) ? rec.ticket_ids.length : 0;
+        pricing.items.filter(it => it.product_category === 'ticket').forEach(it => {
+          for (let i = 0; i < it.quantity; i++) {
+            seq++;
+            ticketIds.push(BongplayID.generateTicketId(rec.visit_id, seq));
+          }
+        });
+        payCtx.activeTicketIds = ticketIds;
+      }
+
+      let tIdx = 0;
       const ledgerPromises = [];
       pricing.items.filter(it => it.product_category === 'ticket').forEach(it => {
         const unitPaid = Math.round(it.paid_amount / it.quantity);
         for (let i = 0; i < it.quantity; i++) {
-          seq++;
-          const tId = BongplayID.generateTicketId(rec.visit_id, seq);
-          ticketIds.push(tId);
+          const tId = ticketIds[tIdx++];
           ledgerPromises.push(BongplaySync.upsert('ticket_ledger', {
             ticket_id: tId,
             site_id: 'bongplay_bonghwa',
@@ -1662,9 +1693,15 @@
       });
 
       const ledgerResults = await Promise.all(ledgerPromises);
-      const ledgerFailed = ledgerResults.some(r => r && r.success === false);
-      if (ledgerFailed) {
-        alert('❌ 발권 원장(ticket_ledger) 저장 중 실패가 발생했습니다. 대기열 상태를 유지합니다.');
+      // 서버 저장 확정: ok === true && !queued 인 경우만 성공으로 인정 (전송 대기/아웃박스는 미확정)
+      const allLedgerConfirmed = ledgerResults.length === ledgerPromises.length &&
+        (ledgerPromises.length === 0 || ledgerResults.every(r => Boolean(r && r.ok === true && !r.queued)));
+
+      if (!allLedgerConfirmed) {
+        const hasQueued = ledgerResults.some(r => Boolean(r && r.queued));
+        alert(hasQueued
+          ? '⚠️ 발권 원장(ticket_ledger) 전송 대기 상태입니다 (오프라인/아웃박스). 서버 저장 확정 후 다시 시도해 주세요.'
+          : '❌ 발권 원장(ticket_ledger) 서버 저장에 실패했습니다. 대기열 상태를 유지합니다.');
         return;
       }
 
@@ -1676,7 +1713,7 @@
           const qRes = await BongplayQueue.completeIssuance(qEntry.id, order.order_id, ticketIds);
           if (!qRes || !qRes.ok) {
             alert('❌ 대기열 발권 확정 실패: ' + (qRes?.message || '대기열 완료 서버 응답에 실패했습니다. 대기열 및 서약서 미완료 상태를 유지합니다.'));
-            // 서버 확인 실패 시 서약서 상태를 완료로 변경하지 않고 대기열 창구 슬롯을 유지
+            // 서버 확인 실패 시 서약서 상태를 완료로 변경하지 않고 대기열 창구 슬롯을 유지 (재시도 시 동일 order/tickets 재사용)
             return;
           }
           if (currentCalledQueueEntry && currentCalledQueueEntry.id === qEntry.id) {
@@ -1691,8 +1728,11 @@
       rec.ticket_issued_at = rec.ticket_issued_at || now;
       rec.ticket_ids = ticketIds;
       const consentSyncRes = await BongplaySync.upsert('safety_consents', rec);
-      if (consentSyncRes && consentSyncRes.success === false) {
-        alert('⚠️ 서약서 발권 상태 갱신에 실패했습니다. 오프라인 아웃박스를 확인해 주세요.');
+      const consentConfirmed = Boolean(consentSyncRes && consentSyncRes.ok === true && !consentSyncRes.queued);
+      if (!consentConfirmed) {
+        alert(consentSyncRes && consentSyncRes.queued
+          ? '⚠️ 발권은 완료되었으나, 서약서 상태 동기화가 전송 대기(오프라인/아웃박스) 중입니다. 네트워크 복구 시 자동 동기화됩니다.'
+          : '⚠️ 발권은 완료되었으나, 서약서 상태 동기화에 실패했습니다. 관리자에게 문의하세요.');
       }
 
       closePaymentModal();

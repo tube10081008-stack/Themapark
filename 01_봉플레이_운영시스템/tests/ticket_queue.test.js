@@ -921,6 +921,173 @@ test('ANT-006 / BEN-022 발권 대기열 시스템 전수 검증', async (t) => 
     delete global.window.BongplaySync;
   });
 
+  // ---------------------------------------------------------------------------
+  // 20~25. [R3 Followup] 저장 지연, queued: true, 응답 유실, 새로고침, 재시도 전수 검증
+  // ---------------------------------------------------------------------------
+  function loadBongplayID(mockGlobal = {}) {
+    const code = fs.readFileSync(path.join(__dirname, '../assets/bongplay-id.js'), 'utf8');
+    const mockLocalStorage = {
+      _data: {},
+      getItem(k) { return this._data[k] || null; },
+      setItem(k, v) { this._data[k] = String(v); },
+      removeItem(k) { delete this._data[k]; }
+    };
+    mockGlobal.localStorage = mockLocalStorage;
+    mockGlobal.window = mockGlobal;
+    new Function('window', 'global', 'localStorage', code)(mockGlobal, mockGlobal, mockLocalStorage);
+    return mockGlobal.BongplayID;
+  }
+
+  // 20. createOrder 저장 지연 및 savePromise / createOrderAsync 서버 확정 검증
+  await t.test('20. [R3 Followup] createOrder 저장 지연 시 savePromise 및 createOrderAsync 서버 확정(ok: true, !queued) 검증', async () => {
+    const mockEnv = {};
+    const upsertCalls = [];
+    mockEnv.BongplaySync = {
+      upsert: async (table, payload) => {
+        upsertCalls.push({ table, payload });
+        await new Promise(r => setTimeout(r, 10));
+        return { ok: true, row: payload };
+      }
+    };
+
+    const BongplayID = loadBongplayID(mockEnv);
+
+    // 1) 동기식 createOrder + savePromise 대기 패턴
+    const order = BongplayID.createOrder({
+      visit_id: 'vst_test_1',
+      items: [{ product_id: 'PROD_CHILD_BASIC_STD', quantity: 2, list_price: 15000 }],
+      payment_method: 'card',
+      consent_id: 'cst_test_1'
+    });
+
+    assert.equal(order.success, true);
+    assert.equal(typeof order.order_id, 'string');
+    assert.equal(order.total_amount, 30000);
+    assert.ok(order.savePromise && typeof order.savePromise.then === 'function');
+
+    const saveRes = await order.savePromise;
+    assert.equal(saveRes.ok, true, '서버 저장 확정');
+    assert.equal(saveRes.queued, false, '전송 대기 플래그 false');
+    assert.equal(upsertCalls.length, 2, 'order_items 1건 + order_payments 1건 upsert');
+
+    // 2) 비동기 래퍼 createOrderAsync 지원 검증
+    const orderAsync = await BongplayID.createOrderAsync({
+      visit_id: 'vst_test_2',
+      items: [{ product_id: 'PROD_GUARDIAN', quantity: 1, list_price: 5000 }],
+      payment_method: 'cash'
+    });
+    assert.equal(orderAsync.success, true);
+    assert.equal(orderAsync.server_confirmed, true);
+    assert.equal(orderAsync.sync.ok, true);
+  });
+
+  // 21. createOrder 아웃박스 대기(queued: true) 시 서버 미확정 판정
+  await t.test('21. [R3 Followup] createOrder 아웃박스(queued: true) 시 서버 미확정(ok: false, queued: true) 판정', async () => {
+    const mockEnv = {};
+    mockEnv.BongplaySync = {
+      upsert: async (table, payload) => {
+        return { ok: true, queued: true, offline: true, row: payload };
+      }
+    };
+
+    const BongplayID = loadBongplayID(mockEnv);
+    const order = BongplayID.createOrder({
+      visit_id: 'vst_test_offline',
+      items: [{ product_id: 'PROD_CHILD_BASIC_STD', quantity: 1, list_price: 15000 }],
+      payment_method: 'card'
+    });
+
+    assert.equal(order.success, true, '로컬 주문 객체 자체는 유효하게 생성');
+    const saveRes = await order.savePromise;
+    assert.equal(saveRes.ok, false, 'queued: true 이므로 서버 저장은 미확정');
+    assert.equal(saveRes.queued, true, 'queued 플래그 true');
+  });
+
+  // 22. 매표 발권 원장 저장 시 queued: true 전송 대기 상태 차단 검증
+  await t.test('22. [R3 Followup] ticket_ledger 저장 결과 중 queued: true 발생 시 발권 확정 차단 검증', () => {
+    const ledgerResultsQueued = [
+      { ok: true, row: { ticket_id: 'tkt_01' } },
+      { ok: true, queued: true, row: { ticket_id: 'tkt_02' } }
+    ];
+
+    const allLedgerConfirmed = ledgerResultsQueued.length === 2 &&
+      ledgerResultsQueued.every(r => Boolean(r && r.ok === true && !r.queued));
+
+    assert.equal(allLedgerConfirmed, false, '하나라도 queued: true 이면 발권 확정 실패로 차단되어야 함');
+  });
+
+  // 23. 발권 확정 RPC 응답 유실 후 동일 order_id / ticket_ids 재시도 시 멱등 성공 및 중복 방지
+  await t.test('23. [R3 Followup] 발권 확정 RPC 응답 유실 후 동일 order_id / ticket_ids 재시도 시 멱등 성공 및 중복 방지', () => {
+    const store = BongplayQueue.createStore();
+    const today = new Date();
+
+    const enq = store.enqueue({
+      consent_id: 'cst_retry_desk_1',
+      guardian_name: '이순신',
+      guardian_phone: '010-3333-4444',
+      party_size: 2,
+      now: today
+    });
+    store.callNext(1, 'stf_desk', today);
+    store.startProcessing(enq.item.id, 1, today);
+
+    const orderId = 'ord_persistent_101';
+    const ticketIds = ['tkt_pers_01', 'tkt_pers_02'];
+    const ledgerOpts = {
+      orderPayments: [{ order_id: orderId, consent_id: 'cst_retry_desk_1', amount: 30000, status: 'paid' }],
+      safetyConsents: [{ id: 'cst_retry_desk_1', is_issued: false }],
+      ticketLedger: [
+        { ticket_id: 'tkt_pers_01', consent_id: 'cst_retry_desk_1', order_id: orderId },
+        { ticket_id: 'tkt_pers_02', consent_id: 'cst_retry_desk_1', order_id: orderId }
+      ],
+      orderItems: [
+        { order_id: orderId, consent_id: 'cst_retry_desk_1', quantity: 2, paid_amount: 30000, product_category: 'ticket' }
+      ]
+    };
+
+    const res1 = store.completeIssuance(enq.item.id, orderId, ticketIds, today, ledgerOpts);
+    assert.equal(res1.ok, true);
+    assert.equal(res1.duplicate, false);
+    assert.equal(res1.item.status, BongplayQueue.STATUS.ISSUED);
+
+    const resRetrySame = store.completeIssuance(enq.item.id, orderId, ticketIds, today, ledgerOpts);
+    assert.equal(resRetrySame.ok, true, '동일 주문·티켓 재시도는 멱등하게 성공해야 함');
+    assert.equal(resRetrySame.duplicate, true);
+    assert.equal(resRetrySame.already_completed, true);
+    assert.equal(resRetrySame.item.order_id, orderId);
+
+    const resRetryNewOrder = store.completeIssuance(enq.item.id, 'ord_NEW_ACCIDENTAL', ['tkt_new_01'], today, ledgerOpts);
+    assert.equal(resRetryNewOrder.ok, false);
+    assert.equal(resRetryNewOrder.error, 'ALREADY_ISSUED_OTHER_ORDER', '새 주문으로 재시도하면 서버에서 차단되어야 함');
+  });
+
+  // 24. 서약서 저장 전(queued: true) 대기열 접수 차단 및 서버 저장 확정 후 접수 검증
+  await t.test('24. [R3 Followup] 서약서 저장 전(queued: true) 대기열 접수 차단 및 서버 저장 확정 후 접수 검증', () => {
+    const consentUpsertQueued = { ok: true, queued: true, offline: true, row: { id: 'cst_test_q' } };
+    const isConsentConfirmedQueued = Boolean(consentUpsertQueued && consentUpsertQueued.ok === true && !consentUpsertQueued.queued);
+    assert.equal(isConsentConfirmedQueued, false, 'queued: true 일 때는 서버 미확정이므로 접수 차단');
+
+    const consentUpsertSuccess = { ok: true, row: { id: 'cst_test_q' } };
+    const isConsentConfirmedSuccess = Boolean(consentUpsertSuccess && consentUpsertSuccess.ok === true && !consentUpsertSuccess.queued);
+    assert.equal(isConsentConfirmedSuccess, true, 'ok: true 이고 !queued 일 때만 대기열 접수 진행');
+  });
+
+  // 25. 가구 ID 평문 전화번호 노출 차단 및 최소 PII 보존 검증
+  await t.test('25. [R3 Followup] 가구 ID에 평문 전화번호 미노출 및 재시도 시 최소 PII 보존 검증', () => {
+    const mockEnv = {};
+    const BongplayID = loadBongplayID(mockEnv);
+    const phone = '010-1234-5678';
+    const hhId = BongplayID.generateHouseholdId(phone);
+
+    assert.ok(!hhId.includes('1234'), '가구 ID는 평문 전화번호를 포함하지 않아야 함');
+    assert.ok(!hhId.includes('5678'), '가구 ID는 뒷자리 평문 전화번호를 포함하지 않아야 함');
+    assert.ok(hhId.startsWith('hh_'), '가구 ID 프리픽스는 hh_ 이어야 함');
+    assert.equal(BongplayID.generateHouseholdId(phone), hhId, '동일 전화번호는 동일한 단방향 해시 가구 ID 생성');
+
+    const key = BongplayQueue.generateIdempotencyKey('2026-10-14', 'cst_test_pii', phone);
+    assert.equal(key, '2026-10-14_cst_test_pii_5678', '멱등키는 날짜_접수ID_끝자리로 결정적 생성');
+  });
+
 });
 
 

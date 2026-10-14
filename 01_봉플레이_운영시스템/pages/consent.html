@@ -740,10 +740,24 @@
       return true;
     }
 
-    // 4. Form Submit Handler (벤 지시: 접수 실패 후 동일 접수 ID로 안전하게 재시도)
+    // 4. Form Submit Handler (벤 지시: 접수 실패 후 동일 접수 ID·멱등키·인자로 안전하게 재시도)
     let currentConsentDraftId = null;
     let currentConsentVisitId = null;
     let currentConsentPassCode = null;
+    let currentConsentIdempotencyKey = null;
+
+    function safeHashPhone(phone) {
+      if (window.BongplayID && typeof BongplayID.generateHouseholdId === 'function') {
+        return BongplayID.generateHouseholdId(phone);
+      }
+      const clean = (phone || '').replace(/[^0-9]/g, '');
+      let hash = 2166136261;
+      for (let i = 0; i < clean.length; i++) {
+        hash ^= clean.charCodeAt(i);
+        hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+      }
+      return 'hh_' + (hash >>> 0).toString(16);
+    }
 
     async function handleConsentSubmit(e) {
       e.preventDefault();
@@ -769,22 +783,58 @@
           if (name) children.push({ name, birth, height, weight });
         });
 
-        // Generate IDs (재시도 시 동일 접수 ID 보장)
+        // Generate IDs (재시도 및 새로고침 시 동일 접수 ID 및 멱등키 보장)
         const now = new Date();
         const dateStr = BongplaySync.toLocalDateStr(now);
-        if (!currentConsentDraftId) {
+
+        let activeDraft = null;
+        try {
+          const rawDraft = localStorage.getItem('bongplay_active_consent_draft');
+          if (rawDraft) {
+            const parsed = JSON.parse(rawDraft);
+            if (parsed && parsed.created_date === dateStr) activeDraft = parsed;
+          }
+        } catch (e) {}
+
+        if (activeDraft) {
+          currentConsentDraftId = activeDraft.id;
+          currentConsentVisitId = activeDraft.visit_id;
+          currentConsentPassCode = activeDraft.pass_code;
+          currentConsentIdempotencyKey = activeDraft.idempotency_key;
+        } else if (!currentConsentDraftId) {
           currentConsentDraftId = 'cst_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-          currentConsentVisitId = BongplayID ? BongplayID.generateVisitId(now) : ('vst_' + Date.now());
+          currentConsentVisitId = BongplayID ? BongplayID.generateVisitId(now) : ('vst_' + dateStr.replace(/-/g, '') + '_' + Math.random().toString(36).slice(2, 7));
           const passSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
           currentConsentPassCode = `BP-${dateStr.replace(/-/g, '').slice(2)}-${passSuffix}`;
+          currentConsentIdempotencyKey = (window.BongplayQueue && BongplayQueue.generateIdempotencyKey)
+            ? BongplayQueue.generateIdempotencyKey(dateStr, currentConsentDraftId, guardianPhone)
+            : (dateStr + '_' + currentConsentDraftId + '_' + guardianPhone.replace(/[^0-9]/g, '').slice(-4));
         }
+
         const visitId = currentConsentVisitId;
-        const householdId = BongplayID ? BongplayID.generateHouseholdId(guardianPhone) : ('hh_' + guardianPhone.replace(/[^0-9]/g, ''));
+        const householdId = safeHashPhone(guardianPhone); // 평문 전화번호 사용 금지
         const passCode = currentConsentPassCode;
+        const idempotencyKey = currentConsentIdempotencyKey;
         currentVoucherCode = passCode;
 
         const recordId = currentConsentDraftId;
         const sigData = sigCanvas.toDataURL('image/png');
+
+        // 최소한의 복구용 초안 로컬 저장 (접수 재시도 및 새로고침 복구용)
+        try {
+          localStorage.setItem('bongplay_active_consent_draft', JSON.stringify({
+            id: recordId,
+            visit_id: visitId,
+            pass_code: passCode,
+            household_id: householdId,
+            idempotency_key: idempotencyKey,
+            guardian_name: guardianName,
+            guardian_phone: guardianPhone,
+            party_size: children.length + 1,
+            created_date: dateStr,
+            consent_confirmed: false
+          }));
+        } catch (e) {}
 
         const consentRecord = {
           id: recordId,
@@ -804,29 +854,55 @@
           timestamp_text: BongplaySync.toLocalDatetimeLocalStr(now)
         };
 
-        // Save via BongplaySync (offline resilient outbox)
-        await BongplaySync.upsert('safety_consents', consentRecord);
+        // 1. 서약서 원장 저장 (BongplaySync.upsert)
+        const consentSaveRes = await BongplaySync.upsert('safety_consents', consentRecord);
+        // ok === true && !queued 인 경우만 서버 저장 확정으로 판단 (전송 대기/아웃박스는 미확정)
+        const isConsentServerConfirmed = Boolean(consentSaveRes && consentSaveRes.ok === true && !consentSaveRes.queued);
 
-        // 대기열 등록 (ANT-006: 서버 확정 당일 대기번호 발급)
+        // 2. 동의서 서버 저장 확인 후 대기열 접수 진행 (미확정 시 대기열 접수 차단)
         let queueItem = null;
         let queueOffline = false;
-        try {
-          if (window.BongplayQueue) {
-            const qRes = await BongplayQueue.enqueueConsent(consentRecord);
-            if (qRes && qRes.ok && qRes.item) {
-              queueItem = qRes.item;
-              try {
-                localStorage.setItem('bongplay_my_queue_id', queueItem.id);
-                if (queueItem.customer_token) {
-                  localStorage.setItem('bongplay_my_queue_token', queueItem.customer_token);
-                }
-              } catch (e) {}
-            } else if (qRes && qRes.offline) {
-              queueOffline = true;
+
+        if (isConsentServerConfirmed) {
+          try {
+            const rawDraft = localStorage.getItem('bongplay_active_consent_draft');
+            if (rawDraft) {
+              const d = JSON.parse(rawDraft);
+              d.consent_confirmed = true;
+              localStorage.setItem('bongplay_active_consent_draft', JSON.stringify(d));
             }
+          } catch (e) {}
+
+          try {
+            if (window.BongplayQueue) {
+              const qRes = await BongplayQueue.enqueueConsent({
+                id: recordId,
+                site_id: 'bongplay_bonghwa',
+                idempotency_key: idempotencyKey,
+                guardian_name: guardianName,
+                guardian_phone: guardianPhone,
+                party_size: children.length + 1
+              });
+              if (qRes && qRes.ok && qRes.item) {
+                queueItem = qRes.item;
+                try {
+                  localStorage.setItem('bongplay_my_queue_id', queueItem.id);
+                  if (queueItem.customer_token) {
+                    localStorage.setItem('bongplay_my_queue_token', queueItem.customer_token);
+                  }
+                  // 공식 발급 완료 시 임시 접수 초안 정리 (개인정보 최소화)
+                  localStorage.removeItem('bongplay_active_consent_draft');
+                } catch (e) {}
+              } else if (qRes && qRes.offline) {
+                queueOffline = true;
+              }
+            }
+          } catch (qErr) {
+            console.warn('Queue enqueue error:', qErr);
           }
-        } catch (qErr) {
-          console.warn('Queue enqueue error:', qErr);
+        } else {
+          // 서약서 전송 대기/실패 상태: 대기열 접수 차단
+          queueOffline = true;
         }
 
         const voucher = {
@@ -834,16 +910,25 @@
           consentId: recordId,
           visitId,
           householdId,
+          idempotencyKey,
           guardianName,
           peopleText: `${children.length + 1}명 (성인 1 · 아이 ${children.length})`,
+          partySize: children.length + 1,
           date: dateStr,
+          consentConfirmed: isConsentServerConfirmed,
           queueId: queueItem ? queueItem.id : null,
           customerToken: queueItem ? queueItem.customer_token : null,
           queueNumber: queueItem ? queueItem.queue_number : null,
           formattedQueueNumber: queueItem ? (queueItem.formatted_number || ('#' + queueItem.queue_number)) : null,
-          queueOffline: queueOffline
+          queueOffline: queueOffline || (!queueItem)
         };
-        // 손님 본인 폰에만 당일 바우처를 보관 → 창을 닫았다 다시 열어도 QR·설문 버튼 유지
+
+        // 공식 번호 발급 전에는 재시도에 필요한 인자를 최소한으로 보존하고 완료 시 제거
+        if (!queueItem) {
+          voucher.guardianPhone = guardianPhone;
+        }
+
+        // 손님 본인 폰에만 당일 바우처를 보관
         try { localStorage.setItem(MY_VOUCHER_KEY, JSON.stringify(voucher)); } catch (e) {}
 
         // 재방문 시 QR 발급 과정 내 빠른 자녀 정보 채움을 위한 가구 프로필 캐시
@@ -887,6 +972,14 @@
         qBadgeEl.textContent = '오프라인';
         qBadgeEl.className = 'text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-700';
         qAlertEl.classList.remove('hidden');
+        const alertMsg = qAlertEl.querySelector('div');
+        if (alertMsg) {
+          if (!v.consentConfirmed) {
+            alertMsg.innerHTML = '⚠️ <b>서약서 전송 대기 중 (오프라인)</b><br>서버 저장 확정 후 공식 대기번호가 발급됩니다.';
+          } else {
+            alertMsg.innerHTML = '⚠️ <b>네트워크 연결 대기 중 (오프라인)</b><br>서버 연결 확인 후 공식 대기번호가 발급됩니다.';
+          }
+        }
         qSubText.classList.add('hidden');
         btnStatus.classList.add('hidden');
         return;
@@ -952,29 +1045,73 @@
       document.getElementById('btnVoucherSurveyLabel').textContent = done ? '후기 설문 완료 · 감사합니다' : '🎁 다 놀고 나가실 때 1분 후기 남기고 선물 받기';
     }
 
-    // 대기번호 발급 재시도 (동일 consentId 멱등성 보장)
+    // 대기번호 발급 재시도 (동일 consentId·멱등키·인자 보장)
     async function retryQueueEnqueue() {
       const v = loadMyVoucher();
       if (!v || !v.consentId) return;
+
+      // 저장된 초안에서 동일한 접수 ID, 멱등키, 인자 복구 (가구 ID 해시를 전화번호로 복원하지 않음)
+      let draft = null;
+      try {
+        const raw = localStorage.getItem('bongplay_active_consent_draft');
+        if (raw) draft = JSON.parse(raw);
+      } catch (e) {}
+
+      const guardianPhone = (draft && draft.guardian_phone) || v.guardianPhone || '';
+      const guardianName = (draft && draft.guardian_name) || v.guardianName || '';
+      const partySize = (draft && draft.party_size) || v.partySize || (v.peopleText ? (parseInt(v.peopleText, 10) || 1) : 1);
+      const idempotencyKey = (draft && draft.idempotency_key) || v.idempotencyKey || null;
+
       const retryBtn = document.getElementById('btnRetryQueueEnqueue');
       if (retryBtn) {
         retryBtn.disabled = true;
-        retryBtn.textContent = '대기번호 발급 요청 중...';
+        retryBtn.textContent = '저장 확인 및 대기번호 요청 중...';
       }
 
       try {
+        // 1. 서약서 서버 저장 확인 (미확정 상태이면 재저장 시도)
+        if (!v.consentConfirmed && !(draft && draft.consent_confirmed)) {
+          if (window.BongplaySync && typeof BongplaySync.upsert === 'function') {
+            const consentSyncRes = await BongplaySync.upsert('safety_consents', {
+              id: v.consentId,
+              site_id: 'bongplay_bonghwa',
+              visit_id: v.visitId,
+              household_id: v.householdId,
+              pass_code: v.passCode,
+              guardian_name: guardianName,
+              guardian_phone: guardianPhone,
+              is_issued: false,
+              created_date: v.date
+            });
+            const isConfirmed = Boolean(consentSyncRes && consentSyncRes.ok === true && !consentSyncRes.queued);
+            if (!isConfirmed) {
+              const isQueued = Boolean(consentSyncRes && consentSyncRes.queued);
+              alert(isQueued
+                ? '⚠️ 서약서가 아직 전송 대기 중(오프라인)입니다. 네트워크 연결 확인 후 다시 시도해 주세요.'
+                : '❌ 서약서 서버 저장 확인에 실패했습니다. 잠시 후 다시 시도해 주세요.');
+              return;
+            }
+            v.consentConfirmed = true;
+            if (draft) {
+              draft.consent_confirmed = true;
+              try { localStorage.setItem('bongplay_active_consent_draft', JSON.stringify(draft)); } catch (e) {}
+            }
+          }
+        }
+
         if (!window.BongplayQueue) {
           alert('대기열 시스템 초기화 중입니다. 잠시 후 다시 시도해 주세요.');
           return;
         }
 
-        // 동일한 접수 ID(consentId)로 안전하게 재시도 (서버 멱등성 보장)
+        // 2. 동일한 접수 ID(consentId)·멱등키·인자로 안전하게 재시도 (서버 멱등성 보장)
         const qRes = await BongplayQueue.enqueueConsent({
           id: v.consentId,
           site_id: 'bongplay_bonghwa',
-          guardian_name: v.guardianName,
-          guardian_phone: (v.householdId || '').replace(/^hh_/, ''),
-          party_size: v.peopleText ? (parseInt(v.peopleText, 10) || 1) : 1
+          idempotency_key: idempotencyKey,
+          guardian_name: guardianName,
+          guardian_phone: guardianPhone,
+          party_size: partySize
         });
 
         if (qRes && qRes.ok && qRes.item) {
@@ -984,10 +1121,13 @@
           v.queueNumber = item.queue_number;
           v.formattedQueueNumber = item.formatted_number || ('#' + item.queue_number);
           v.queueOffline = false;
+          v.consentConfirmed = true;
+          delete v.guardianPhone; // 공식 발급 완료 시 개인정보 최소화 (전화번호 제거)
           try {
             localStorage.setItem(MY_VOUCHER_KEY, JSON.stringify(v));
             if (item.id) localStorage.setItem('bongplay_my_queue_id', item.id);
             if (item.customer_token) localStorage.setItem('bongplay_my_queue_token', item.customer_token);
+            localStorage.removeItem('bongplay_active_consent_draft'); // 발급 완료 후 임시 초안 정리
           } catch (e) {}
 
           updateVoucherQueueView(v);
@@ -1009,11 +1149,15 @@
 
     // 5. Reset for New Guest
     function resetForNewGuest() {
-      try { localStorage.removeItem(MY_VOUCHER_KEY); } catch (e) {}
+      try {
+        localStorage.removeItem(MY_VOUCHER_KEY);
+        localStorage.removeItem('bongplay_active_consent_draft');
+      } catch (e) {}
       currentVoucherCode = null;
       currentConsentDraftId = null;
       currentConsentVisitId = null;
       currentConsentPassCode = null;
+      currentConsentIdempotencyKey = null;
       document.getElementById('consentForm').reset();
       document.getElementById('formError').classList.add('hidden');
       clearSignature();

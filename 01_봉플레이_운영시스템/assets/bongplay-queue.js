@@ -227,15 +227,17 @@
    */
   function normalizeRpcResult(rpcRes) {
     if (!rpcRes) {
-      return { ok: false, error: 'no_response', message: '서버 응답이 없습니다.' };
+      return { ok: false, error: 'no_response', message: '서버 응답이 없습니다.', retryable: true };
     }
     // 전송 레벨 HTTP 실패
     if (rpcRes.ok === false) {
+      var isRetryable = rpcRes.retryable !== undefined ? Boolean(rpcRes.retryable) : (rpcRes.status >= 500 || rpcRes.status === 0 || !rpcRes.status);
       return {
         ok: false,
         status: rpcRes.status || 500,
         error: rpcRes.error || 'server_error',
-        message: rpcRes.message || '서버 요청에 실패했습니다.'
+        message: rpcRes.message || '서버 요청에 실패했습니다.',
+        retryable: isRetryable
       };
     }
 
@@ -245,7 +247,10 @@
         return {
           ok: false,
           error: data.error || 'rpc_rejected',
-          message: data.message || data.error || '서버 처리 오류가 발생했습니다.'
+          message: data.message || data.error || '서버 처리 오류가 발생했습니다.',
+          retryable: data.retryable !== undefined ? Boolean(data.retryable) : undefined,
+          duplicate: Boolean(data.duplicate),
+          already_completed: Boolean(data.already_completed)
         };
       }
       if (data.ok === true) {

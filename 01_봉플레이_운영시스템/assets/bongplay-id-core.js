@@ -755,8 +755,10 @@
         order_id: orderId,
         visit_id: visitId,
         items: [],
+        payments: [],
         total_amount: 0,
-        total_quantity: 0
+        total_quantity: 0,
+        savePromise: Promise.resolve({ ok: false, queued: false, error: 'EMPTY_ORDER_ITEMS', results: [] })
       };
     }
 
@@ -773,8 +775,10 @@
           order_id: orderId,
           visit_id: visitId,
           items: [],
+          payments: [],
           total_amount: 0,
-          total_quantity: 0
+          total_quantity: 0,
+          savePromise: Promise.resolve({ ok: false, queued: false, error: 'DEPRECATED_PRODUCT_BLOCKED', results: [] })
         };
       }
     }
@@ -789,6 +793,7 @@
 
       const record = {
         id: `${orderId}_${idx + 1}`,
+        item_id: `${orderId}_${idx + 1}`,
         order_id: orderId,
         site_id: SITE_ID,
         visit_id: visitId,
@@ -802,6 +807,9 @@
         discount_amount: discount,
         paid_amount: paid,
         payment_method: paymentMethod,
+        approval_no: orderParams.approval_no || null,
+        discount_rule: item.discount_rule || null,
+        consent_id: orderParams.consent_id || null,
         coupon_id: couponId,
         staff_id: staffId,
         created_at: now.toISOString()
@@ -810,31 +818,113 @@
       orderItems.push(record);
     });
 
+    const totalPaid = orderItems.reduce((sum, it) => sum + it.paid_amount, 0);
+    const paymentsInput = Array.isArray(orderParams.payments) && orderParams.payments.length > 0
+      ? orderParams.payments
+      : [{ method: paymentMethod, amount: totalPaid, approval_no: orderParams.approval_no || null }];
+
+    const orderPayments = paymentsInput
+      .filter(p => p && Number(p.amount) > 0)
+      .map((p, idx) => ({
+        id: `${orderId}_pay${idx + 1}`,
+        order_id: orderId,
+        site_id: SITE_ID,
+        consent_id: orderParams.consent_id || null,
+        visit_id: visitId,
+        method: p.method,
+        amount: Number(p.amount),
+        approval_no: p.approval_no || null,
+        paid_at: now.toISOString(),
+        status: 'paid',
+        staff_id: staffId
+      }));
+
     // Save locally
+    const savePromises = [];
     try {
       const existingRaw = localStorage.getItem(STORAGE_KEYS.ORDER_ITEMS) || '[]';
       const list = JSON.parse(existingRaw);
       orderItems.forEach(rec => list.unshift(rec));
       localStorage.setItem(STORAGE_KEYS.ORDER_ITEMS, JSON.stringify(list));
 
+      if (STORAGE_KEYS.ORDER_PAYMENTS) {
+        const payRaw = localStorage.getItem(STORAGE_KEYS.ORDER_PAYMENTS) || '[]';
+        const payList = JSON.parse(payRaw);
+        orderPayments.forEach(rec => payList.unshift(rec));
+        localStorage.setItem(STORAGE_KEYS.ORDER_PAYMENTS, JSON.stringify(payList));
+      }
+
       // Sync each item to Supabase
       if (global.BongplaySync && typeof global.BongplaySync.upsert === 'function') {
         orderItems.forEach(rec => {
-          global.BongplaySync.upsert('order_items', rec);
+          try {
+            const p = global.BongplaySync.upsert('order_items', rec);
+            savePromises.push(Promise.resolve(p));
+          } catch (err) {
+            savePromises.push(Promise.resolve({ ok: false, error: err }));
+          }
+        });
+        orderPayments.forEach(rec => {
+          try {
+            const p = global.BongplaySync.upsert('order_payments', rec);
+            savePromises.push(Promise.resolve(p));
+          } catch (err) {
+            savePromises.push(Promise.resolve({ ok: false, error: err }));
+          }
         });
       }
     } catch (e) {
       console.error('Failed to save order items:', e);
     }
 
-    return {
+    const expectedCount = orderItems.length + orderPayments.length;
+    const savePromise = (savePromises.length > 0)
+      ? Promise.all(savePromises).then(results => {
+          const allConfirmed = results.length === expectedCount &&
+            results.length > 0 &&
+            results.every(r => Boolean(r && r.ok === true && !r.queued));
+          const hasQueued = results.some(r => Boolean(r && r.queued));
+          return {
+            ok: allConfirmed,
+            queued: hasQueued,
+            results: results
+          };
+        }).catch(err => ({
+          ok: false,
+          queued: false,
+          error: err,
+          results: []
+        }))
+      : Promise.resolve({
+          ok: false,
+          queued: false,
+          reason: 'no_sync_client',
+          results: []
+        });
+
+    const result = {
       success: true,
       order_id: orderId,
       visit_id: visitId,
       items: orderItems,
+      payments: orderPayments,
       total_amount: orderItems.reduce((sum, it) => sum + it.paid_amount, 0),
-      total_quantity: orderItems.reduce((sum, it) => sum + it.quantity, 0)
+      total_quantity: orderItems.reduce((sum, it) => sum + it.quantity, 0),
+      savePromise: savePromise,
+      waitForSave: function() { return savePromise; }
     };
+
+    return result;
+  }
+
+  async function createOrderAsync(orderParams) {
+    const order = createOrder(orderParams);
+    if (order.savePromise) {
+      const syncRes = await order.savePromise;
+      order.server_confirmed = syncRes.ok;
+      order.sync = syncRes;
+    }
+    return order;
   }
 
   /* ---------- 4-3. 시설 이용 이벤트 로거 (P0-3 Facility Usage Events) ---------- */
@@ -1105,6 +1195,7 @@
     markVisitEntry,
     markVisitExit,
     createOrder,
+    createOrderAsync,
     isDeprecatedProduct,
     checkIsRepeatHousehold,
     recordFacilityEvent,
