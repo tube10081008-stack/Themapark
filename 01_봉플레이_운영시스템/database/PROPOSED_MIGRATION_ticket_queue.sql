@@ -609,6 +609,10 @@ DECLARE
     v_order_qty INTEGER := 0;
     v_order_total BIGINT := 0;
     v_paid_total BIGINT := 0;
+    v_item_count INTEGER := 0;
+    v_item_foreign INTEGER := 0;
+    v_distinct_tickets INTEGER := 0;
+    v_ledger_active INTEGER := 0;
 BEGIN
     -- 1. [R2 Fix 3] 서버 직원·시설 권한 검증
     IF NOT private.verify_staff_permission(p_access_code, p_site_id) THEN
@@ -674,89 +678,98 @@ BEGIN
         RETURN jsonb_build_object('ok', false, 'error', 'CONSENT_INVALID', 'message', '유효한 서약서 원장이 확인되지 않습니다.');
     END IF;
 
-    -- 7. [R3] 다른 팀 주문 연결 차단 (order_payments의 consent_id 대사)
+    -- 7~12. [CLAUDE-011 R3 보완: F1~F4] 매표 데스크 createOrder(bongplay-id.js) 저장 구조 기준 원장 대사
+    --   활성 품목 = 해당 주문의 order_items 중 취소되지 않은 행 (status <> 'cancelled' AND cancelled_at IS NULL)
+    --   · F3 소속: 활성 품목·결제·요청 티켓의 consent_id 가 대기 팀 서약서와 "같아야" 한다 (NULL·불일치 모두 거부)
+    --   · F2/F4 수량: 입장권(product_category = 'ticket') 활성 수량 = 요청 티켓 수(중복 제외) = 해당 주문 활성 티켓 원장 수
+    --   · F1 금액: 유효 결제 합계(status = 'paid', 미취소, 같은 서약서) >= 활성 품목 할인 후 금액(paid_amount) 합계
+    --     (createOrder 는 total_price 를 쓰지 않는다. paid_amount 가 0 인 구 형식 행만 total_price 로 보완)
+
+    -- 7. 주문 품목 소속 (양성 일치): 활성 품목이 있어야 하고 전부 이 서약서 소속이어야 한다
+    SELECT COUNT(*),
+           COUNT(*) FILTER (WHERE consent_id IS DISTINCT FROM v_rec.consent_id),
+           COALESCE(SUM(quantity) FILTER (WHERE product_category = 'ticket'), 0),
+           COALESCE(SUM(CASE WHEN COALESCE(paid_amount, 0) > 0 THEN paid_amount ELSE COALESCE(total_price, 0) END), 0)
+    INTO v_item_count, v_item_foreign, v_order_qty, v_order_total
+    FROM public.order_items
+    WHERE order_id = p_order_id
+      AND COALESCE(status, 'paid') <> 'cancelled'
+      AND cancelled_at IS NULL;
+
+    IF v_item_count = 0 THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'ORDER_ITEMS_EMPTY', 'message', '주문 품목 원장이 없거나 모두 취소되었습니다.');
+    END IF;
+    IF v_item_foreign > 0 THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'ORDER_CONSENT_MISMATCH', 'message', '주문 품목이 대기 팀 서약서에 연결되어 있지 않습니다.');
+    END IF;
+
+    -- 8. 결제 소속 (양성 일치): 이 주문의 결제 행은 전부 이 서약서 소속이어야 한다
     IF EXISTS (
         SELECT 1 FROM public.order_payments
         WHERE order_id = p_order_id
-          AND consent_id IS NOT NULL
-          AND v_rec.consent_id IS NOT NULL
-          AND consent_id <> v_rec.consent_id
+          AND consent_id IS DISTINCT FROM v_rec.consent_id
     ) THEN
-        RETURN jsonb_build_object('ok', false, 'error', 'ORDER_CONSENT_MISMATCH', 'message', '해당 주문의 서약서가 대기열 서약서와 일치하지 않습니다.');
+        RETURN jsonb_build_object('ok', false, 'error', 'ORDER_CONSENT_MISMATCH', 'message', '주문 결제가 대기 팀 서약서에 연결되어 있지 않습니다.');
     END IF;
 
-    -- 8. [R3] 다른 팀 티켓 연결 차단 (ticket_ledger의 consent_id 대사)
-    IF EXISTS (
-        SELECT 1 FROM public.ticket_ledger
-        WHERE ticket_id IN (SELECT jsonb_array_elements_text(p_ticket_ids))
-          AND consent_id IS NOT NULL
-          AND v_rec.consent_id IS NOT NULL
-          AND consent_id <> v_rec.consent_id
-    ) THEN
-        RETURN jsonb_build_object('ok', false, 'error', 'TICKET_CONSENT_MISMATCH', 'message', '다른 팀/서약서의 티켓이 포함되어 있습니다.');
+    -- 9. 요청 티켓 중복 금지
+    SELECT COUNT(DISTINCT t) INTO v_distinct_tickets FROM jsonb_array_elements_text(p_ticket_ids) AS t;
+    IF v_distinct_tickets <> v_tickets_count THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'DUPLICATE_TICKET_IDS', 'message', '요청 티켓 목록에 중복이 있습니다.');
     END IF;
 
-    -- 9. [R3] 다른 주문의 티켓 포함 여부 검사
-    IF EXISTS (
-        SELECT 1 FROM public.ticket_ledger
-        WHERE ticket_id IN (SELECT jsonb_array_elements_text(p_ticket_ids))
-          AND order_id <> p_order_id
-    ) THEN
-        RETURN jsonb_build_object('ok', false, 'error', 'TICKET_ORDER_MISMATCH', 'message', '다른 주문의 티켓이 포함되어 있습니다.');
-    END IF;
-
-    -- 10. [R3] 주문 품목 수량 대사 (order_items 수량 vs 발권 티켓 수)
-    SELECT COALESCE(SUM(quantity), 0), COALESCE(SUM(total_price), 0)
-    INTO v_order_qty, v_order_total
-    FROM public.order_items
-    WHERE order_id = p_order_id;
-
+    -- 10. 입장권 수량 정확 일치: 입장권 품목 수량 = 요청 티켓 수
     IF v_order_qty <= 0 THEN
-        RETURN jsonb_build_object('ok', false, 'error', 'ORDER_ITEMS_EMPTY', 'message', '주문 품목 원장이 없거나 수량이 0입니다.');
+        RETURN jsonb_build_object('ok', false, 'error', 'ORDER_TICKET_ITEMS_EMPTY', 'message', '주문에 입장권 품목이 없습니다.');
     END IF;
-
-    IF v_tickets_count < v_order_qty THEN
+    IF v_tickets_count <> v_order_qty THEN
         RETURN jsonb_build_object(
-            'ok', false, 
-            'error', 'TICKET_QUANTITY_MISMATCH', 
-            'message', '발권된 티켓 수(' || v_tickets_count || ')가 주문 수량(' || v_order_qty || ')보다 적습니다.'
+            'ok', false,
+            'error', 'TICKET_QUANTITY_MISMATCH',
+            'message', '요청 티켓 수(' || v_tickets_count || ')가 주문 입장권 수량(' || v_order_qty || ')과 다릅니다.'
         );
     END IF;
 
-    -- 11. [R3] 결제 확정 및 결제 금액 합계 대사 (order_payments vs order_items total_price)
+    -- 11. 티켓 원장 대사: 요청 티켓 전부가 이 주문·이 서약서의 활성 티켓이고, 주문의 활성 티켓 수도 입장권 수량과 같아야 한다
+    SELECT COUNT(*) INTO v_matched_tickets
+    FROM public.ticket_ledger
+    WHERE ticket_id IN (SELECT jsonb_array_elements_text(p_ticket_ids))
+      AND order_id = p_order_id
+      AND consent_id = v_rec.consent_id
+      AND cancelled_at IS NULL
+      AND COALESCE(status, 'active') <> 'cancelled';
+
+    SELECT COUNT(*) INTO v_ledger_active
+    FROM public.ticket_ledger
+    WHERE order_id = p_order_id
+      AND cancelled_at IS NULL
+      AND COALESCE(status, 'active') <> 'cancelled';
+
+    IF v_matched_tickets <> v_tickets_count OR v_ledger_active <> v_order_qty THEN
+        RETURN jsonb_build_object(
+            'ok', false,
+            'error', 'TICKET_LEDGER_INCOMPLETE',
+            'message', '티켓 원장이 주문과 일치하지 않습니다. (요청 일치: ' || v_matched_tickets || '/' || v_tickets_count
+                       || ', 주문 활성 티켓: ' || v_ledger_active || '/' || v_order_qty || ')'
+        );
+    END IF;
+
+    -- 12. 결제 확정·금액 대사: 유효 결제 합계 >= 할인 후 주문 금액 (금액 0 주문은 결제 없이 허용)
     SELECT COALESCE(SUM(amount), 0) INTO v_paid_total
     FROM public.order_payments
     WHERE order_id = p_order_id
-      AND (consent_id IS NULL OR consent_id = v_rec.consent_id)
+      AND consent_id = v_rec.consent_id
       AND status = 'paid'
       AND cancelled_at IS NULL;
 
-    IF v_paid_total <= 0 THEN
+    IF v_order_total > 0 AND v_paid_total <= 0 THEN
         RETURN jsonb_build_object('ok', false, 'error', 'PAYMENT_NOT_CONFIRMED', 'message', '결제가 확정되지 않았거나 유효한 결제 내역이 없습니다.');
     END IF;
-
-    IF v_order_total > 0 AND v_paid_total < v_order_total THEN
+    IF v_paid_total < v_order_total THEN
         RETURN jsonb_build_object(
             'ok', false,
             'error', 'PARTIAL_PAYMENT_REJECTED',
-            'message', '결제 수납 금액(' || v_paid_total || '원)이 주문 총액(' || v_order_total || '원)에 미달합니다.'
-        );
-    END IF;
-
-    -- 12. [R2 Fix 4 / R3] 티켓 전체 유효 원장 검증 (ticket_ledger 에 전체 티켓 존재 및 취소 여부)
-    SELECT COUNT(*) INTO v_matched_tickets
-    FROM public.ticket_ledger
-    WHERE order_id = p_order_id
-      AND (consent_id IS NULL OR consent_id = v_rec.consent_id)
-      AND cancelled_at IS NULL
-      AND (status IS NULL OR status <> 'cancelled')
-      AND ticket_id IN (SELECT jsonb_array_elements_text(p_ticket_ids));
-
-    IF v_matched_tickets <> v_tickets_count THEN
-        RETURN jsonb_build_object(
-            'ok', false, 
-            'error', 'TICKET_LEDGER_INCOMPLETE', 
-            'message', '티켓 원장에 등록되지 않았거나 취소된 티켓이 포함되어 있습니다. (유효: ' || v_matched_tickets || '/' || v_tickets_count || ')'
+            'message', '결제 수납 금액(' || v_paid_total || '원)이 주문 금액(' || v_order_total || '원)에 미달합니다.'
         );
     END IF;
 
