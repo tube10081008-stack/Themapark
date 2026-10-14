@@ -1,10 +1,10 @@
 # 2026-10-14 지오: 발권 대기열 시험 배포 대상(bongplay2) 확인과 U01~U16 시험표
 
 - 지시: 벤. 시험 배포 대상은 Netlify `gartenhong2` 팀의 `bongplay2.netlify.app`. 읽기 전용 확인, 격리 설정 정리, 시험표 게시.
-- 작성: 지오(Aside). 1차 확인 2026-10-14 17:48-17:51 KST(Netlify). **2차 갱신 18:12-18:16 KST(Supabase 시험 프로젝트 확인, 5~6절 추가).** **3차 22:09-22:14 KST: 대표 승인에 따라 비운영 프로젝트 1개 일시정지, 시험 프로젝트 `bongplay-queue-test` 생성(5-4절).**
+- 작성: 지오(Aside). 1차 확인 2026-10-14 17:48-17:51 KST(Netlify). **2차 갱신 18:12-18:16 KST(Supabase 시험 프로젝트 확인, 5~6절 추가).** **3차 22:09-22:14 KST: 대표 승인에 따라 비운영 프로젝트 1개 일시정지, 시험 프로젝트 `bongplay-queue-test` 생성(5-4절).** **4차 22:22-22:25 KST: 시험 프로젝트 전체 ref·대시보드 URL 기록, 접근 확인, 설치·배포 실행 준비(7절).**
 - 기준 SHA(origin/master): `892a06143ebe69e64a77761cd5793ab199c9755b`
 - 작업 브랜치: `aside/20261014-geo-queue-followup` (master에서 분기)
-- 결과 SHA: 1차 본문 `4145b8e2d5826ce136792a3a9a650f34e40ef8d6`, 1차 SHA 기입 `3f6c8d83e17b5664a94c68293c428d24d86b70f9`. 2차 갱신 `f53ed162fa1abd01fee7785df74630b0c6302929`. 3차 갱신 커밋 SHA는 자기 참조가 불가능하므로 최종 보고에 기재
+- 결과 SHA: 1차 본문 `4145b8e2d5826ce136792a3a9a650f34e40ef8d6`, 1차 SHA 기입 `3f6c8d83e17b5664a94c68293c428d24d86b70f9`. 2차 갱신 `f53ed162fa1abd01fee7785df74630b0c6302929`. 3차 갱신 `d4326f1642db61eefdc9c7ba152423c46993df8a`. 4차 갱신 커밋 SHA는 자기 참조가 불가능하므로 최종 보고에 기재
 - 변경 파일: `docs/qa/20261014_지오_queue-followup.md` 1개. 공통 작업표·운영 코드·Netlify 설정은 변경하지 않음.
 - **실행 상태: U01~U16 전부 미실행.** 벤이 수정본과 시험 환경을 지정하기 전에는 어떤 결과도 통과로 기록하지 않는다.
 - 하지 않은 것: 배포, Drop 업로드, 환경변수·도메인·요금제 변경, 운영/시험 데이터 입력, 공개 내부 파일의 내용 열람, Supabase 운영 프로젝트 설정 변경, 운영 데이터 복사, SQL 적용. (3차에서 대표 승인 범위의 일시정지 1건·시험 프로젝트 생성 1건만 수행)
@@ -132,7 +132,8 @@
 |---|---|
 | 프로젝트명 | `bongplay-queue-test` |
 | 조직 | `bongplay` (Free Plan) |
-| ref | `mglj…eg` (마스킹) |
+| ref (배포 대상 식별용, 비밀값 아님) | `mgljfzdjpsvdxcailheg` |
+| 대시보드 URL | https://supabase.com/dashboard/project/mgljfzdjpsvdxcailheg |
 | 지역 | Northeast Asia (Seoul) `ap-northeast-2` |
 | 규모 | NANO (`t3a.nano`) |
 | 상태 | **Healthy** (22:13 KST 확인) |
@@ -189,7 +190,59 @@
 ### 6-5. 판본 고정
 - [ ] 시험 대상 배포 ID와 프런트·서버 전체 SHA 기록, 시험 중 자동 게시로 판본이 바뀌지 않음
 
-## 7. 미검증
+## 7. 배포 대상 식별·접근 확인·실행 준비 (4차, 2026-10-14 22:22-22:25 KST)
+
+**실행 상태:** SQL 적용·설정 변경·배포 **0건**. 클로이 설치 SQL과 벤 통합 판본이 지정되면 7-3절 순서로 실행한다.
+
+### 7-1. 배포 대상 식별
+
+| 대상 | 식별 정보 | 비고 |
+|---|---|---|
+| 시험 DB | 프로젝트 `bongplay-queue-test`, ref `mgljfzdjpsvdxcailheg`, 조직 `bongplay`(Free), 서울 `ap-northeast-2` | https://supabase.com/dashboard/project/mgljfzdjpsvdxcailheg |
+| 운영 DB(대상 아님) | ref `vwkg…vl` | 시험 작업에서 열거나 변경하지 않음 |
+| 시험 웹 배포 | Netlify 팀 `gartenhong2`, 사이트 `bongplay2`, `https://bongplay2.netlify.app/` | 현재 게시 배포 `6aaa32f4fd125e6e580548d4`(9/16), 아직 운영 DB를 가리킴 |
+
+### 7-2. 접근 확인 (읽기 전용)
+
+| 대상 | 결과 | 근거 |
+|---|---|---|
+| Supabase 시험 프로젝트 | **접근 가능.** 상태 Healthy, NANO, `ap-northeast-2` | 프로젝트 홈 |
+| 시험 DB 내용 | `public` 테이블 0개("No tables or views") | Table Editor |
+| SQL 편집기 | 새 쿼리 화면과 Run 버튼 표시. **아무 쿼리도 실행하지 않음** | `/sql/new` 화면 |
+| Netlify `bongplay2` | **접근 가능.** 배포 목록·Drop 업로드 영역 표시, 자동 게시 켜짐 | 배포 화면(팀 `gartenhong2`, 멤버 1명) |
+| Netlify 크레딧 | 299.6/300 남음(주기 10/5~11/4). 운영 배포 1회 15크레딧 | 팀 Billing |
+| `bongplay2` 환경변수 | 0개 | 환경변수 화면 |
+| `bongplay2` DB 연결 | 공개 `config.js`가 여전히 운영 ref를 가리킴. 시험 ref 아님 | 공개 파일의 ref만 비교 |
+
+### 7-3. 지정 후 실행 순서 (준비만, 미실행)
+
+**실행 전제(모두 벤 지정):** (a) 클로이 설치 SQL의 경로·커밋 SHA·실행 순서, (b) 벤 통합 판본(프런트·SQL) 전체 SHA, (c) 실행 승인. 하나라도 없으면 시작하지 않는다.
+
+1. **대상 재확인:** Supabase 화면의 프로젝트명이 `bongplay-queue-test`이고 URL ref가 `mgljfzdjpsvdxcailheg`인지 확인. `vwkg…vl`이면 즉시 중단.
+2. **사전 상태 기록:** 테이블·함수 목록과 시각 기록(값·데이터 없이 이름만).
+3. **기본 스키마 선행 설치:** 대기열 SQL은 `safety_consents`, `order_items`, `order_payments`, `ticket_ledger`를 참조한다. 빈 시험 DB에는 이 테이블이 없으므로, 지정된 기본 설치 SQL을 먼저 적용해야 한다. master의 후보는 `FINAL_SUPABASE_SETUP.sql`(네 테이블 생성 포함)이지만 **어느 파일과 순서를 쓸지는 클로이 설치 SQL 지정에 따른다.**
+4. **제외 대상:** `supabase_discord_setup.sql`(pg_net 외부 호출 포함 → Discord 알림 위험)과 `ops_test_kit.sql`(데이터 INSERT 포함)은 지정이 없으면 적용하지 않는다. 운영 데이터 복사 금지.
+5. **대기열 SQL 적용:** 지정 SHA의 파일만 사용하고, 붙여넣기 전 저장소 blob SHA와 대조한다. 오류 시 중단하고 오류 문구만 보고(재시도·수정 SQL 작성은 지시 후).
+6. **사후 확인:** 생성된 테이블·RPC 이름 목록과 대기열 3개 테이블(`ticket_queue`, `ticket_queue_desks`, `ticket_queue_rate_limits`) 존재, 합성 데이터 외 행 0건을 기록.
+7. **웹 패키지 준비:** 벤 통합 판본의 `01_봉플레이_운영시스템` 웹 파일만 포함(`.py`·`.sql`·`.yml`·`dockerfile`·`scratch`·`tmp` 제외). `assets/config.js`의 Supabase 주소를 시험 ref로, 키는 시험 프로젝트 anon 키로, 직원 접근 코드는 시험 전용 값으로 교체한다. 키·코드 값은 보고서·채팅에 남기지 않는다.
+8. **배포:** `bongplay2`에 Drop 업로드(운영 배포 15크레딧). 배포 ID·시각 기록.
+9. **배포 후 검사:** 6절 체크리스트 전체(시험 ref 연결, 노출 파일 404, 웹훅 0개, Discord 하드코딩 없음) 통과 시에만 U01~U16 시작 가능으로 보고.
+
+### 7-4. 판본 후보 (참고, 지정 아님)
+
+저장소에서 확인한 대기열 관련 최신 브랜치(22:24 KST). 어느 것을 쓸지는 벤 지정에 따른다.
+
+| 브랜치 | HEAD | 커밋 시각(UTC) | 대기열 SQL |
+|---|---|---|---|
+| `claude/CLAUDE-011-queue-followup` | `837649c7fdce0e8bfb84550b80cc04933c74b0c6` | 2026-10-14 09:26 | 있음 |
+| `antigravity/ANT-006-queue-followup` | `6692940a31434f2613ba0e77aeb1da13d125e957` | 2026-10-14 09:50 | 있음 |
+
+### 7-5. 실행상 제약
+
+- 지오 실행 환경은 로컬 Git·폴더 생성이 권한 문제로 막혀 있다. SQL은 Supabase 웹 SQL 편집기로, 패키지는 세션 임시 폴더와 브라우저 파일 선택으로 올릴 계획이며 **업로드 방식은 미검증**이다. 막히면 벤에게 패키지 제출을 요청한다.
+- 무료 시험 프로젝트는 1주 저활동 시 자동 일시정지될 수 있다. 시험 직전 상태가 Healthy인지 재확인한다.
+
+## 8. 미검증
 
 - 공개 노출 파일에 비밀값이 들어 있는지(내용을 열지 않음).
 - 수정본 판본, 게시 예정 배포 ID, 분리 Supabase 준비 여부.
@@ -198,10 +251,13 @@
 - 실제 휴대폰 기종·브라우저 확보 여부.
 - 일시정지된 Supabase 프로젝트 2개(`ytgm…ux`, `yhpp…gu`)의 용도.
 - 공개 노출 폴더(`scratch/`, `tmp/` 등) 하위 파일의 개별 응답 코드.
+- 클로이 설치 SQL·벤 통합 판본(미지정). 기본 스키마 SQL과 대기열 SQL의 실제 적용 성공 여부.
+- Netlify Drop 업로드를 지오 환경에서 수행할 수 있는지.
 
-## 8. 결정 요청
+## 9. 결정 요청
 
 **벤**
+0. **실행 지정:** 클로이 설치 SQL(경로·SHA·순서, 기본 스키마 포함 여부)과 벤 통합 판본 전체 SHA, 실행 승인. 7-4절 후보 중 무엇을 쓸지 포함.
 1. 시험 DB는 A안으로 확보 완료(`bongplay-queue-test`). 대기열 SQL 적용 담당자와 판본, 생성 시 보안 기본값(새 테이블 자동 노출 켜짐·자동 RLS 꺼짐) 유지 여부를 정해 주세요. anon 키를 수정본 `config.js`에 넣는 담당자도 지정이 필요합니다.
 2. 공개 노출된 내부 파일 정리 방법: 수정본 게시로 덮을지, 먼저 웹 파일만 담은 패키지로 교체할지. 노출 파일에 비밀값이 있었다면 교체 여부.
 3. 수정본 판본·배포 ID·직원 시험 계정·오류 주입·초기화 방법 지정과 시험 개시 인계.
