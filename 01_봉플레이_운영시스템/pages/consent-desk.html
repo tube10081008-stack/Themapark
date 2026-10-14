@@ -920,14 +920,18 @@
         const staffListRes = await BongplayQueue.getStaffQueueList();
         if (staffListRes && staffListRes.ok) {
           isSuccess = true;
-          lastKnownStaffQueueData = staffListRes;
+          const data = staffListRes.data || staffListRes.item || staffListRes;
+          lastKnownStaffQueueData = data;
           lastStaffQueueSuccessTime = BongplayQueue.getKstTimeStr();
 
-          waitingCount = staffListRes.waiting_count || 0;
-          heldList = staffListRes.held_teams || [];
-          calledTeams = staffListRes.called_teams || [];
-        } else if (BongplayQueue.store) {
-          // 오프라인 / 로컬 테스트 fallback
+          waitingCount = (data.waiting_count !== undefined) ? data.waiting_count : 0;
+          heldList = data.held_teams || [];
+          calledTeams = data.called_teams || [];
+        } else if (staffListRes && staffListRes.ok === false) {
+          // 서버에서 명시적으로 오류(권한 부족, 네트워크 실패 등)를 반환한 경우 fallback 하지 않고 실패 확정
+          isSuccess = false;
+        } else if (BongplayQueue.store && (!window.BongplaySync || typeof window.BongplaySync.rpc !== 'function')) {
+          // 오프라인 / 로컬 테스트 mock fallback (BongplaySync가 없을 때만 허용)
           const todayStr = BongplayQueue.getKstDateStr();
           let storeWaiting = 0;
           let storeHeld = [];
@@ -945,6 +949,7 @@
         }
       } catch (err) {
         console.warn('Failed to query staff queue list:', err);
+        isSuccess = false;
       }
 
       const connBadge = document.getElementById('queueDeskConnBadge');
@@ -961,9 +966,16 @@
 
         // 마지막 정상 자료 유지 & 실패를 대기 0팀으로 표시하지 않음
         if (lastKnownStaffQueueData) {
-          waitingCount = lastKnownStaffQueueData.waiting_count || 0;
+          // 직전 정상 조회 결과가 0팀이었더라도 조회가 실패한 현재는 '대기 0팀'으로 단정하지 않고 미확인 처리
+          if (lastKnownStaffQueueData.waiting_count > 0) {
+            waitingCount = lastKnownStaffQueueData.waiting_count;
+          } else {
+            waitingCount = null;
+          }
           heldList = lastKnownStaffQueueData.held_teams || [];
           calledTeams = lastKnownStaffQueueData.called_teams || [];
+        } else {
+          waitingCount = null;
         }
       }
 
@@ -980,14 +992,21 @@
       const waitEl = document.getElementById('queueDeskWaitCount');
       const badgeEl = document.getElementById('queueAheadRealtimeBadge');
 
-      if (waitingCount !== null) {
+      if (isSuccess && waitingCount !== null) {
         if (waitEl) waitEl.textContent = waitingCount;
         if (badgeEl) {
-          badgeEl.textContent = isSuccess ? `대기 ${waitingCount}팀` : `대기 ${waitingCount}팀 (연결 장애)`;
-          badgeEl.className = isSuccess ? 'text-amber-400 font-bold' : 'text-rose-400 font-bold';
+          badgeEl.textContent = `대기 ${waitingCount}팀`;
+          badgeEl.className = 'text-amber-400 font-bold';
+        }
+      } else if (!isSuccess && waitingCount !== null && waitingCount > 0) {
+        // 조회 실패했으나 직전 확인된 대기팀(1팀 이상)이 있는 경우: 연결 장애 및 이전 수치 병기
+        if (waitEl) waitEl.textContent = waitingCount;
+        if (badgeEl) {
+          badgeEl.textContent = `대기 ${waitingCount}팀 (연결 장애)`;
+          badgeEl.className = 'text-rose-400 font-bold';
         }
       } else {
-        // 최초 실패로 이전 정상 데이터가 없는 경우 절대 '대기 0팀'으로 표시하지 않음
+        // 조회 실패 및 대기 인원 미확인 시 절대 '대기 0팀'을 표시하지 않음
         if (waitEl) waitEl.textContent = '-';
         if (badgeEl) {
           badgeEl.textContent = '대기 확인 불가 (연결 장애)';
@@ -1649,31 +1668,31 @@
         return;
       }
 
-      // 3) 서약서 상태 갱신 (Fix 3: await 및 결과 확인)
-      rec.isIssued = true;
-      rec.is_issued = true;
-      rec.ticket_issued_at = rec.ticket_issued_at || now;
-      rec.ticket_ids = ticketIds;
-      const consentSyncRes = await BongplaySync.upsert('safety_consents', rec);
-      if (consentSyncRes && consentSyncRes.success === false) {
-        alert('❌ 서약서 발권 상태 갱신에 실패했습니다. 대기열 상태를 유지합니다.');
-        return;
-      }
-
-      // 4) 대기열 발권 완료 반영 (ANT-006: 서버 발권 확정 후 대기열에서 제외)
+      // 3) 대기열 발권 완료 확정 (ANT-006: 서버 발권 확정 후 대기열에서 제외)
+      // 벤 지시: 서버 저장 확인 전에 발권 완료로 표시하지 않도록 순서 보정
       if (window.BongplayQueue) {
         const qEntry = currentCalledQueueEntry || (BongplayQueue.store ? BongplayQueue.store.getEntryByConsentId(rec.id) : null);
         if (qEntry) {
           const qRes = await BongplayQueue.completeIssuance(qEntry.id, order.order_id, ticketIds);
           if (!qRes || !qRes.ok) {
-            alert('⚠️ 결제 및 원장은 저장되었으나 대기열 완료 갱신에 실패했습니다: ' + (qRes?.message || '잠시 후 다시 시도해 주세요.'));
-            // 대기열 슬롯을 유지하여 재시도 가능하도록 함
+            alert('❌ 대기열 발권 확정 실패: ' + (qRes?.message || '대기열 완료 서버 응답에 실패했습니다. 대기열 및 서약서 미완료 상태를 유지합니다.'));
+            // 서버 확인 실패 시 서약서 상태를 완료로 변경하지 않고 대기열 창구 슬롯을 유지
             return;
           }
           if (currentCalledQueueEntry && currentCalledQueueEntry.id === qEntry.id) {
             currentCalledQueueEntry = null;
           }
         }
+      }
+
+      // 4) 서버 대기열 완료 확정 후에만 서약서 상태를 '발권 완료'로 변경 및 저장
+      rec.isIssued = true;
+      rec.is_issued = true;
+      rec.ticket_issued_at = rec.ticket_issued_at || now;
+      rec.ticket_ids = ticketIds;
+      const consentSyncRes = await BongplaySync.upsert('safety_consents', rec);
+      if (consentSyncRes && consentSyncRes.success === false) {
+        alert('⚠️ 서약서 발권 상태 갱신에 실패했습니다. 오프라인 아웃박스를 확인해 주세요.');
       }
 
       closePaymentModal();

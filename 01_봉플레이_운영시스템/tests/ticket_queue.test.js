@@ -868,5 +868,59 @@ test('ANT-006 / BEN-022 발권 대기열 시스템 전수 검증', async (t) => 
     assert.equal(retryDifferentOrder.error, 'ALREADY_ISSUED_OTHER_ORDER');
   });
 
+  // ---------------------------------------------------------------------------
+  // 19. [Followup] 접수 실패 후 동일 접수 ID 재시도 멱등성 및 직원 조회 실패 안전 계약
+  // ---------------------------------------------------------------------------
+  await t.test('19. [Followup] 동일 consent_id 재시도 멱등성 및 직원 조회 오류 시 안전 계약 검증', async () => {
+    const store = BongplayQueue.createStore();
+    const today = new Date();
+
+    // 19-1. 첫 번째 접수
+    const enq1 = store.enqueue({
+      consent_id: 'cst_retry_test_1',
+      guardian_name: '홍길동',
+      guardian_phone: '010-1111-2222',
+      party_size: 3,
+      now: today
+    });
+    assert.equal(enq1.ok, true);
+    assert.equal(enq1.duplicate, false);
+    assert.equal(enq1.item.queue_number, 1);
+    const token1 = enq1.item.customer_token;
+
+    // 19-2. 네트워크 장애 등으로 클라이언트가 동일 consent_id로 안전 재시도 시 기존 번호 유지
+    const enqRetry = store.enqueue({
+      consent_id: 'cst_retry_test_1',
+      guardian_name: '홍길동',
+      guardian_phone: '010-1111-2222',
+      party_size: 3,
+      now: today
+    });
+    assert.equal(enqRetry.ok, true, '동일 consent_id 재시도는 성공해야 함');
+    assert.equal(enqRetry.duplicate, true, '중복/재시도 플래그가 설정되어야 함');
+    assert.equal(enqRetry.item.queue_number, 1, '대기번호가 증가하지 않고 기존 1번이어야 함');
+    assert.equal(enqRetry.item.customer_token, token1, '동일한 비밀 토큰이어야 함');
+    assert.equal(store.entries.length, 1, '대기열 총 개수는 여전히 1개여야 함');
+
+    // 19-3. 직원 조회 실패 시 안전 반환 규격 (에러 발생 시 ok: false, 허위 0팀 반환 금지)
+    let mockRpcCall = null;
+    global.window = global;
+    global.window.BongplaySync = {
+      isOnline: () => true,
+      rpc: async (fn, params) => {
+        mockRpcCall = fn;
+        throw new Error('Postgres connection pool exhausted (503)');
+      }
+    };
+
+    const staffRes = await BongplayQueue.getStaffQueueList(BongplayQueue.getKstDateStr(today), { accessCode: 'test_code' });
+    assert.equal(staffRes.ok, false, '서버 오류 시 ok: false를 반환해야 함');
+    assert.equal(staffRes.error, 'network_error', '네트워크/서버 오류 에러코드가 반환되어야 함');
+    assert.notEqual(staffRes.waiting_count, 0, '서버 오류 시 waiting_count: 0을 반환하지 않아야 함');
+
+    delete global.window.BongplaySync;
+  });
+
 });
+
 

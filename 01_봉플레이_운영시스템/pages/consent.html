@@ -311,8 +311,14 @@
             </p>
           </div>
 
-          <div id="voucherQueueOfflineAlert" class="hidden text-xs text-amber-300 bg-amber-950/70 p-2.5 rounded-xl border border-amber-800 text-left leading-snug">
-            ⚠️ <b>네트워크 연결 대기 중 (오프라인)</b><br>서버 연결 확인 후 공식 대기번호가 발급됩니다.
+          <div id="voucherQueueOfflineAlert" class="hidden text-xs text-amber-300 bg-amber-950/70 p-2.5 rounded-xl border border-amber-800 text-left leading-snug space-y-2">
+            <div>
+              ⚠️ <b>네트워크 연결 대기 중 (오프라인)</b><br>서버 연결 확인 후 공식 대기번호가 발급됩니다.
+            </div>
+            <button type="button" id="btnRetryQueueEnqueue" onclick="retryQueueEnqueue()" class="w-full py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1 transition">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+              <span>대기번호 발급 재시도</span>
+            </button>
           </div>
 
           <a id="btnOpenQueueStatusPage" href="queue-status.html" target="_blank" class="w-full py-2.5 bg-brand-600 hover:bg-brand-500 text-white text-xs font-black rounded-xl shadow transition flex items-center justify-center gap-1.5">
@@ -734,7 +740,11 @@
       return true;
     }
 
-    // 4. Form Submit Handler
+    // 4. Form Submit Handler (벤 지시: 접수 실패 후 동일 접수 ID로 안전하게 재시도)
+    let currentConsentDraftId = null;
+    let currentConsentVisitId = null;
+    let currentConsentPassCode = null;
+
     async function handleConsentSubmit(e) {
       e.preventDefault();
       if (!validateForm()) return;
@@ -759,16 +769,21 @@
           if (name) children.push({ name, birth, height, weight });
         });
 
-        // Generate IDs
+        // Generate IDs (재시도 시 동일 접수 ID 보장)
         const now = new Date();
         const dateStr = BongplaySync.toLocalDateStr(now);
-        const visitId = BongplayID ? BongplayID.generateVisitId(now) : ('vst_' + Date.now());
+        if (!currentConsentDraftId) {
+          currentConsentDraftId = 'cst_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+          currentConsentVisitId = BongplayID ? BongplayID.generateVisitId(now) : ('vst_' + Date.now());
+          const passSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+          currentConsentPassCode = `BP-${dateStr.replace(/-/g, '').slice(2)}-${passSuffix}`;
+        }
+        const visitId = currentConsentVisitId;
         const householdId = BongplayID ? BongplayID.generateHouseholdId(guardianPhone) : ('hh_' + guardianPhone.replace(/[^0-9]/g, ''));
-        const passSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
-        const passCode = `BP-${dateStr.replace(/-/g, '').slice(2)}-${passSuffix}`;
+        const passCode = currentConsentPassCode;
         currentVoucherCode = passCode;
 
-        const recordId = 'cst_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+        const recordId = currentConsentDraftId;
         const sigData = sigCanvas.toDataURL('image/png');
 
         const consentRecord = {
@@ -937,10 +952,68 @@
       document.getElementById('btnVoucherSurveyLabel').textContent = done ? '후기 설문 완료 · 감사합니다' : '🎁 다 놀고 나가실 때 1분 후기 남기고 선물 받기';
     }
 
+    // 대기번호 발급 재시도 (동일 consentId 멱등성 보장)
+    async function retryQueueEnqueue() {
+      const v = loadMyVoucher();
+      if (!v || !v.consentId) return;
+      const retryBtn = document.getElementById('btnRetryQueueEnqueue');
+      if (retryBtn) {
+        retryBtn.disabled = true;
+        retryBtn.textContent = '대기번호 발급 요청 중...';
+      }
+
+      try {
+        if (!window.BongplayQueue) {
+          alert('대기열 시스템 초기화 중입니다. 잠시 후 다시 시도해 주세요.');
+          return;
+        }
+
+        // 동일한 접수 ID(consentId)로 안전하게 재시도 (서버 멱등성 보장)
+        const qRes = await BongplayQueue.enqueueConsent({
+          id: v.consentId,
+          site_id: 'bongplay_bonghwa',
+          guardian_name: v.guardianName,
+          guardian_phone: (v.householdId || '').replace(/^hh_/, ''),
+          party_size: v.peopleText ? (parseInt(v.peopleText, 10) || 1) : 1
+        });
+
+        if (qRes && qRes.ok && qRes.item) {
+          const item = qRes.item;
+          v.queueId = item.id;
+          v.customerToken = item.customer_token;
+          v.queueNumber = item.queue_number;
+          v.formattedQueueNumber = item.formatted_number || ('#' + item.queue_number);
+          v.queueOffline = false;
+          try {
+            localStorage.setItem(MY_VOUCHER_KEY, JSON.stringify(v));
+            if (item.id) localStorage.setItem('bongplay_my_queue_id', item.id);
+            if (item.customer_token) localStorage.setItem('bongplay_my_queue_token', item.customer_token);
+          } catch (e) {}
+
+          updateVoucherQueueView(v);
+          alert('✅ 공식 대기번호가 성공적으로 발급되었습니다: ' + v.formattedQueueNumber);
+        } else {
+          alert('⚠️ 대기번호 발급 재시도 실패: ' + (qRes && qRes.message ? qRes.message : '서버 응답을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.'));
+        }
+      } catch (e) {
+        console.warn('Retry enqueue error:', e);
+        alert('⚠️ 대기번호 발급 중 오류가 발생했습니다: ' + (e.message || String(e)));
+      } finally {
+        if (retryBtn) {
+          retryBtn.disabled = false;
+          retryBtn.innerHTML = '<i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i><span>대기번호 발급 재시도</span>';
+          if (window.lucide) lucide.createIcons();
+        }
+      }
+    }
+
     // 5. Reset for New Guest
     function resetForNewGuest() {
       try { localStorage.removeItem(MY_VOUCHER_KEY); } catch (e) {}
       currentVoucherCode = null;
+      currentConsentDraftId = null;
+      currentConsentVisitId = null;
+      currentConsentPassCode = null;
       document.getElementById('consentForm').reset();
       document.getElementById('formError').classList.add('hidden');
       clearSignature();

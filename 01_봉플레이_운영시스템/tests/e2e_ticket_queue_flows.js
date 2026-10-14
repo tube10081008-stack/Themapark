@@ -613,17 +613,54 @@ async function runE2E() {
     console.log('\n▶ [단계 6] 발권 시작 & 결제 완료 → 대기열 완전 제외');
     const step6Start = Date.now();
 
-    // 발권 완료 실행 (RPC 호출을 통해 서버 대기열과 모든 단말에 전파)
-    await deskSession.evalCode(`
+    // 0) 발권 처리 개시 (called -> processing 전이)
+    const procRes = await deskSession.evalCode(`
       (async () => {
         const q = currentCalledQueueEntry;
         if (q) {
-          await BongplayQueue.completeIssuance(q.id, 'ord_e2e_001', ['tkt_e2e_1', 'tkt_e2e_2']);
-          currentCalledQueueEntry = null;
-          await refreshDeskQueueView();
+          const res = await BongplayQueue.startProcessing(q.id, currentDeskNo);
+          if (res && res.ok && res.item) {
+            currentCalledQueueEntry = res.item;
+            await refreshDeskQueueView();
+            return { ok: true, status: res.item.status };
+          }
+          return { ok: false, res: res };
         }
+        return { ok: false, error: 'no_called_entry' };
       })()
     `);
+    assert.ok(procRes && procRes.ok, '발권 처리 개시(startProcessing)가 성공해야 함');
+    assert.equal(procRes.status, 'processing', '처리 개시 후 상태가 processing 이어야 함');
+
+    // 0-1) 고객 모바일 화면: "발권 처리 중" 상태로 실시간 전파 확인
+    let custProcStatus = null;
+    for (let i = 0; i < 25; i++) {
+      await new Promise(r => setTimeout(r, 200));
+      custProcStatus = await statusSession.evalCode(`
+        document.getElementById('queueStatusPillText')?.textContent?.trim()
+      `);
+      if (custProcStatus === '발권 처리 중') break;
+    }
+    assert.equal(custProcStatus, '발권 처리 중', '고객 화면이 "발권 처리 중"으로 실시간 갱신되어야 함');
+    console.log(`  ✔ [PASS] 고객 화면 발권 처리 중(processing) 전환 확인`);
+
+    // 발권 완료 실행 (RPC 호출을 통해 서버 대기열과 모든 단말에 전파)
+    const issueRes = await deskSession.evalCode(`
+      (async () => {
+        const q = currentCalledQueueEntry;
+        if (q) {
+          const res = await BongplayQueue.completeIssuance(q.id, 'ord_e2e_001', ['tkt_e2e_1', 'tkt_e2e_2']);
+          if (!res || !res.ok) {
+            return { ok: false, res: res };
+          }
+          currentCalledQueueEntry = null;
+          await refreshDeskQueueView();
+          return { ok: true };
+        }
+        return { ok: false, error: 'no_called_entry' };
+      })()
+    `);
+    assert.ok(issueRes && issueRes.ok, 'completeIssuance가 정상 성공해야 함');
 
     // 1) 매표소 데스크 호출 슬롯이 비워졌는지 확인
     let deskEmptyAfter = false;
