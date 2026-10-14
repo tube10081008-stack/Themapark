@@ -643,11 +643,26 @@
               // (예: 마감 확정된 closing_records, 과거 날짜 서약서) → 성공으로 오인하지 않음
               var patched = null;
               try { patched = await resPatch.json(); } catch (jsonErr) {}
-              await removeOutboxItem(payload[pkField]);
               if (Array.isArray(patched) && patched.length === 0) {
+                // [C5 / 벤 지시] POST 가 5xx 이거나 SAFETY_INTERLOCK_BLOCKED 등 일시 장애였던 경우:
+                // 신규 행이라 서버에 레코드가 아직 존재하지 않아 PATCH 대상이 0건일 뿐, 권한 정책 거부(RLS)가 아님.
+                // 미전송 데이터를 삭제하지 않고 Outbox 에 인큐하여 보존한다.
+                if (res.status >= 500 || /SAFETY_INTERLOCK_BLOCKED/.test(errBody || '')) {
+                  await enqueueOutbox({
+                    id: payload[pkField],
+                    table: table,
+                    action: 'upsert',
+                    payload: payload,
+                    created_at: new Date().toISOString()
+                  });
+                  return { ok: true, queued: true, row: payload };
+                }
+                // 실제 권한 오류(RLS 잠금/보존) 또는 4xx 인 경우에만 outbox 항목 정리 및 거부 반환
+                await removeOutboxItem(payload[pkField]);
                 console.warn('Upsert rejected by RLS (0 rows updated):', table, pkVal);
                 return { ok: false, reason: 'rls_denied', detail: '권한 정책에 의해 수정이 거부되었습니다 (잠금/보존 기록).' };
               }
+              await removeOutboxItem(payload[pkField]);
               broadcast({ type: 'UPSERT_SUCCESS', table: table, row: payload });
               return { ok: true, row: payload };
             }
@@ -933,7 +948,13 @@
                 },
                 body: JSON.stringify(pData)
               });
-              if (resPatch.ok) success = true;
+              if (resPatch.ok) {
+                var pJson = null;
+                try { pJson = await resPatch.json(); } catch (e) {}
+                if (!Array.isArray(pJson) || pJson.length > 0) {
+                  success = true;
+                }
+              }
             }
           } else if (res.status >= 400 && res.status < 500) {
             var errTxt = await res.text();

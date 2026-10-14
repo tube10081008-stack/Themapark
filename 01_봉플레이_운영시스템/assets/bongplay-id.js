@@ -952,55 +952,62 @@
       const payList = JSON.parse(payRaw);
       orderPayments.forEach(rec => payList.unshift(rec));
       localStorage.setItem(STORAGE_KEYS.ORDER_PAYMENTS, JSON.stringify(payList));
-
-      // Sync each item to Supabase
-      if (global.BongplaySync && typeof global.BongplaySync.upsert === 'function') {
-        orderItems.forEach(rec => {
-          try {
-            const p = global.BongplaySync.upsert('order_items', rec);
-            savePromises.push(Promise.resolve(p));
-          } catch (err) {
-            savePromises.push(Promise.resolve({ ok: false, error: err }));
-          }
-        });
-        orderPayments.forEach(rec => {
-          try {
-            const p = global.BongplaySync.upsert('order_payments', rec);
-            savePromises.push(Promise.resolve(p));
-          } catch (err) {
-            savePromises.push(Promise.resolve({ ok: false, error: err }));
-          }
-        });
-      }
     } catch (e) {
-      console.error('Failed to save order items:', e);
+      console.error('Failed to save order items to localStorage:', e);
     }
 
-    // 서버 저장 확정 판단: ok === true && !queued 인 경우만 확정 (전송 대기/아웃박스는 미확정)
-    const expectedCount = orderItems.length + orderPayments.length;
-    const savePromise = (savePromises.length > 0)
-      ? Promise.all(savePromises).then(results => {
-          const allConfirmed = results.length === expectedCount &&
-            results.length > 0 &&
-            results.every(r => Boolean(r && r.ok === true && !r.queued));
-          const hasQueued = results.some(r => Boolean(r && r.queued));
-          return {
-            ok: allConfirmed,
-            queued: hasQueued,
-            results: results
-          };
-        }).catch(err => ({
-          ok: false,
-          queued: false,
-          error: err,
-          results: []
-        }))
-      : Promise.resolve({
-          ok: false,
-          queued: false,
-          reason: 'no_sync_client',
-          results: []
-        });
+    function syncOrderRecords() {
+      const savePromises = [];
+      try {
+        if (global.BongplaySync && typeof global.BongplaySync.upsert === 'function') {
+          orderItems.forEach(rec => {
+            try {
+              const p = global.BongplaySync.upsert('order_items', rec);
+              savePromises.push(Promise.resolve(p));
+            } catch (err) {
+              savePromises.push(Promise.resolve({ ok: false, error: err }));
+            }
+          });
+          orderPayments.forEach(rec => {
+            try {
+              const p = global.BongplaySync.upsert('order_payments', rec);
+              savePromises.push(Promise.resolve(p));
+            } catch (err) {
+              savePromises.push(Promise.resolve({ ok: false, error: err }));
+            }
+          });
+        }
+      } catch (e) {
+        console.error('Failed to sync order items:', e);
+      }
+
+      const expectedCount = orderItems.length + orderPayments.length;
+      return (savePromises.length > 0)
+        ? Promise.all(savePromises).then(results => {
+            const allConfirmed = results.length === expectedCount &&
+              results.length > 0 &&
+              results.every(r => Boolean(r && r.ok === true && !r.queued));
+            const hasQueued = results.some(r => Boolean(r && r.queued));
+            return {
+              ok: allConfirmed,
+              queued: hasQueued,
+              results: results
+            };
+          }).catch(err => ({
+            ok: false,
+            queued: false,
+            error: err,
+            results: []
+          }))
+        : Promise.resolve({
+            ok: false,
+            queued: false,
+            reason: 'no_sync_client',
+            results: []
+          });
+    }
+
+    const savePromise = syncOrderRecords();
 
     const result = {
       success: true,
@@ -1011,7 +1018,15 @@
       total_amount: orderItems.reduce((sum, it) => sum + it.paid_amount, 0),
       total_quantity: orderItems.reduce((sum, it) => sum + it.quantity, 0),
       savePromise: savePromise,
-      waitForSave: function() { return savePromise; }
+      retrySave: function() {
+        this.savePromise = syncOrderRecords();
+        return this.savePromise;
+      },
+      resyncSave: function() {
+        this.savePromise = syncOrderRecords();
+        return this.savePromise;
+      },
+      waitForSave: function() { return this.savePromise; }
     };
 
     return result;

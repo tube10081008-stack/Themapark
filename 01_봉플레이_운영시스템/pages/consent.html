@@ -423,7 +423,16 @@
 
       // 오늘 이 폰에서 이미 서약했다면 바우처(QR·설문 버튼) 화면을 다시 보여준다
       const mine = loadMyVoucher();
-      if (mine) showVoucher(mine);
+      if (mine) {
+        showVoucher(mine);
+        if (mine.queueOffline || (!mine.queueNumber && !mine.queueId)) {
+          if (!mine.consentConfirmed) {
+            startConsentConfirmationWatcher(mine);
+          } else {
+            startAutoEnqueueWithRetry(mine, false);
+          }
+        }
+      }
 
       // 퇴장 게이트 QR 등으로 들어온 설문 (?survey=BP-xxx or ?pass=BP-xxx)
       try {
@@ -893,12 +902,13 @@
                   // 공식 발급 완료 시 임시 접수 초안 정리 (개인정보 최소화)
                   localStorage.removeItem('bongplay_active_consent_draft');
                 } catch (e) {}
-              } else if (qRes && qRes.offline) {
+              } else {
                 queueOffline = true;
               }
             }
           } catch (qErr) {
             console.warn('Queue enqueue error:', qErr);
+            queueOffline = true;
           }
         } else {
           // 서약서 전송 대기/실패 상태: 대기열 접수 차단
@@ -920,7 +930,8 @@
           customerToken: queueItem ? queueItem.customer_token : null,
           queueNumber: queueItem ? queueItem.queue_number : null,
           formattedQueueNumber: queueItem ? (queueItem.formatted_number || ('#' + queueItem.queue_number)) : null,
-          queueOffline: queueOffline || (!queueItem)
+          queueOffline: queueOffline || (!queueItem),
+          queueExhausted: false
         };
 
         // 공식 번호 발급 전에는 재시도에 필요한 인자를 최소한으로 보존하고 완료 시 제거
@@ -943,6 +954,15 @@
           }
         } catch (e) {}
         showVoucher(voucher);
+
+        // [C1, C3, C4 / 벤 지시] 미발급 상태 시 백그라운드 자동 확정/재시도 시작
+        if (!queueItem) {
+          if (!isConsentServerConfirmed) {
+            startConsentConfirmationWatcher(voucher);
+          } else {
+            startAutoEnqueueWithRetry(voucher, false);
+          }
+        }
         window.scrollTo({ top: 0, behavior: 'smooth' });
       } finally {
         submitBtn.disabled = false;
@@ -966,6 +986,20 @@
       const qSubText = document.getElementById('voucherQueueSubText');
       const btnStatus = document.getElementById('btnOpenQueueStatusPage');
       if (!qNumEl) return;
+
+      if (v.queueExhausted) {
+        qNumEl.textContent = '접수 미완료 — 매표소 문의';
+        qBadgeEl.textContent = '접수 미완료';
+        qBadgeEl.className = 'text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-red-950 text-red-300 border border-red-700';
+        qAlertEl.classList.remove('hidden');
+        const alertMsg = qAlertEl.querySelector('div');
+        if (alertMsg) {
+          alertMsg.innerHTML = '⚠️ <b>접수 미완료 — 매표소 문의</b><br>서버 연결 재시도가 모두 소진되었습니다. 매표소에 문의해 주세요.';
+        }
+        qSubText.classList.add('hidden');
+        btnStatus.classList.add('hidden');
+        return;
+      }
 
       if (v.queueOffline || (!v.queueNumber && !v.queueId)) {
         qNumEl.textContent = '접수 대기 중';
@@ -1045,8 +1079,168 @@
       document.getElementById('btnVoucherSurveyLabel').textContent = done ? '후기 설문 완료 · 감사합니다' : '🎁 다 놀고 나가실 때 1분 후기 남기고 선물 받기';
     }
 
+    let activeRetryTimer = null;
+    let isAutoRetrying = false;
+    let consentWatcherTimer = null;
+
+    function cancelAutoEnqueueRetry() {
+      if (activeRetryTimer) {
+        clearTimeout(activeRetryTimer);
+        activeRetryTimer = null;
+      }
+      isAutoRetrying = false;
+    }
+
+    function markEnqueueExhausted(v) {
+      cancelAutoEnqueueRetry();
+      if (!v) v = loadMyVoucher();
+      if (v) {
+        v.queueExhausted = true;
+        try { localStorage.setItem(MY_VOUCHER_KEY, JSON.stringify(v)); } catch (e) {}
+      }
+      const qNumEl = document.getElementById('voucherQueueNumberText');
+      const qBadgeEl = document.getElementById('voucherQueueStatusBadge');
+      const qAlertEl = document.getElementById('voucherQueueOfflineAlert');
+      if (qNumEl) qNumEl.textContent = '접수 미완료 — 매표소 문의';
+      if (qBadgeEl) {
+        qBadgeEl.textContent = '접수 미완료';
+        qBadgeEl.className = 'text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-red-950 text-red-300 border border-red-700';
+      }
+      if (qAlertEl) {
+        const alertMsg = qAlertEl.querySelector('div');
+        if (alertMsg) {
+          alertMsg.innerHTML = '⚠️ <b>접수 미완료 — 매표소 문의</b><br>서버 연결 재시도가 모두 소진되었습니다. 매표소에 문의해 주세요.';
+        }
+      }
+    }
+
+    function startAutoEnqueueWithRetry(initialVoucher, immediate) {
+      if (isAutoRetrying) return;
+      isAutoRetrying = true;
+
+      // 1·2·4·8초 간격, 최대 4회
+      const retryDelays = [1000, 2000, 4000, 8000];
+      let attempt = 0;
+
+      const doAttempt = async () => {
+        const v = loadMyVoucher();
+        if (!v || !v.consentId || (v.queueNumber && v.formattedQueueNumber)) {
+          cancelAutoEnqueueRetry();
+          return;
+        }
+
+        let draft = null;
+        try {
+          const raw = localStorage.getItem('bongplay_active_consent_draft');
+          if (raw) draft = JSON.parse(raw);
+        } catch (e) {}
+
+        const guardianPhone = (draft && draft.guardian_phone) || v.guardianPhone || '';
+        const guardianName = (draft && draft.guardian_name) || v.guardianName || '';
+        const partySize = (draft && draft.party_size) || v.partySize || (v.peopleText ? (parseInt(v.peopleText, 10) || 1) : 1);
+        const idempotencyKey = (draft && draft.idempotency_key) || v.idempotencyKey || null;
+
+        if (window.BongplayQueue) {
+          try {
+            const qRes = await BongplayQueue.enqueueConsent({
+              id: v.consentId,
+              site_id: 'bongplay_bonghwa',
+              idempotency_key: idempotencyKey,
+              guardian_name: guardianName,
+              guardian_phone: guardianPhone,
+              party_size: partySize
+            });
+
+            if (qRes && qRes.ok && qRes.item) {
+              const item = qRes.item;
+              v.queueId = item.id;
+              v.customerToken = item.customer_token;
+              v.queueNumber = item.queue_number;
+              v.formattedQueueNumber = item.formatted_number || ('#' + item.queue_number);
+              v.queueOffline = false;
+              v.consentConfirmed = true;
+              v.queueExhausted = false;
+              delete v.guardianPhone;
+              try {
+                localStorage.setItem(MY_VOUCHER_KEY, JSON.stringify(v));
+                if (item.id) localStorage.setItem('bongplay_my_queue_id', item.id);
+                if (item.customer_token) localStorage.setItem('bongplay_my_queue_token', item.customer_token);
+                localStorage.removeItem('bongplay_active_consent_draft');
+              } catch (e) {}
+
+              updateVoucherQueueView(v);
+              cancelAutoEnqueueRetry();
+              return;
+            }
+          } catch (err) {
+            console.warn('Auto enqueue attempt failed:', err);
+          }
+        }
+
+        if (attempt < retryDelays.length) {
+          const delay = retryDelays[attempt++];
+          activeRetryTimer = setTimeout(doAttempt, delay);
+        } else {
+          markEnqueueExhausted(v);
+        }
+      };
+
+      if (immediate) {
+        doAttempt();
+      } else {
+        const delay = retryDelays[attempt++];
+        activeRetryTimer = setTimeout(doAttempt, delay);
+      }
+    }
+
+    function startConsentConfirmationWatcher(initialVoucher) {
+      if (consentWatcherTimer) {
+        clearInterval(consentWatcherTimer);
+        consentWatcherTimer = null;
+      }
+
+      const checkConfirmation = async () => {
+        const curV = loadMyVoucher();
+        if (!curV || !curV.consentId || (curV.queueNumber && curV.formattedQueueNumber)) {
+          if (consentWatcherTimer) { clearInterval(consentWatcherTimer); consentWatcherTimer = null; }
+          return;
+        }
+        if (curV.consentConfirmed) {
+          if (consentWatcherTimer) { clearInterval(consentWatcherTimer); consentWatcherTimer = null; }
+          startAutoEnqueueWithRetry(curV, true);
+          return;
+        }
+
+        if (window.BongplaySync && typeof window.BongplaySync.getQueue === 'function') {
+          try {
+            const queue = await window.BongplaySync.getQueue();
+            const pending = queue.some(it => it.table === 'safety_consents' && it.id === curV.consentId);
+            if (!pending) {
+              // 아웃박스에서 전송 완료되어 항목 해소됨 -> 서버 저장 확정 완료
+              curV.consentConfirmed = true;
+              try { localStorage.setItem(MY_VOUCHER_KEY, JSON.stringify(curV)); } catch (e) {}
+              if (consentWatcherTimer) { clearInterval(consentWatcherTimer); consentWatcherTimer = null; }
+              startAutoEnqueueWithRetry(curV, true);
+            }
+          } catch (e) {}
+        }
+      };
+
+      consentWatcherTimer = setInterval(checkConfirmation, 1000);
+      window.addEventListener('bongplay:data-changed', (e) => {
+        if (e && e.detail && (e.detail.type === 'OUTBOX_FLUSHED' || e.detail.type === 'UPSERT_SUCCESS')) {
+          checkConfirmation();
+        }
+      });
+    }
+
     // 대기번호 발급 재시도 (동일 consentId·멱등키·인자 보장)
     async function retryQueueEnqueue() {
+      cancelAutoEnqueueRetry();
+      if (consentWatcherTimer) {
+        clearInterval(consentWatcherTimer);
+        consentWatcherTimer = null;
+      }
       const v = loadMyVoucher();
       if (!v || !v.consentId) return;
 
@@ -1133,6 +1327,7 @@
           updateVoucherQueueView(v);
           alert('✅ 공식 대기번호가 성공적으로 발급되었습니다: ' + v.formattedQueueNumber);
         } else {
+          startAutoEnqueueWithRetry(v, false);
           alert('⚠️ 대기번호 발급 재시도 실패: ' + (qRes && qRes.message ? qRes.message : '서버 응답을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.'));
         }
       } catch (e) {

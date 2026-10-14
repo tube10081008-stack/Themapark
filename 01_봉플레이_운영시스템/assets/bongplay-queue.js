@@ -914,7 +914,7 @@
       var opts = options || {};
       var now = opts.now || new Date();
       var dateStr = getKstDateStr(now);
-      var idempotencyKey = generateIdempotencyKey(dateStr, consentRecord.id, consentRecord.guardian_phone || consentRecord.guardianPhone);
+      var idempotencyKey = consentRecord.idempotency_key || consentRecord.idempotencyKey || generateIdempotencyKey(dateStr, consentRecord.id, consentRecord.guardian_phone || consentRecord.guardianPhone);
 
       var isOnline = true;
       if (typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean') {
@@ -936,10 +936,11 @@
       // 1. Supabase RPC 호출 경로
       if (typeof window !== 'undefined' && window.BongplaySync && typeof window.BongplaySync.rpc === 'function') {
         try {
+          var partySize = consentRecord.party_size != null ? Number(consentRecord.party_size) : (consentRecord.partySize != null ? Number(consentRecord.partySize) : (consentRecord.children ? consentRecord.children.length + 1 : 1));
           var rpcRes = await window.BongplaySync.rpc('enqueue_consent_team', {
             p_consent_id: consentRecord.id,
             p_idempotency_key: idempotencyKey,
-            p_party_size: (consentRecord.children ? consentRecord.children.length + 1 : 1),
+            p_party_size: partySize,
             p_guardian_name: consentRecord.guardian_name || consentRecord.guardianName || '',
             p_guardian_phone: consentRecord.guardian_phone || consentRecord.guardianPhone || '',
             p_site_id: consentRecord.site_id || 'bongplay_bonghwa'
@@ -964,15 +965,18 @@
           return {
             ok: false,
             source: 'rpc',
+            status: res.status,
             error: res.error || 'server_rejected',
-            message: res.message || '서버 접수에 실패했습니다.'
+            message: res.message || '서버 접수에 실패했습니다.',
+            retryable: res.retryable
           };
         } catch (e) {
           return {
             ok: false,
             source: 'rpc',
             error: 'network_error',
-            message: '서버 통신 중 오류가 발생했습니다: ' + (e.message || e)
+            message: '서버 통신 중 오류가 발생했습니다: ' + (e.message || e),
+            retryable: true
           };
         }
       }

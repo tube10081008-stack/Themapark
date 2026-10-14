@@ -1640,7 +1640,11 @@
 
       // 주문 원장 서버 저장 확정 대기 및 검증 (ok === true && !queued)
       if (order.savePromise) {
-        const orderSaveRes = await order.savePromise;
+        let orderSaveRes = await order.savePromise;
+        // 실패한 activeOrder.savePromise 재시도: 동일 주문·결제 레코드로 저장을 다시 확인 (새 주문·결제 생성 방지)
+        if ((!orderSaveRes || !orderSaveRes.ok) && (typeof order.retrySave === 'function' || typeof order.resyncSave === 'function')) {
+          orderSaveRes = await (order.retrySave ? order.retrySave() : order.resyncSave());
+        }
         if (!orderSaveRes || !orderSaveRes.ok) {
           const isQueued = Boolean(orderSaveRes && orderSaveRes.queued);
           alert(isQueued
