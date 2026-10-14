@@ -375,6 +375,7 @@ BEGIN
         'status', 'called',
         'desk_no', p_desk_no,
         'guardian_name', v_target.guardian_name,
+        'consent_id', v_target.consent_id,   -- [CLAUDE-011 후속] 직원 인증 뒤에만 반환: 매표 화면이 호출 팀의 서약서로 결제 창을 연다
         'party_size', v_target.party_size,
         'called_at', v_now
     );
@@ -418,7 +419,11 @@ BEGIN
         updated_at = v_now
     WHERE id = p_queue_id;
 
-    RETURN jsonb_build_object('ok', true, 'id', p_queue_id, 'called_at', v_now);
+    -- [CLAUDE-011 후속] 화면이 응답으로 현재 팀 정보를 교체하므로 식별 필드를 함께 돌려준다
+    RETURN jsonb_build_object('ok', true, 'id', p_queue_id, 'called_at', v_now, 'status', v_rec.status,
+        'queue_number', v_rec.queue_number, 'formatted_number', v_rec.formatted_number,
+        'desk_no', COALESCE(p_desk_no, v_rec.desk_no), 'consent_id', v_rec.consent_id,
+        'guardian_name', v_rec.guardian_name, 'party_size', v_rec.party_size);
 END;
 $$;
 
@@ -460,7 +465,11 @@ BEGIN
         updated_at = v_now
     WHERE id = p_queue_id;
 
-    RETURN jsonb_build_object('ok', true, 'id', p_queue_id, 'status', 'processing', 'processing_started_at', v_now);
+    -- [CLAUDE-011 후속] 화면이 응답으로 현재 팀 정보를 교체하므로 식별 필드를 함께 돌려준다
+    RETURN jsonb_build_object('ok', true, 'id', p_queue_id, 'status', 'processing', 'processing_started_at', v_now,
+        'queue_number', v_rec.queue_number, 'formatted_number', v_rec.formatted_number,
+        'desk_no', COALESCE(p_desk_no, v_rec.desk_no), 'consent_id', v_rec.consent_id,
+        'guardian_name', v_rec.guardian_name, 'party_size', v_rec.party_size, 'called_at', v_rec.called_at);
 END;
 $$;
 
@@ -1083,6 +1092,7 @@ BEGIN
             'order_key', order_key,
             'formatted_number', formatted_number,
             'guardian_name', guardian_name,
+            'consent_id', consent_id,
             'party_size', party_size,
             'enqueued_at', enqueued_at,
             'status', status
@@ -1099,6 +1109,7 @@ BEGIN
             'queue_number', queue_number,
             'formatted_number', formatted_number,
             'guardian_name', guardian_name,
+            'consent_id', consent_id,
             'party_size', party_size,
             'desk_no', desk_no,
             'status', status,
@@ -1117,6 +1128,7 @@ BEGIN
             'queue_number', queue_number,
             'formatted_number', formatted_number,
             'guardian_name', guardian_name,
+            'consent_id', consent_id,
             'party_size', party_size,
             'hold_reason', hold_reason,
             'hold_at', hold_at,
@@ -1234,3 +1246,12 @@ GRANT EXECUTE ON FUNCTION public.cancel_queue_team(TEXT, TEXT, TEXT, TEXT, TEXT)
 GRANT EXECUTE ON FUNCTION public.complete_queue_issuance(TEXT, TEXT, TEXT, JSONB, TEXT, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.get_staff_queue_list(TEXT, DATE, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.set_desk_pause_status(TEXT, INTEGER, BOOLEAN, TEXT) TO anon, authenticated;
+
+-- 5) [CLAUDE-011 후속] Supabase 기본 권한에 대비한 최소 권한 이중화
+--    Supabase 는 public 스키마에 새로 만든 테이블·함수에 anon·authenticated 권한을 기본으로 준다(default privileges).
+--    대기열 테이블은 위 RPC(SECURITY DEFINER)로만 다루므로 표 권한을 모두 회수한다.
+--    RLS(1)와 이중으로 막아, 정책을 실수로 열어도 표가 직접 노출되지 않게 한다.
+REVOKE ALL ON TABLE public.ticket_queue, public.ticket_queue_desks, public.ticket_queue_rate_limits FROM PUBLIC, anon, authenticated;
+--    내부 함수는 PostgreSQL 기본 PUBLIC 실행 권한까지 회수한다 (private 스키마 USAGE 회수와 이중 차단).
+REVOKE ALL ON FUNCTION private.verify_staff_permission(TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION private.lock_ticket_queue_day(TEXT, DATE) FROM PUBLIC, anon, authenticated;

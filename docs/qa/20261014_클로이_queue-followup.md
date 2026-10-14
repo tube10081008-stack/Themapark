@@ -264,3 +264,171 @@ ANT006_ROOT=<dir> PW_DIR=<playwright 1.56.1 모듈> PLAYWRIGHT_BROWSERS_PATH=<Ch
   - 수정 방향 제안: PATCH 가 `200 []` 이면 RLS 거부로 단정하지 않는다. POST 실패 원인이 5xx·네트워크면 outbox 에 남긴다.
 - **D7** 고객 접수 자동 재시도(C3·C4)의 횟수·간격(예: 1·2·4·8초, 최대 4회)과, 소진 시 문구("접수 미완료 — 매표소 문의")를 확정해 달라.
 
+
+---
+
+## 11. 3차 — 배포 전 최종 검증 + 빈 시험 Supabase 설치 묶음
+
+- 지시: 벤 (2026-10-14 3차)
+  - 원격 아난티 최신 SHA 로 독립 계약 시험을 다시 실행하고 이전 판본과 구분한다.
+  - 빈 시험 Supabase 설치 SQL 묶음을 준비한다 (선행 표·확장·함수·직원 인증·RLS·권한·대기열, 적용 순서).
+  - 시험 하네스의 느슨한 권한을 쓰지 않는다. 실제 DB 적용은 하지 않는다. 프런트 구현은 수정하지 않는다.
+- 착수: 2026-10-14T22:22:20+09:00 (KST). 종료 시각은 최종 답변에 적는다.
+
+### 11.1 아난티 원격 판본
+
+| 확인 시각 (KST) | 브랜치 머리 | 비고 |
+|---|---|---|
+| 22:22 | `6692940a31434f2613ba0e77aeb1da13d125e957` | 2차 대상 5293dc8 다음 커밋 (18:50:45 KST). 화면·`bongplay-id*.js`·`bongplay-queue.js` 변경 |
+| 22:39 | `6692940` 그대로 | 이후 새 게시 없음 |
+
+- 6692940 의 SQL 은 5ef23ce 그대로다. 592d181·이번 수정은 포함하지 않는다.
+- `bongplay-sync.js` 도 바뀌지 않았다.
+
+### 11.2 계약 시험 — 판본별 결과 (save-retry-contract, 각 2회 실행 동일)
+
+| 시험 | 5293dc8 (2차, §10.3) | **6692940 (3차)** | 6692940 에서 남은 이유 |
+|---|---|---|---|
+| C0 정상 접수 | 통과 | 통과 | — |
+| C1 서약서 미확정 시 접수 보류 후 자동 재개 | 실패 | **실패** | 이제 서약서가 확정(`ok && !queued`)될 때까지 접수 RPC 를 부르지 않는다 (앞부분 통과). 그러나 outbox 가 서약서를 보낸 뒤 접수를 **자동으로 재개하지 않는다**. 고객이 재시도 버튼을 눌러야 한다 (15초 대기 중 번호 미발급) |
+| C5 첫 POST 503 뒤 서약서 저장 | 실패 | **실패** | `bongplay-sync.js` 미변경. PATCH `200 []` 를 RLS 거부로 보고 outbox 항목을 지워 서약서가 서버에 저장되지 않는다 |
+| C2 응답 유실 뒤 수동 재시도 인자 동일 | 실패 | **통과** | — (멱등키·전화·인원을 초안에서 그대로 재사용) |
+| C3 `ENQUEUE_CONFLICT` 자동 재시도 | 실패 | **실패** | 자동 재시도 없음 (12초 동안 1회) |
+| C4 HTTP 503 자동 재시도 | 실패 | **실패** | 자동 재시도 없음 |
+| D0 정상 발권 | 통과 | 통과 | — |
+| D1 원장 미확정 시 완료 RPC 보류 | 실패 | **통과** | — |
+| D2 품목 미확정 시 완료 RPC 보류 | 실패 | **통과** | — |
+| D3 완료 응답 유실 뒤 같은 주문 재사용 | 실패 | **통과** | — (중복 주문·결제 없음) |
+| **합계** | **2 / 10** | **6 / 10** | |
+
+같은 대상에서 함께 실행한 것 (6692940):
+- `rpc-signature` 4/4 통과
+- 아난티 `ticket_queue.test.js` 26/26 통과 (메모리 저장소, DB 아님)
+
+코드에서 본 추가 사항 (시험 외):
+- **O1 (백엔드↔화면 계약 차이, 이번에 SQL 쪽 수정)**
+  - 매표 화면(`consent-desk.html` 855·1601행)은 호출 팀의 `consent_id` 로 결제 창을 열고 결제 대상과 대조한다.
+  - 그러나 제안 SQL 의 직원 RPC 응답에는 `consent_id` 가 없었다. 실제 DB 에서는 결제 창 자동 열기와 대조 가드가 둘 다 동작하지 않는다 (서버 대사 `ORDER_CONSENT_MISMATCH` 는 결제 기록 **뒤에** 거부).
+  - 아난티 모의 저장소와 내 계약 시험 모의 서버는 `consent_id` 를 돌려주고 있어 이 차이가 가려져 있었다.
+  - §11.3 에서 SQL 이 직원 인증 뒤 응답에만 `consent_id` 를 넣도록 고쳤다. `start_queue_processing`·`recall_queue_team` 도 화면이 응답으로 현재 팀을 교체하므로 번호·창구·이름을 함께 돌려준다.
+- **O2 (낮음)** 6692940 은 접수가 끝날 때까지 `localStorage` 의 `bongplay_active_consent_draft` 에 보호자 이름·전화번호를 평문으로 둔다.
+  - 고객 본인 기기이고 접수 성공 시 지워진다.
+  - 접수가 끝내 실패하면 남는다.
+
+### 11.3 백엔드 SQL 수정 (`PROPOSED_MIGRATION_ticket_queue.sql`)
+
+| 변경 | 이유 | 시험 |
+|---|---|---|
+| 끝에 5) 절 추가: 대기열 표 3개 `REVOKE ALL … FROM PUBLIC, anon, authenticated`, `private.verify_staff_permission`·`private.lock_ticket_queue_day` 실행 권한 `PUBLIC, anon, authenticated` 회수 | Supabase 는 public 의 새 표·함수에 anon·authenticated 권한을 기본으로 준다. 이전 판에서는 표 직접 권한이 열려 있었다 | 대조 실행(592d181 SQL): `60_verify` P01·P04 실패, HTTP `GET /ticket_queue` 가 `200 []`(RLS 로 행만 숨김). 수정 후 401/403 |
+| 직원 RPC 응답에 `consent_id` 추가: `call_next_queue_team`, `recall_queue_team`, `start_queue_processing`, `get_staff_queue_list` 의 대기·호출·보류 항목 | O1 | `sql-followup` 신규 1건 (공개 전광판·고객 조회에는 없음 확인), HTTP H07 에서 호출 응답 `consent_id` 대조 |
+
+### 11.4 빈 시험 Supabase 설치 묶음
+
+위치: `01_봉플레이_운영시스템/database/test_supabase_install/` (설치·검증·초기화 방법은 같은 폴더 `README.md`).
+
+| 순서 | 파일 | 내용 |
+|---|---|---|
+| 1 | `00_preflight.sql` (신규) | Supabase 역할·pgcrypto 확인. 합성(`SYN-`) 아닌 운영 행이나 기존 운영자 암호가 있으면 중단. 통과 시 `private.app_settings.install_target = synthetic_test` 표시 |
+| 2 | `database/FINAL_SUPABASE_SETUP.sql` (기존, 변경 없음) | 30개 표 (서약서·주문 품목·결제·티켓 원장·안전점검 등), RLS·정책, DELETE 회수, pgcrypto, 직원 인증(bcrypt·IP 잠금), 공개 RPC 4개, 안전 인터록 트리거, Realtime |
+| 3 | `database/PROPOSED_MIGRATION_ticket_queue.sql` (§11.3 반영) | 대기열 표 3개, RPC 12개, 잠금, 권한 이중화 |
+| 4 | `40_test_staff_code.sql` (신규) | 시험 전용 운영자 암호 등록. 파일에는 자리표시자만 있다. 바꾸지 않으면 거부 |
+| 5 | `50_synthetic_seed.sql` (신규) | 오늘(KST) PASS 점검 1건(안전 인터록 해제 조건), 합성 서약서 3건 |
+| 6 | `60_verify.sql` (신규) | 읽기 전용 점검 표. 필수 표·열, pgcrypto 위치, RLS, 대기열 표 직접 권한 없음, 원장 DELETE 없음, private 스키마·함수 차단, 대기열 RPC 12개 실행 가능, 허용 목록 밖 SECURITY DEFINER 노출 없음, `search_path` 고정, 고유 제약, 잠금 함수, 창구 시드, 설치 표시, 암호 해시 |
+| 초기화 | `90_reset_queue.sql` / `91_reset_all_test.sql` (신규) | 대기열만 / 묶음 전체. 설치 표시가 없으면 거부 |
+
+- `PATCH_r3_to_r4.sql`·`PATCH_survey_v2.sql` 은 FINAL 에 이미 들어 있다 (추가 열 전부 FINAL 에서 확인). 따라서 순서에서 뺐다.
+- `PROPOSED_MIGRATION_safety_consents_cancellation.sql` 은 대기열·현재 화면이 쓰지 않아 넣지 않았다.
+
+**적용 순서 주의**
+- FINAL 은 실행할 때마다 public 의 RLS 정책을 모두 지운다.
+- 그래서 FINAL 다음에 대기열 SQL 을 실행한다.
+- FINAL 만 다시 실행해도 대기열 표는 막혀 있다: 대기열 정책 0개인 상태에서 RLS 와 표 권한 회수로 막히는 것을 D2 단계에서 확인했다.
+
+**파일 sha256 (커밋 기준)**
+
+| 파일 | sha256 |
+|---|---|
+| FINAL_SUPABASE_SETUP.sql | `92c66077cd07b1138c36b1cce3149f73c2725f8ae9ae6e64be097e786a43d459` |
+| PROPOSED_MIGRATION_ticket_queue.sql | `9f170a8357a67cb8516b14ebba13460f4b6a7810cfc76f654731a933563e07ab` |
+| 00_preflight.sql | `bd662f89fd8d59c8d8fb307155af7652d11fb5f879b2ede16f72abcffe313574` |
+| 40_test_staff_code.sql | `8866d8ce2b0277d53ee37bfc59e20b2bb44108c0ed347c6dab3f71af670a5fb7` |
+| 50_synthetic_seed.sql | `cfc0db36576f813c13f416430306986c0aeb4148b5b0dcfb64f4d13e29742237` |
+| 60_verify.sql | `587dfe9cae7a32334c8e14feefd569adcf1809d6a338ac13dfbc79377dc66e04` |
+| 90_reset_queue.sql | `7992531763fafa85607fa3b9cc5da6799aa51e8a87d112eca9c8147842669003` |
+| 91_reset_all_test.sql | `4582984820fc3cba15290c34cb482ac9074ac4afb005156d43ff6fcf2205b84f` |
+
+### 11.5 설치 묶음 로컬 검증
+
+`tests/queue-contract/supabase-install/run_local_install_check.sh`
+
+**환경**
+- 일회용 PostgreSQL 16.13 (슈퍼유저 `supabase_admin`)
+- `supabase_platform_emulation.sql` 로 호스팅 Supabase 의 역할을 모사
+  - `postgres` 비슈퍼유저·BYPASSRLS, `anon`·`authenticated`·`service_role`·`authenticator`
+  - **넓은 public 기본 권한**, extensions·auth 함수, Realtime 발행
+- 설치는 비슈퍼유저 `postgres` 로 실행
+- PostgREST 12.2.3, anon JWT (로컬 합성 비밀)
+- 시험 하네스(`ant006-conformance`)의 느슨한 설정은 쓰지 않았다.
+
+| 단계 | 결과 (최종 SQL) |
+|---|---|
+| B 설치 → `60_verify` | FAIL 0건 |
+| C HTTP `verify_http.mjs` H01~H07 | **7/7 통과** (표 직접 접근 거부, 내부 함수 비노출, 서약서 DELETE 거부, 접수·멱등·`CONSENT_NOT_FOUND`·고객 조회, HTTP 동시 접수 20건 번호 고유, 틀린 암호 거부, 호출→처리→원장 확정 후 완료→재시도 성공→부분 수납 거부) |
+| D 같은 DB 재설치 → `60_verify` | FAIL 0건 (멱등) |
+| D2 FINAL 만 재실행 → `60_verify` | FAIL 0건 (대기열 정책 0개여도 막힘) |
+| E `90` → 대기열 표 0개·서약서 유지 → 대기열 재설치 → `60_verify` | 통과 |
+| F `91` → public 표 0개·private 없음 → 처음부터 설치 → `60_verify` | 통과 |
+| G 운영 보호 | 합성 아닌 서약서가 있으면 `00` 거부. 운영자 암호가 이미 있으면 `00` 거부. 설치 표시가 없으면 `40`·`50`·`90`·`91` 거부. 자리표시자 그대로면 `40` 거부 |
+| **대조**: 대기열 SQL 을 592d181(5) 절 없음)로 바꿔 같은 점검 | `60_verify` P01·P04 실패, HTTP H01 실패 (`GET /ticket_queue` → `200 []`). 점검이 권한 누락을 잡는 것을 확인 |
+
+남는 WARN (설치 유효, 결정 필요):
+- **P02b**: Supabase 기본 권한 때문에 anon·authenticated 가 원장 표(서약서·주문 품목·결제·티켓·점검)에 `TRUNCATE` 권한을 가진다.
+  - PostgREST 에는 TRUNCATE 경로가 없어 API 로는 실행할 수 없다.
+  - FINAL 의 DELETE 회수처럼 TRUNCATE 도 회수할지 결정이 필요하다 (FINAL 은 운영 기준 파일이라 이번에 바꾸지 않았다).
+- **X01**: 로컬에는 pg_cron 이 없어 개인정보 자동 마스킹 작업이 등록되지 않는다. 호스팅 Supabase 에서는 확장을 켤 수 있다.
+
+### 11.6 백엔드 회귀 (최종 SQL, 9f170a83…)
+
+| 시험 | 계층 | 결과 |
+|---|---|---|
+| `rpc-signature` | 정적 대조 | 4/4 |
+| `sql-conformance` | PGlite | 41/42 (토큰 만료 정책 차이 1건, 기존과 같음) |
+| `sql-ledger-fix` | PGlite | 11/11 |
+| `sql-followup` | PGlite | 4/4 (신규 1건 포함) |
+| `pg-concurrency` | 로컬 PostgreSQL 다중 연결 | 7/7 |
+
+### 11.7 시험 명령
+
+```sh
+# 계약 시험 (판본별)
+git worktree add --detach <dir> 6692940a31434f2613ba0e77aeb1da13d125e957
+ANT006_ROOT=<dir> PW_DIR=<playwright 1.56.1> node --test --test-concurrency=1 \
+  01_봉플레이_운영시스템/tests/queue-contract/frontend-contract/save-retry-contract.test.mjs
+# 설치 묶음 로컬 검증
+PGRST_BIN=<postgrest 12.2.3> bash 01_봉플레이_운영시스템/tests/queue-contract/supabase-install/run_local_install_check.sh
+QUEUE_SQL=<592d181 판 대기열 SQL> PGRST_BIN=… bash …/run_local_install_check.sh   # 대조
+# 실제 시험 Supabase 에 적용한 뒤 (미실행)
+SUPABASE_URL=… SUPABASE_ANON_KEY=… TEST_STAFF_CODE=… node --test --test-concurrency=1 \
+  01_봉플레이_운영시스템/tests/queue-contract/supabase-install/verify_http.mjs
+```
+
+### 11.8 미검증 (3차)
+
+- **실제 시험 Supabase 프로젝트 적용·`verify_http.mjs` 실행**: 지시대로 하지 않았다.
+  - 로컬 모사는 공개된 기본 상태를 흉내 낸 것이다. 실제 Supabase 와 다를 수 있는 점:
+    - `postgres` 역할 속성, 기본 권한의 세부, PostgREST 판(12.2.3 사용)
+    - `request.headers` 의 클라이언트 IP(로컬은 `unknown`), Realtime, pg_cron
+- **통합 검증**: 아난티 6692940 화면 + 이번 SQL + 실제 Supabase.
+  - 6692940 화면은 호출 팀의 `consent_id` 를 기대하고, 이번 SQL 이 그것을 제공한다.
+  - 그러나 둘을 결합한 화면 동작은 실제 DB 로 확인하지 않았다.
+- **아난티 남은 실패 4건(C1·C3·C4·C5)의 수정본**: 아직 원격에 없다 (22:39 KST 확인).
+- 운영 DB 적용·배포: 하지 않음.
+
+### 11.9 결정 요청 (3차 추가)
+
+- **D8** 원장 표의 anon·authenticated `TRUNCATE` 권한 회수를 FINAL 에 넣을지 (P02b).
+- **D9** 시험 Supabase 프로젝트 생성과 이 묶음 적용·`verify_http.mjs` 실행 승인. 적용자와 시험 암호 보관 방법을 정해 달라.
+- **D6·D7 (재요청)**
+  - C5 는 공용 `bongplay-sync.js` 문제라 모든 테이블 저장에 해당한다.
+  - C1·C3·C4 는 자동 재시도·재개 정책이 정해지지 않아 남아 있다.
+  - 배포 전에 담당·정책을 정해 달라.
