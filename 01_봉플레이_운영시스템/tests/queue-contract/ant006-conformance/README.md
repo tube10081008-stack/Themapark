@@ -21,7 +21,8 @@
 | 계층 | 이 폴더에서 | 확인하는 것 | 확인하지 못하는 것 |
 |---|---|---|---|
 | 정적 대조 | `rpc-signature.test.mjs` | 클라이언트 `rpc()` 인자 ↔ SQL 함수 서명, 직원 자격 인자 존재 | PostgREST 가 실제로 어떤 오류를 내는지 |
-| PGlite | `sql-conformance.test.mjs` | 제안 SQL 을 메모리 안 PostgreSQL 에 적재해 함수 동작·권한·원장 검증을 실행. Supabase 역할·`auth.role()`·기본 권한·`extensions` 스키마를 모사 | 실제 Supabase 설정, PostgREST 라우팅·JWT 검증, RLS 와 실제 역할, **동시 연결 경합** (PGlite 는 단일 연결) |
+| PGlite | `sql-conformance.test.mjs`, `sql-ledger-fix.test.mjs`, `sql-followup.test.mjs` | 제안 SQL 을 메모리 안 PostgreSQL 에 적재해 함수 동작·권한·원장 검증을 실행. Supabase 역할·`auth.role()`·기본 권한·`extensions` 스키마를 모사 | 실제 Supabase 설정, PostgREST 라우팅·JWT 검증, RLS 와 실제 역할, **동시 연결 경합** (PGlite 는 단일 연결) |
+| 로컬 PostgreSQL (여러 연결) | `pg-concurrency.test.mjs` (`pg-harness.mjs`) | 독립 연결 여러 개로 동시 접수·복귀·창구 호출·발권 완료 경합을 결정적으로 재현 (연결 1 트랜잭션을 열어 둔 채 연결 2 실행) | 실제 Supabase 역할·RLS·PostgREST·JWT, 네트워크 지연 |
 | 실제 Supabase/PostgREST | 없음 (미실행) | 시험 프로젝트에서 같은 시나리오를 HTTP 로 재실행, 동시 요청 | 운영 프로젝트에는 실행하지 않음 |
 
 ## 실행
@@ -40,3 +41,15 @@ PGLITE_DIR=<설치 폴더>/node_modules/@electric-sql/pglite \
 ```
 
 환경변수를 주지 않으면 대상 의존 시험은 건너뛴다 (파서 자체 점검만 실행). 결과는 반드시 대상 구현의 전체 SHA 와 함께 기록한다.
+
+로컬 PostgreSQL 계층 (일회용 서버만. `ANT006_PG_URL` 호스트가 127.0.0.1·localhost 가 아니면 시험이 실행을 거부한다):
+
+```sh
+npm i pg@8   # 저장소 밖 임시 폴더
+ANT006_SQL=<구현 체크아웃>/01_봉플레이_운영시스템/database/PROPOSED_MIGRATION_ticket_queue.sql \
+ANT006_PG_URL=postgres://postgres@127.0.0.1:55432/postgres \
+PG_DIR=<설치 폴더>/node_modules/pg \
+  node --test 01_봉플레이_운영시스템/tests/queue-contract/ant006-conformance/pg-concurrency.test.mjs
+```
+
+시험마다 임시 데이터베이스를 만들고 끝나면 지운다. Supabase 와 비슷한 조건은 `supabase-emulation.mjs` 하나에서 두 계층(PGlite·로컬 PostgreSQL)이 함께 쓴다.

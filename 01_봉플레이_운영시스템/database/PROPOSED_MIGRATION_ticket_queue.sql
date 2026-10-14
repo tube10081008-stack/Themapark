@@ -142,11 +142,30 @@ END;
 $$;
 
 -- ============================================================================
+-- [CLAUDE-011 후속] 시설·영업일 단위 대기열 직렬화 잠금
+-- - 번호(queue_number)·정렬키(order_key)를 MAX+1 로 정하는 접수·복귀, 창구 점유를 검사하는 호출이
+--   같은 시설·같은 영업일 안에서 한 번에 하나씩 실행되도록 트랜잭션 범위 advisory lock 을 건다.
+-- - 이전에는 접수 잠금이 멱등키 단위라, 서로 다른 고객이 동시에 접수하면 같은 번호를 계산해
+--   uq_ticket_queue_site_date_number 고유 제약 오류(23505)로 한쪽이 접수되지 않았다 (로컬 PostgreSQL 재현).
+-- ============================================================================
+CREATE OR REPLACE FUNCTION private.lock_ticket_queue_day(p_site_id TEXT, p_queue_date DATE)
+RETURNS VOID
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    PERFORM pg_advisory_xact_lock(hashtextextended('ticket_queue:' || p_site_id || ':' || p_queue_date::text, 0));
+END;
+$$;
+REVOKE ALL ON FUNCTION private.lock_ticket_queue_day(TEXT, DATE) FROM PUBLIC;
+
+-- ============================================================================
 -- RPC 함수군 정의 (고정 search_path 및 100% 일치 계약)
 -- ============================================================================
 
 -- 1. 서약서 대기열 접수 (enqueue_consent_team) - 고객/익명 공개
--- - Advisory Lock 선취득으로 동시 동일 키 race condition 원천 차단
+-- - [CLAUDE-011 후속] 시설·영업일 잠금 선취득: 서로 다른 고객의 동시 접수도 번호가 겹치지 않음
+-- - 서약서가 서버에 없으면 CONSENT_NOT_FOUND (재시도 가능), 고유 제약 충돌은 ENQUEUE_CONFLICT (재시도 가능)
 -- - 멱등키 재사용 검사 (다른 동의서에 동일 키 재사용 시 거부)
 -- - 128비트 난수 고객 조회 토큰(customer_token) 생성 및 반환
 CREATE OR REPLACE FUNCTION public.enqueue_consent_team(
@@ -171,11 +190,10 @@ DECLARE
     v_cust_token VARCHAR(64);
     v_fmt_num TEXT;
     v_now TIMESTAMPTZ := NOW();
-    v_lock_key BIGINT;
 BEGIN
-    -- 1. [Fix 4] 동시 접수 race condition 방지용 분산 락 (Advisory Lock)
-    v_lock_key := ('x' || substr(md5(p_site_id || ':' || v_today::text || ':' || p_idempotency_key), 1, 15))::bit(64)::bigint;
-    PERFORM pg_advisory_xact_lock(v_lock_key);
+    -- 1. [CLAUDE-011 후속] 시설·영업일 단위 직렬화 잠금
+    --    (이전: 멱등키 단위 잠금 → 다른 고객끼리는 직렬화되지 않아 같은 번호 계산 → 고유 제약 오류)
+    PERFORM private.lock_ticket_queue_day(p_site_id, v_today);
 
     -- 2. 멱등키 중복 여부 확인
     SELECT * INTO v_existing 
@@ -222,7 +240,17 @@ BEGIN
         );
     END IF;
 
-    -- 4. 당일 최대 대기번호 및 order_key 원자적 조회
+    -- 3-1. [CLAUDE-011 후속] 서약서가 서버에 확정되어 있어야 접수 (외래키 오류 대신 재시도 가능한 오류 코드)
+    IF NOT EXISTS (SELECT 1 FROM public.safety_consents WHERE id = p_consent_id) THEN
+        RETURN jsonb_build_object(
+            'ok', false,
+            'error', 'CONSENT_NOT_FOUND',
+            'retryable', true,
+            'message', '서약서 저장이 서버에 확정되지 않았습니다. 잠시 후 다시 시도해 주세요.'
+        );
+    END IF;
+
+    -- 4. 당일 최대 대기번호 및 order_key 조회 (1단계 잠금 안에서 실행되므로 동시 접수와 겹치지 않음)
     SELECT COALESCE(MAX(queue_number), 0) + 1,
            COALESCE(MAX(order_key), 0) + 1
     INTO v_next_num, v_next_order_key
@@ -235,15 +263,25 @@ BEGIN
     v_fmt_num := '#' || lpad(v_next_num::text, 3, '0');
 
     -- 6. 레코드 삽입
-    INSERT INTO public.ticket_queue (
-        id, site_id, queue_date, queue_number, order_key, customer_token, formatted_number,
-        consent_id, guardian_name, guardian_phone, party_size,
-        idempotency_key, status, enqueued_at, version
-    ) VALUES (
-        v_entry_id, p_site_id, v_today, v_next_num, v_next_order_key, v_cust_token, v_fmt_num,
-        p_consent_id, p_guardian_name, p_guardian_phone, GREATEST(1, p_party_size),
-        p_idempotency_key, 'waiting', v_now, 1
-    );
+    --    잠금 덕분에 고유 제약 충돌은 생기지 않아야 한다. 생기면(토큰 난수 충돌 등) SQL 오류 대신 재시도 가능 코드로 돌려준다.
+    BEGIN
+        INSERT INTO public.ticket_queue (
+            id, site_id, queue_date, queue_number, order_key, customer_token, formatted_number,
+            consent_id, guardian_name, guardian_phone, party_size,
+            idempotency_key, status, enqueued_at, version
+        ) VALUES (
+            v_entry_id, p_site_id, v_today, v_next_num, v_next_order_key, v_cust_token, v_fmt_num,
+            p_consent_id, p_guardian_name, p_guardian_phone, GREATEST(1, p_party_size),
+            p_idempotency_key, 'waiting', v_now, 1
+        );
+    EXCEPTION WHEN unique_violation THEN
+        RETURN jsonb_build_object(
+            'ok', false,
+            'error', 'ENQUEUE_CONFLICT',
+            'retryable', true,
+            'message', '동시 접수 충돌입니다. 같은 요청을 다시 보내 주세요.'
+        );
+    END;
 
     RETURN jsonb_build_object(
         'ok', true,
@@ -291,6 +329,9 @@ BEGIN
     IF FOUND AND v_desk_rec.is_paused THEN
         RETURN jsonb_build_object('ok', false, 'error', 'DESK_PAUSED', 'message', p_desk_no || '번 창구는 발권 일시 중지 상태입니다.');
     END IF;
+
+    -- [CLAUDE-011 후속] 시설·영업일 잠금: 같은 창구 동시 호출이 점유 검사를 함께 통과하지 못하게 직렬화
+    PERFORM private.lock_ticket_queue_day(p_site_id, v_today);
 
     -- [Fix 4] 창구당 활성 1팀 제약: 이미 호출/처리 중인 팀이 있는지 검사
     IF EXISTS (
@@ -504,6 +545,9 @@ BEGIN
     IF v_rec.status <> 'no_show' THEN
         RETURN jsonb_build_object('ok', false, 'error', 'invalid_status', 'message', '부재 보류(no_show) 상태인 팀만 복귀할 수 있습니다.');
     END IF;
+
+    -- [CLAUDE-011 후속] 시설·영업일 잠금: 동시 접수·복귀와 order_key 가 겹치지 않게 직렬화
+    PERFORM private.lock_ticket_queue_day(v_rec.site_id, v_rec.queue_date);
 
     -- [Fix 5] 대기열 맨 뒤로 보내기 위해 현재 당일 order_key 최댓값 + 1 할당
     SELECT COALESCE(MAX(order_key), 0) + 1 INTO v_new_order_key
