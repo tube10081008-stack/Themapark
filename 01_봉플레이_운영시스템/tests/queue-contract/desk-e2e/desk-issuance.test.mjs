@@ -14,11 +14,37 @@ import { startProxy, openDesk, resetScenario, dbState, db, waitFor, sleep, skipR
 
 const skip = skipReason();
 
+/**
+ * 페이지 안의 비동기 동작을 시작만 하고(한 번만 실행), 결과는 짧은 조회로 기다린다.
+ * 긴 비동기 동작을 page.evaluate 안에서 await 하면 playwright 가 가끔 "Execution context was destroyed" 를 낸다
+ * (페이지 이동·재적재는 없고 화면 상태도 유지됨 — 시험 도구 쪽 현상). 동작 자체는 다시 실행하지 않는다.
+ */
+let jobSeq = 0;
+async function pageAsync(ui, fn, arg = null, { timeout = 30000 } = {}) {
+  const id = 'job' + (++jobSeq);
+  await ui.page.evaluate(({ id, src, arg }) => {
+    window.__jobs = window.__jobs || {};
+    window.__jobs[id] = { state: 'running' };
+    const f = (0, eval)('(' + src + ')');
+    Promise.resolve().then(() => f(arg)).then(
+      (v) => { window.__jobs[id] = { state: 'done', value: v === undefined ? null : v }; },
+      (e) => { window.__jobs[id] = { state: 'error', value: String(e && e.message || e) }; });
+  }, { id, src: fn.toString(), arg });
+  let job = null;
+  const ok = await waitFor(async () => {
+    try { job = await ui.page.evaluate((id) => window.__jobs && window.__jobs[id], id); } catch (e) { return false; }
+    return job && job.state !== 'running';
+  }, { timeout });
+  assert.ok(ok, `페이지 동작이 ${timeout}ms 안에 끝나지 않음 (${job && job.state})`);
+  if (job.state === 'error') throw new Error('페이지 동작 오류: ' + job.value);
+  return job.value;
+}
+
 /** 호출 → 처리 시작(화면이 consent_id 로 결제 창을 엶) → 기본권·현금 전액 배분까지 */
 async function toPayment(ui) {
   assert.ok(await waitFor(() => ui.page.evaluate(() => typeof consents !== 'undefined' && consents.length > 0 && !!BongplayAuth.getAccessCode()), { timeout: 15000 }),
     '준비: 직원 로그인·서약서 목록 로드');
-  const r = await ui.page.evaluate(async () => {
+  const r = await pageAsync(ui, async () => {
     await handleCallNextQueueTeam();
     if (!currentCalledQueueEntry) return { ok: false, step: 'call' };
     await handleStartQueueProcessing();
@@ -38,7 +64,7 @@ async function toPayment(ui) {
  */
 async function allocCash(ui, consentId) {
   if (consentId) {
-    await ui.page.evaluate(async (cid) => { if (payCtx) closePaymentModal(); await toggleTicketIssue(cid, true); }, consentId);
+    await pageAsync(ui, async (cid) => { if (payCtx) closePaymentModal(); await toggleTicketIssue(cid, true); }, consentId);
     if (!(await ui.page.evaluate(() => !!payCtx))) return { opened: false };
   }
   await ui.page.evaluate(() => swapChildTicket('tkt_basic'));
@@ -51,10 +77,10 @@ async function allocCash(ui, consentId) {
 /** 화면의 직원 대기 목록 캐시가 채워질 때까지 (현장 직원이 화면을 연 뒤 몇 초 지나 조작하는 상황) */
 async function staffListReady(ui) {
   const ok = await waitFor(() => ui.page.evaluate(() => typeof lastKnownStaffQueueData !== 'undefined' && !!lastKnownStaffQueueData), { timeout: 10000 });
-  if (!ok) await ui.page.evaluate(async () => { if (typeof refreshDeskQueueView === 'function') await refreshDeskQueueView(); });
+  if (!ok) await pageAsync(ui, async () => { if (typeof refreshDeskQueueView === 'function') await refreshDeskQueueView(); });
 }
 
-const confirmPay = (ui) => ui.page.evaluate(() => confirmPayment());
+const confirmPay = (ui) => pageAsync(ui, () => confirmPayment());
 const orderIds = (s) => [...new Set(s.items.map((i) => i.order_id))];
 const paidSum = (s) => s.pays.filter((p) => p.status === 'paid').reduce((a, p) => a + Number(p.amount), 0);
 

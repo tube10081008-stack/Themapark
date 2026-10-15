@@ -28,6 +28,8 @@ SQL Editor 에서 파일 하나씩 전체를 붙여넣고 **Run** 한다. 각 �
 - 공개 RPC 4개, 안전 인터록 트리거, Realtime 등록
 - `PATCH_r3_to_r4.sql`·`PATCH_survey_v2.sql` 의 내용은 이미 FINAL 에 들어 있어 따로 실행하지 않는다.
 
+**서약서 status 규칙 (R2)**: `status` 는 `active`/`cancelled` 만 쓰고, 발권 여부는 `is_issued` 로 분리한다. 새 CHECK 제약은 두지 않는다.
+
 **2b 단계 서약서 취소 3열 (C1)**
 - 열 추가와 인덱스뿐이다. 기존 행은 `status='active'`, 나머지 null 이 되고, 다른 열 값·RLS 정책·기존 RPC 는 바뀌지 않는다.
 - 3열 없이 운영되던 DB(기존 행 포함)에 두 번 적용해도 같은 결과임을 로컬에서 확인했다 (§4 의 H 단계).
@@ -48,6 +50,7 @@ SQL Editor 에서 파일 하나씩 전체를 붙여넣고 **Run** 한다. 각 �
 **6단계 결과 판정**
 - 결과 표에 `level = FAIL` 이면서 `ok = false` 인 행이 없어야 한다.
 - `WARN` 은 참고 항목이다 (pg_cron 없음, TRUNCATE 권한 — §3 참고).
+- `S02` 는 안전점검 수정 정책이 KST 날짜 기준인지 본다 (C2, FINAL 5-3).
 
 **순서 주의**
 - FINAL 은 실행할 때마다 public 스키마의 **모든 RLS 정책을 지우고 다시 만든다**.
@@ -117,4 +120,4 @@ PGRST_BIN=<postgrest 경로> bash 01_봉플레이_운영시스템/tests/queue-co
 
 | 파일 | 내용 | 검증 |
 |---|---|---|
-| `database/PROPOSED_PATCH_audits_update_kst.sql` | 안전점검 수정 정책(`audits_update`)을 KST 날짜 기준으로 (C2). FINAL 을 다시 실행하면 지워지므로 그때마다 다시 실행하거나 FINAL 자체를 고친다 | `tests/queue-contract/supabase-install/audits_kst_boundary.sh` (libfaketime 으로 KST 경계 시각 재현) |
+| `database/PROPOSED_PATCH_audits_update_kst.sql` | 안전점검 수정 정책(`audits_update`)을 KST 날짜 기준으로 (C2). **2026-10-15 R2 로 FINAL 5-3 에 같은 내용을 반영**했으므로 새 설치에는 필요 없다. 옛 FINAL 로 이미 설치된 DB 에 정책만 바꿀 때 쓴다 | `tests/queue-contract/supabase-install/audits_kst_boundary.sh` (libfaketime 으로 KST 경계 시각 재현, 옛/새 FINAL·패치 판별 비교) |
