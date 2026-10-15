@@ -8,11 +8,13 @@
 ## 1. 설치 순서
 
 SQL Editor 에서 파일 하나씩 전체를 붙여넣고 **Run** 한다. 각 단계는 여러 번 실행해도 안전하다.
+같은 순서가 `ORDER` 파일에 있고, 로컬 검증·E2E 스크립트는 이 파일을 따른다.
 
 | 순서 | 파일 | 하는 일 | 필수 |
 |---|---|---|---|
 | 1 | `test_supabase_install/00_preflight.sql` | 빈 시험 프로젝트인지 확인하고 시험 설치 표시(`install_target = synthetic_test`)를 남긴다 | ✅ |
 | 2 | `FINAL_SUPABASE_SETUP.sql` (저장소 `database/`) | 기본 스키마 30개 표 전체 | ✅ |
+| 2b | `PROPOSED_MIGRATION_safety_consents_cancellation.sql` (저장소 `database/`) | 서약서 취소 3열(`status` 기본 `active`, `cancelled_at`, `cancel_reason`) + 부분 인덱스. 매표 화면이 서약서 저장에 이 열을 포함한다 (없으면 400 → 발권 상태 미전송) | ✅ (2026-10-15 벤 결정 R1) |
 | 3 | `PROPOSED_MIGRATION_ticket_queue.sql` (저장소 `database/`) | 대기열 표 3개, RPC 12개, 잠금·권한 이중화 | ✅ |
 | 4 | `test_supabase_install/40_test_staff_code.sql` | 시험 전용 운영자 암호 등록 | ✅ |
 | 5 | `test_supabase_install/50_synthetic_seed.sql` | 오늘(KST) 안전점검 PASS 1건, 합성 서약서 3건 | ✅ (시험하는 날마다) |
@@ -25,6 +27,11 @@ SQL Editor 에서 파일 하나씩 전체를 붙여넣고 **Run** 한다. 각 �
 - 직원 인증: `private.verify_access_code`, bcrypt, IP 잠금
 - 공개 RPC 4개, 안전 인터록 트리거, Realtime 등록
 - `PATCH_r3_to_r4.sql`·`PATCH_survey_v2.sql` 의 내용은 이미 FINAL 에 들어 있어 따로 실행하지 않는다.
+
+**2b 단계 서약서 취소 3열 (C1)**
+- 열 추가와 인덱스뿐이다. 기존 행은 `status='active'`, 나머지 null 이 되고, 다른 열 값·RLS 정책·기존 RPC 는 바뀌지 않는다.
+- 3열 없이 운영되던 DB(기존 행 포함)에 두 번 적용해도 같은 결과임을 로컬에서 확인했다 (§4 의 H 단계).
+- 실제 DB 적용은 벤이 맡는다.
 
 **3단계 대기열 SQL 의 권한 이중화**
 - Supabase 는 public 스키마에 새로 만든 표·함수에 `anon`·`authenticated` 권한을 기본으로 준다.
@@ -64,6 +71,7 @@ SUPABASE_URL=https://<시험 프로젝트>.supabase.co SUPABASE_ANON_KEY=<시험
 | H05 | HTTP 동시 접수 20건이 모두 성공하고 번호가 겹치지 않음 |
 | H06 | 틀린 직원 암호 거부 |
 | H07 | 호출 → 처리 시작 → 원장 확정 후 발권 완료 → 같은 요청 재시도 성공 → 부분 수납 거부 |
+| H08 | 서약서 취소 기록과 null 해제가 PATCH·병합 저장 두 경로 모두 서버에 반영됨 |
 
 주의:
 - 만드는 행은 `SYN-HTTP-` 로 시작한다.
@@ -104,3 +112,9 @@ SUPABASE_URL=https://<시험 프로젝트>.supabase.co SUPABASE_ANON_KEY=<시험
 PGRST_BIN=<postgrest 경로> bash 01_봉플레이_운영시스템/tests/queue-contract/supabase-install/run_local_install_check.sh
 # 대조 실행: QUEUE_SQL=<다른 판본 대기열 SQL> 로 바꿔 같은 점검을 돌릴 수 있다
 ```
+
+## 5. 제안만 있는 변경 (묶음에 넣지 않음)
+
+| 파일 | 내용 | 검증 |
+|---|---|---|
+| `database/PROPOSED_PATCH_audits_update_kst.sql` | 안전점검 수정 정책(`audits_update`)을 KST 날짜 기준으로 (C2). FINAL 을 다시 실행하면 지워지므로 그때마다 다시 실행하거나 FINAL 자체를 고친다 | `tests/queue-contract/supabase-install/audits_kst_boundary.sh` (libfaketime 으로 KST 경계 시각 재현) |
