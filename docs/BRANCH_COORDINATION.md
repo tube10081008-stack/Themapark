@@ -63,7 +63,7 @@
 | CLAUDE-003 | Claude | `claude/CLAUDE-003-legacy-business-docs` | `3830fad` | `03_봉뜨락_도면및행정자료/_참고_초기기획_20260830/` 신규 5개(원본 4 + README), 본 작업표 1행 | 운영계획서·손익 그리드·채용 제안서 2종을 원본 그대로(blob 동일) 보존, README에 원본 SHA·구버전·현행 판단 미사용 명시. 제안서 2종은 대표 결정(2026-09-29)으로 보관 전용 | 벤 검토 통과 / 이력 보존 통합 |
 | CLAUDE-004 | Claude | `claude/CLAUDE-004-agents-design` | `3830fad` | `05_봉플레이_AI에이전트/DESIGN.md` 신규, 본 작업표 1행 | 6종 이관 1차 설계: 기준정보 JSON 계약·입력 스냅샷·숨은 쓰기 경로·테스트 계획·PR 순서 (코드 이동 없음) | 설계 벤 검토 통과 / 이력 보존 통합 |
 | CLAUDE-004b | 클로이 | `claude/CLAUDE-004b-profile-contract` | `2314e75` (+ master `1bc6ff1` 병합) | 05 계약·검증·gate·테스트 (`site_profile.json`, `core/`, `tests/`, README, `env.template`, DESIGN 갱신) | PR #9 R1/R2 요금 추출 누락 보완 후 재검토 | R1/R2 보완 `4613a7a`, 작업 폴더 지정·실행 환경 문서화 추가, Linux·Python 3.11.15에서 키 없이 83건 통과 / PR 본문 최신화 / 벤 재검토 대기 (Windows 재실행 미확인) |
-| ASIDE-001 | 지오 | `aside/ASIDE-001-institution-directory` (예정) | 착수 시 기록 | 공식 공개 기관 목록, 방법 보고서·본 행 | 9칸 커버리지, CSV는 저장소 밖 대표 전달 | GEO-001 PR 인계 후 착수 |
+| ASIDE-001 | 지오 | `aside/ASIDE-001-institution-directory` | `ed5a2cefd72d58daba1465f1d2a25ccfc27d01b6` (이후 `1ff3891` 동기화) | `docs/research/ASIDE-001_수집방법과_커버리지.md`, 본 행 (CSV는 저장소 밖) | 9칸 커버리지, CSV는 저장소 밖 대표 전달 | 9칸 248개 수집·CSV 대표 전달, 방법 문서 PR #16 제출 / 벤 검토 대기 |
 | ASIDE-HIST-001 | 지오·대표 | 해당 없음 | 대표 보고 2026-09-29 | 네이버 블로그 자동화 기존 운영 | 대표 운영 성공 보고 기록 | 보고 기준 완료 / 벤 미검증 / 신규 게시 미배정 |
 | COORD-004 | Ben | `ben/COORD-004-chloe-review` | `bb0fcec` | PR #4~#6 이력 통합·작업표·결정문·추가 지시 | 원본 검증·작업행 보존·통합 PR | 검토 및 통합 |
 
