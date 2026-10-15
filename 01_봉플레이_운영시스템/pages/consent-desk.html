@@ -5,12 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>봉플레이 - 매표·서약 관리데스크 (현장 발권 및 접수)</title>
   
-  <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Tailwind CSS -->
+  <script src="/assets/vendor/tailwind-3.4.17.js"></script>
   <!-- Lucide Icons -->
-  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
-  <!-- QRCode.js CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <script src="/assets/vendor/lucide-0.468.0.js"></script>
+  <!-- QRCode.js -->
+  <script src="/assets/vendor/qrcode-1.0.0.js"></script>
 
   <script>
     tailwind.config = {
@@ -35,7 +35,6 @@
   </script>
 
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800;900&display=swap');
     * {
       font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
       box-sizing: border-box;
@@ -46,7 +45,7 @@
     ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
   </style>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/assets/vendor/supabase-2.49.1.js"></script>
   <script src="../assets/bongplay-site.js"></script>
   <script src="../assets/config.js"></script>
   <script src="../assets/bongplay-sync.js"></script>
@@ -55,14 +54,14 @@
   <script src="../assets/bongplay-wakelock.js"></script>
   <link rel="stylesheet" href="../assets/print.css">
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased">
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased"><div style="background:#92400e;color:white;text-align:center;padding:8px;font:14px sans-serif">시험용 · 합성 데이터만 입력 · 실제 결제 금지</div>
 
   <!-- ================================================================= -->
   <!-- TOP NAVIGATION: STAFF DESK BAR                                     -->
   <!-- ================================================================= -->
   <header class="bg-slate-900/90 border-b border-slate-800 sticky top-0 z-40 backdrop-blur-md px-3 sm:px-6 py-2.5 flex items-center justify-between gap-3">
     <div class="flex items-center gap-2.5">
-      <a href="../index.html" class="w-8 h-8 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center text-white font-black text-xs shadow-md shadow-brand-600/30">
+      <a class='w-8 h-8 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center text-white font-black text-xs shadow-md shadow-brand-600/30' href='/'>
         봉플
       </a>
       <div>
@@ -83,25 +82,25 @@
 
       <!-- Quick Links -->
       <div class="hidden md:flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold gap-1">
-        <a href="gate.html" class="px-2.5 py-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition flex items-center gap-1">
+        <a class='px-2.5 py-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition flex items-center gap-1' href='/pages/gate'>
           <i data-lucide="scan-line" class="w-3.5 h-3.5 text-sky-400"></i>
           <span>게이트 관제</span>
         </a>
-        <a href="operations.html" class="px-2.5 py-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition flex items-center gap-1">
+        <a class='px-2.5 py-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition flex items-center gap-1' href='/pages/operations'>
           <i data-lucide="activity" class="w-3.5 h-3.5 text-purple-400"></i>
           <span>운영 현황</span>
         </a>
-        <a href="safety-check.html" class="px-2.5 py-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition flex items-center gap-1">
+        <a class='px-2.5 py-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition flex items-center gap-1' href='/pages/safety-check'>
           <i data-lucide="clipboard-check" class="w-3.5 h-3.5 text-blue-400"></i>
           <span>안전점검</span>
         </a>
-        <a href="closing.html" class="px-2.5 py-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition flex items-center gap-1">
+        <a class='px-2.5 py-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition flex items-center gap-1' href='/pages/closing'>
           <i data-lucide="wallet" class="w-3.5 h-3.5 text-amber-400"></i>
           <span>마감정산</span>
         </a>
       </div>
 
-      <a href="consent.html" target="_blank" class="px-2.5 py-1.5 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-black shadow transition flex items-center gap-1" title="고객용 서약 화면 새 창">
+      <a class='px-2.5 py-1.5 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-black shadow transition flex items-center gap-1' href='/pages/consent' target='_blank' title='고객용 서약 화면 새 창'>
         <i data-lucide="smartphone" class="w-3.5 h-3.5"></i>
         <span class="hidden sm:inline">손님 서약창 열기</span>
       </a>
@@ -135,7 +134,7 @@
         </p>
       </div>
     </div>
-    <a href="safety-check.html" class="px-3.5 py-1.5 bg-rose-500 hover:bg-rose-400 text-slate-950 font-black text-xs rounded-xl transition shrink-0 shadow flex items-center gap-1.5">
+    <a class='px-3.5 py-1.5 bg-rose-500 hover:bg-rose-400 text-slate-950 font-black text-xs rounded-xl transition shrink-0 shadow flex items-center gap-1.5' href='/pages/safety-check'>
       <i data-lucide="clipboard-check" class="w-3.5 h-3.5"></i>
       <span>안전점검 작성하기 ↗</span>
     </a>
@@ -237,7 +236,7 @@
           </button>
 
           <!-- Public Display Link -->
-          <a href="queue-display.html" target="_blank" class="px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-300 font-bold border border-slate-800 flex items-center gap-1.5 transition">
+          <a class='px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-300 font-bold border border-slate-800 flex items-center gap-1.5 transition' href='/pages/queue-display' target='_blank'>
             <i data-lucide="monitor" class="w-3.5 h-3.5 text-sky-400"></i>
             <span>공개 전광판 ↗</span>
           </a>
@@ -626,7 +625,7 @@
 
     // 1. Initial Load
     document.addEventListener('DOMContentLoaded', async function () {
-      lucide.createIcons();
+      window.lucide && window.lucide.createIcons();
       BongplaySync.renderBadge('syncStatusBadge');
       
       // Realtime bus listener
@@ -1244,7 +1243,7 @@
             </td>
           </tr>
         `;
-        lucide.createIcons();
+        window.lucide && window.lucide.createIcons();
         return;
       }
 
@@ -1288,7 +1287,7 @@
         `;
       }).join('');
 
-      lucide.createIcons();
+      window.lucide && window.lucide.createIcons();
     }
 
     // 7. 발권 처리 (BP-008: 결제 모달 경유) / 발권 취소
@@ -1342,6 +1341,25 @@
       const reco = BongplayID.recommendCartForConsent(rec, {});   // 12시 이전이면 조조권 프리셋
       const cart = {};
       reco.cart.forEach(l => { cart[l.product_id] = (cart[l.product_id] || 0) + l.quantity; });
+
+      // 기상 잠금(강풍·센서 미수신 등) 시 카트에 짚코스터 상품이 포함되어 있다면 기본권(실내+네트)으로 안전 전환
+      const weatherLock = BongplayID.getCoasterWeatherLock ? BongplayID.getCoasterWeatherLock() : { locked: false };
+      if (weatherLock.locked) {
+        const ids = BongplayID.CHILD_TICKET_IDS || ['tkt_allday', 'tkt_morning', 'tkt_basic'];
+        let hasCoasterChild = false;
+        let childQty = 0;
+        ids.forEach(id => {
+          const p = (BongplayID.PRODUCTS && BongplayID.PRODUCTS[id]) || (BongplayID.PRODUCT_CATALOG && BongplayID.PRODUCT_CATALOG.find(x => x.id === id));
+          if (p && BongplayID.isCoasterProduct(p) && cart[id]) {
+            hasCoasterChild = true;
+            childQty += cart[id];
+            delete cart[id];
+          }
+        });
+        if (hasCoasterChild && childQty > 0) {
+          cart['tkt_basic'] = (cart['tkt_basic'] || 0) + childQty;
+        }
+      }
 
       payCtx = { consentId: consentId, cart: cart, residence: reco.residence, morningPreset: reco.isMorningPreset, alloc: {} };
 
@@ -1712,8 +1730,29 @@
       // 3) 대기열 발권 완료 확정 (ANT-006: 서버 발권 확정 후 대기열에서 제외)
       // 벤 지시: 서버 저장 확인 전에 발권 완료로 표시하지 않도록 순서 보정
       if (window.BongplayQueue) {
-        const qEntry = currentCalledQueueEntry || (BongplayQueue.store ? BongplayQueue.store.getEntryByConsentId(rec.id) : null);
+        let qEntry = currentCalledQueueEntry || (BongplayQueue.store ? BongplayQueue.store.getEntryByConsentId(rec.id) : null);
+        if (!qEntry && typeof lastKnownStaffQueueData !== 'undefined' && lastKnownStaffQueueData) {
+          const allTeams = [
+            ...(lastKnownStaffQueueData.called_teams || []),
+            ...(lastKnownStaffQueueData.waiting_teams || []),
+            ...(lastKnownStaffQueueData.held_teams || [])
+          ];
+          qEntry = allTeams.find(t => t.consent_id === rec.id || t.id === rec.id) || null;
+        }
+
         if (qEntry) {
+          // DB 계약: processing 상태인 팀만 complete_queue_issuance 가능.
+          // called 상태이면 startProcessing을 먼저 수행하여 유효한 상태 전이 보장.
+          if (qEntry.status === 'called' || (BongplayQueue.STATUS && qEntry.status === BongplayQueue.STATUS.CALLED)) {
+            const startRes = await BongplayQueue.startProcessing(qEntry.id, currentDeskNo);
+            if (startRes && startRes.ok) {
+              qEntry.status = 'processing';
+              if (currentCalledQueueEntry && currentCalledQueueEntry.id === qEntry.id) {
+                currentCalledQueueEntry.status = 'processing';
+              }
+            }
+          }
+
           const qRes = await BongplayQueue.completeIssuance(qEntry.id, order.order_id, ticketIds);
           if (!qRes || !qRes.ok) {
             alert('❌ 대기열 발권 확정 실패: ' + (qRes?.message || '대기열 완료 서버 응답에 실패했습니다. 대기열 및 서약서 미완료 상태를 유지합니다.'));
@@ -1731,6 +1770,8 @@
       rec.is_issued = true;
       rec.ticket_issued_at = rec.ticket_issued_at || now;
       rec.ticket_ids = ticketIds;
+      if (rec.cancel_reason == null) delete rec.cancel_reason;
+      if (rec.cancelled_at == null) delete rec.cancelled_at;
       const consentSyncRes = await BongplaySync.upsert('safety_consents', rec);
       const consentConfirmed = Boolean(consentSyncRes && consentSyncRes.ok === true && !consentSyncRes.queued);
       if (!consentConfirmed) {
@@ -1810,7 +1851,7 @@
       }
 
       document.getElementById('detailModal').classList.remove('hidden');
-      lucide.createIcons();
+      window.lucide && window.lucide.createIcons();
     }
 
     function closeDetailModal() {

@@ -606,7 +606,8 @@
             try { var sess = getSession() || sessionStorage; if (sess) sess.setItem('bongplay_invalid_columns', JSON.stringify(invalidColumnCache)); } catch (e) {}
           }
           var criticalCols = ['status', 'cancelled_at', 'cancel_reason', 'closing_status'];
-          if (criticalCols.indexOf(missingCol) !== -1) {
+          var isCritical = criticalCols.indexOf(missingCol) !== -1;
+          if (isCritical && payload[missingCol] !== null && payload[missingCol] !== undefined) {
             var outId = payload[pkField] || ('out_' + Date.now());
             await enqueueOutbox({
               id: outId,
@@ -724,7 +725,7 @@
     var criticalCols = ['status', 'cancelled_at', 'cancel_reason', 'closing_status'];
     if (invalidColumnCache[table]) {
       var hasBlockedCritical = invalidColumnCache[table].some(function (c) {
-        return criticalCols.indexOf(c) !== -1 && sendData[c] !== undefined;
+        return criticalCols.indexOf(c) !== -1 && sendData[c] !== undefined && sendData[c] !== null;
       });
       if (hasBlockedCritical) {
         await enqueueOutbox({
@@ -739,6 +740,11 @@
         broadcast({ type: 'SCHEMA_BLOCKED', table: table, id: idVal, data: patchPayload, offline: true });
         return { ok: false, schema_blocked: true, queued: true };
       }
+      invalidColumnCache[table].forEach(function (c) {
+        if (sendData[c] === null || sendData[c] === undefined) {
+          delete sendData[c];
+        }
+      });
     }
 
     var _fetch = getFetch();
@@ -962,11 +968,11 @@
             if (colMatch && colMatch[1]) {
               var missingColU = colMatch[1];
               var criticalColsU = ['status', 'cancelled_at', 'cancel_reason', 'closing_status'];
-              if (criticalColsU.indexOf(missingColU) !== -1) {
+              if (criticalColsU.indexOf(missingColU) !== -1 && item.payload && item.payload[missingColU] !== null && item.payload[missingColU] !== undefined) {
                 // 필수 상태 컬럼 누락: 아웃박스에서 삭제하지 않고 대기 유지
                 success = false;
               } else {
-                delete item.payload[missingColU];
+                if (item.payload) delete item.payload[missingColU];
                 var resRetry = await fetchFn(cfg.url + '/rest/v1/' + item.table, {
                   method: 'POST',
                   headers: {
@@ -1132,11 +1138,11 @@
             ticket_ids: row.ticket_ids,
             signatureData: row.signature_data,
             consentMarketing: row.consent_marketing,
-            status: row.status || 'active',
-            cancelled_at: row.cancelled_at || null,
-            cancel_reason: row.cancel_reason || null,
-            legal_hold_until: row.legal_hold_until || null,
-            pii_masked_at: row.pii_masked_at || null
+            status: row.status || (row.is_issued ? 'issued' : 'active'),
+            cancelled_at: row.cancelled_at || undefined,
+            cancel_reason: row.cancel_reason || undefined,
+            legal_hold_until: row.legal_hold_until || undefined,
+            pii_masked_at: row.pii_masked_at || undefined
           };
         });
         // 서버 응답에 없는 로컬 기록(어제 이전 접수분, 미전송분)을 덮어써 지우지 않도록 병합한다.

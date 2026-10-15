@@ -900,10 +900,13 @@
         sales_channel: salesChannel,
         product_id: prod.id,
         product_name: prod.name,
+        category: prod.category,
         product_category: prod.category,
         quantity: qty,
+        unit_price: listPrice,
         list_price: listPrice,
         discount_amount: discount,
+        total_price: paid,
         paid_amount: paid,
         payment_method: paymentMethod,
         approval_no: orderParams.approval_no || null,   // 외부 결제단말기(토스 등) 승인번호 — 마감 카드 대사용
@@ -911,7 +914,9 @@
         consent_id: orderParams.consent_id || null,
         coupon_id: couponId,
         staff_id: staffId,
-        created_at: now.toISOString()
+        status: 'paid',
+        created_at: now.toISOString(),
+        updated_at: now.toISOString()
       };
 
       orderItems.push(record);
@@ -2651,8 +2656,14 @@
   }
 
   // 아동 기본 권종: 12시 이전 입장은 조조권(18,000) 자동 추천, 이후는 종합권(21,000)
+  // 기상 잠금(강풍·센서 미수신 등) 시 짚코스터 포함 권종은 발권 불가하므로 기본이용권(실내+네트)을 안전 기본값으로 추천
   const CHILD_TICKET_IDS = ['tkt_allday', 'tkt_morning', 'tkt_basic'];
   function defaultChildTicketId(at) {
+    try {
+      if (typeof getCoasterWeatherLock === 'function' && getCoasterWeatherLock().locked) {
+        return 'tkt_basic';
+      }
+    } catch (_) {}
     const d = at ? new Date(at) : new Date();
     return d.getHours() < 12 ? 'tkt_morning' : 'tkt_allday';
   }
