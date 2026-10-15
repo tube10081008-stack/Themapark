@@ -41,6 +41,11 @@ export async function startMockServer() {
   const state = { tables: new Map(), queue: [], seq: 0, log: [], faults: [] };
   const table = (name) => { if (!state.tables.has(name)) state.tables.set(name, new Map()); return state.tables.get(name); };
   const rowsOf = (name) => [...table(name).values()];
+  // 서버 측 오늘(KST) 안전점검 PASS (실제 DB 계약의 안전 인터록 전제). 화면이 결제 전에 서버 점검을 조회하므로 모의 서버에도 둔다.
+  table('safety_audits').set('SYN-AUDIT-' + kstToday(), {
+    id: 'SYN-AUDIT-' + kstToday(), site_id: 'bongplay_bonghwa', audit_date: kstToday(), audit_at: new Date().toISOString(),
+    inspector: 'SYN 점검자', decision: 'pass', is_safe: true, note: '합성 PASS'
+  });
   const pkOf = (name, row) => (name === 'ticket_ledger' ? row.ticket_id : (row.id ?? row.item_id ?? row.ticket_id));
 
   function takeFault(kind, name, method) {
@@ -235,6 +240,7 @@ window.BongplayAuth = {
     calls(kind, name) { return state.log.filter((e) => e.kind === kind && e.name === name); },
     rows: rowsOf,
     seedConsent(row) { table('safety_consents').set(row.id, row); },
+    seedAudit(audit) { table('safety_audits').set(audit.id, audit); },
     seedQueue(consent) { return rpc.enqueue_consent_team({ p_consent_id: consent.id, p_idempotency_key: 'seed_' + consent.id, p_party_size: 2, p_guardian_name: consent.guardian_name, p_guardian_phone: consent.guardian_phone }); },
     close: () => new Promise((r) => { server.closeAllConnections?.(); server.close(r); })
   };

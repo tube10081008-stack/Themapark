@@ -339,31 +339,45 @@ test('E10 issuing a previously cancelled consent clears its cancel fields on the
   if (opts.skipped) t.skip('이 DB 에는 서약서 취소 3열이 없다 (C1 미적용 판)');
 });
 
-test('E11 after the staff code changes on the server, the desk stops repeating staff calls with the stale code and asks for re-authentication', { skip }, async () => {
+test('E11 after the staff code changes on the server, the desk stops repeating stale-code calls, asks for re-authentication, and resumes after re-auth', { skip }, async () => {
   // 암호를 바꾸면(또는 세션 암호가 무효가 되면) 매표 화면은 3초 폴링 등으로 옛 암호를 계속 보낸다.
   // 실패는 private.auth_attempts 에 IP 별로 쌓이고 10분 20회면 같은 IP 의 모든 단말이 잠긴다 (E6).
-  // 계약: 인증 실패를 받으면 자동 반복 요청을 멈추고 재인증을 안내한다. 30초 동안 실패 3회 이하, 재인증 안내 표시.
+  // 계약 (세 단계 모두):
+  //   (1) 자동 요청 중단 — 암호 교체 후 30초 동안 서버 인증 실패 3건 이하
+  //   (2) 재인증 안내 — 재인증 창 또는 인증·암호·로그인 안내
+  //   (3) 재인증 성공 후 조회 재개 — 새 암호로 직원 대기 목록 조회가 다시 성공
   const env = loadEnv();
+  const newCode = 'SYN-ROTATED-' + Date.now().toString(36);
   const c0 = await db();
   try {
     await scenario({}, async ({ c, ui, proxy }) => {
       assert.ok(await waitFor(() => ui.page.evaluate(() => typeof consents !== 'undefined' && consents.length > 0 && !!BongplayAuth.getAccessCode()), { timeout: 15000 }), '준비: 로그인');
-      await c.query(`update private.app_settings set value = extensions.crypt($1, extensions.gen_salt('bf')), updated_at = now() where key = 'access_code'`,
-        ['SYN-ROTATED-' + Date.now().toString(36)]);
+      await c.query(`update private.app_settings set value = extensions.crypt($1, extensions.gen_salt('bf')), updated_at = now() where key = 'access_code'`, [newCode]);
       await c.query(`delete from private.auth_attempts`);
       const t0 = Date.now();
       await sleep(30000);
       const fails = (await c.query(`select count(*)::int n from private.auth_attempts where not ok`)).rows[0].n;
-      const staffCalls = proxy.state.log.filter((e) => e.t >= t0 && e.kind === 'rpc' && e.body && e.body.p_access_code === env.E2E_STAFF_CODE);
-      const ui2 = await ui.page.evaluate(() => ({
+      const stale = proxy.state.log.filter((e) => e.t >= t0 && e.kind === 'rpc' && e.body && e.body.p_access_code === env.E2E_STAFF_CODE);
+      const st = await ui.page.evaluate(() => ({
         overlay: !!document.getElementById('bongplay-auth-overlay'),
         code: !!(window.BongplayAuth && BongplayAuth.getAccessCode())
       }));
       const reauthDialog = ui.dialogs.some((d) => d.t >= t0 && /인증|암호|로그인/.test(d.message));
-      const byName = staffCalls.reduce((m, e) => ((m[e.name] = (m[e.name] || 0) + 1), m), {});
-      console.log(`# E11 관찰: 30초 동안 옛 암호 직원 호출 ${staffCalls.length}회 ${JSON.stringify(byName)}, 서버 인증 실패 기록 ${fails}건 (IP 잠금 기준 20), 재인증 창 ${ui2.overlay}, 세션 암호 유지 ${ui2.code}, 재인증 안내 대화상자 ${reauthDialog}`);
-      assert.ok(fails <= 3, `인증 실패 뒤에도 옛 암호로 계속 요청 (30초 동안 실패 ${fails}건 — 10분 20건이면 같은 IP 단말 전체 잠김)`);
-      assert.ok(ui2.overlay || reauthDialog, '인증 실패 뒤 재인증 안내가 없음');
+      const byName = stale.reduce((m, e) => ((m[e.name] = (m[e.name] || 0) + 1), m), {});
+      // (3) 재인증: 화면이 인증 창을 띄웠으면 새 암호를 넣는다
+      let resumed = null;
+      if (st.overlay) {
+        await ui.page.fill('#bongplay-auth-input', newCode);
+        await ui.page.click('#bongplay-auth-submit');
+        const t1 = Date.now();
+        resumed = await waitFor(() => proxy.state.log.some((e) => e.t >= t1 && e.kind === 'rpc' && e.name === 'get_staff_queue_list'
+          && e.body && e.body.p_access_code === newCode && /"ok"\s*:\s*true/.test(e.response || '')), { timeout: 15000 });
+      }
+      console.log(`# E11 관찰: 30초 동안 옛 암호 직원 호출 ${stale.length}회 ${JSON.stringify(byName)}, 서버 인증 실패 ${fails}건 (IP 잠금 기준 20), ` +
+        `재인증 창 ${st.overlay}, 세션 암호 유지 ${st.code}, 재인증 안내 대화상자 ${reauthDialog}, 재인증 후 조회 재개 ${resumed === null ? '확인 불가(재인증 창 없음)' : resumed}`);
+      assert.ok(fails <= 3, `(1) 인증 실패 뒤에도 옛 암호로 계속 요청 (30초 동안 실패 ${fails}건 — 10분 20건이면 같은 IP 단말 전체 잠김)`);
+      assert.ok(st.overlay || reauthDialog, '(2) 인증 실패 뒤 재인증 안내가 없음');
+      assert.ok(resumed === true, `(3) 재인증 성공 후 직원 대기 목록 조회가 재개되지 않음 (${resumed === null ? '재인증 창이 없어 재인증 불가' : '15초 안에 성공 조회 없음'})`);
     });
   } finally {
     // 다음 시험을 위해 시험 암호를 되돌린다
