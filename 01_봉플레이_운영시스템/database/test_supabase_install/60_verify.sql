@@ -48,6 +48,11 @@ checks(level, check_id, ok, detail) as (
   from req_cols rc left join information_schema.columns c
     on c.table_schema = 'public' and c.table_name = rc.t and c.column_name = rc.c
   union all
+  select 'FAIL', 'T03 서약서 취소 3열 (status·cancelled_at·cancel_reason, 매표 화면이 저장에 포함)',
+         (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'safety_consents'
+            and column_name in ('status', 'cancelled_at', 'cancel_reason')) = 3,
+         'PROPOSED_MIGRATION_safety_consents_cancellation.sql 적용 여부'
+  union all
   select 'FAIL', 'E01 pgcrypto 가 extensions 스키마에 설치',
          exists (select 1 from pg_extension e join pg_namespace n on n.oid = e.extnamespace
                  where e.extname = 'pgcrypto' and n.nspname = 'extensions'), ''

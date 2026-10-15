@@ -39,8 +39,12 @@ async function playwright() {
 const kstToday = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
 export { kstToday };
 
-/** 시나리오마다 대기열·주문·원장·서약서를 비우고 합성 서약서 1건 + 대기 1팀을 만든다 (관리자 연결) */
-export async function resetScenario(c, { passAudit = true } = {}) {
+/**
+ * 시나리오마다 대기열·주문·원장·서약서를 비우고 합성 서약서 n 건과 대기 팀을 순서대로 만든다 (관리자 연결).
+ * cancelledFirst: 첫 서약서를 "예전에 발권취소된" 상태(status·cancelled_at·cancel_reason)로 만든다 (취소 3열이 있는 DB 에서만).
+ * 반환: 첫 서약서·대기 팀 id (consentId·queueId) 와 전체 목록 (teams).
+ */
+export async function resetScenario(c, { passAudit = true, consents = 1, cancelledFirst = false } = {}) {
   await c.query(`truncate public.ticket_queue, public.order_items, public.order_payments, public.ticket_ledger, public.safety_consents, public.safety_audits`);
   await c.query(`update public.ticket_queue_desks set current_queue_id = null, is_paused = false`);
   await c.query(`delete from private.auth_attempts`);
@@ -48,14 +52,27 @@ export async function resetScenario(c, { passAudit = true } = {}) {
     await c.query(`insert into public.safety_audits (id, site_id, audit_date, audit_at, inspector, decision, is_safe, note)
       values ($1, 'bongplay_bonghwa', $2, now(), 'SYN 점검자', 'pass', true, '합성')`, ['SYN-AUDIT-' + kstToday(), kstToday()]);
   }
-  const cid = 'SYN-CST-' + Date.now().toString(36);
-  await c.query(`insert into public.safety_consents (id, site_id, visit_id, pass_code, arrival_at, created_date, guardian_name, guardian_phone,
-      residence, children, party_size, child_count, adult_count, is_issued)
-    values ($1, 'bongplay_bonghwa', $2, 'SYN-PASS', now(), $3, 'SYN 보호자', '010-0000-0001', '관외',
-      '[{"name":"SYN 아동","birth":"2019-05-12","height":115,"weight":21}]'::jsonb, 2, 1, 1, false)`, [cid, 'SYN-VST-' + cid, kstToday()]);
-  const q = (await c.query(`select public.enqueue_consent_team($1, $2, 2, 'SYN 보호자', '010-0000-0001', 'bongplay_bonghwa') as r`, [cid, 'SYN-KEY-' + cid])).rows[0].r;
-  if (!q.ok) throw new Error('준비 접수 실패 ' + JSON.stringify(q));
-  return { consentId: cid, queueId: q.id };
+  const teams = [];
+  for (let n = 1; n <= consents; n++) {
+    const cid = `SYN-CST-${Date.now().toString(36)}-${n}`;
+    await c.query(`insert into public.safety_consents (id, site_id, visit_id, pass_code, arrival_at, created_date, guardian_name, guardian_phone,
+        residence, children, party_size, child_count, adult_count, is_issued)
+      values ($1, 'bongplay_bonghwa', $2, 'SYN-PASS', now(), $3, $4, '010-0000-000' || $5, '관외',
+        '[{"name":"SYN 아동","birth":"2019-05-12","height":115,"weight":21}]'::jsonb, 2, 1, 1, false)`,
+      [cid, 'SYN-VST-' + cid, kstToday(), 'SYN 보호자 ' + n, String(n)]);
+    if (n === 1 && cancelledFirst) {
+      await c.query(`update public.safety_consents set status = 'cancelled', cancelled_at = now() - interval '1 hour', cancel_reason = 'SYN 이전 취소' where id = $1`, [cid]);
+    }
+    const q = (await c.query(`select public.enqueue_consent_team($1, $2, 2, 'SYN 보호자', '010-0000-0001', 'bongplay_bonghwa') as r`, [cid, 'SYN-KEY-' + cid])).rows[0].r;
+    if (!q.ok) throw new Error('준비 접수 실패 ' + JSON.stringify(q));
+    teams.push({ consentId: cid, queueId: q.id });
+  }
+  return { consentId: teams[0].consentId, queueId: teams[0].queueId, teams };
+}
+
+export async function hasCancelColumns(c) {
+  return (await c.query(`select count(*)::int n from information_schema.columns where table_schema = 'public'
+    and table_name = 'safety_consents' and column_name in ('status','cancelled_at','cancel_reason')`)).rows[0].n === 3;
 }
 
 /** DB 에 실제로 남은 것 (관리자 연결) */
@@ -66,7 +83,7 @@ export async function dbState(c, consentId, queueId) {
     pays: await one(`select id, order_id, amount, status from public.order_payments where consent_id = $1 order by id`, [consentId]),
     tickets: await one(`select ticket_id, order_id, status from public.ticket_ledger where consent_id = $1 order by ticket_id`, [consentId]),
     queue: (await one(`select status, order_id, ticket_ids from public.ticket_queue where id = $1`, [queueId]))[0],
-    consent: (await one(`select is_issued, ticket_ids from public.safety_consents where id = $1`, [consentId]))[0]
+    consent: (await one(`select to_jsonb(c) - 'signature_data' - 'children' as row from public.safety_consents c where id = $1`, [consentId]))[0].row
   };
 }
 
@@ -178,13 +195,17 @@ export async function openDesk(proxy, { localPassAudit = false } = {}) {
   });
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e)));
+  const navs = [];
+  page.on('framenavigated', (f) => { if (f === page.mainFrame()) navs.push({ t: Date.now(), url: f.url() }); });
   await page.goto(proxy.base + '/pages/consent-desk.html', { waitUntil: 'load' });
   if (await page.locator('#bongplay-auth-input').count()) {
     await page.fill('#bongplay-auth-input', env.E2E_STAFF_CODE);
     await page.click('#bongplay-auth-submit');
-    await page.waitForLoadState('load');
   }
-  return { page, dialogs, errors, close: () => browser.close() };
+  // 로그인이 끝나고(암호 저장·인증 창 제거) 첫 동기화가 가라앉을 때까지 기다린다
+  await page.waitForFunction(() => window.BongplayAuth && BongplayAuth.getAccessCode() && !document.getElementById('bongplay-auth-overlay'), null, { timeout: 15000 });
+  await page.waitForLoadState('networkidle').catch(() => {});
+  return { page, dialogs, errors, navs, close: () => browser.close() };
 }
 
 export async function waitFor(fn, { timeout = 8000, interval = 150 } = {}) {

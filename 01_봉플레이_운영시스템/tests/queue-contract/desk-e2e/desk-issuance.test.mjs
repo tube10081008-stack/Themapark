@@ -10,7 +10,7 @@
 //   bash …/desk_e2e_stack.sh stop
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { startProxy, openDesk, resetScenario, dbState, db, waitFor, sleep, skipReason, loadEnv, DEVICE_IP } from './harness.mjs';
+import { startProxy, openDesk, resetScenario, dbState, db, waitFor, sleep, skipReason, loadEnv, DEVICE_IP, hasCancelColumns } from './harness.mjs';
 
 const skip = skipReason();
 
@@ -23,11 +23,23 @@ async function toPayment(ui) {
     if (!currentCalledQueueEntry) return { ok: false, step: 'call' };
     await handleStartQueueProcessing();
     if (!payCtx) return { ok: false, step: 'payment modal (consent_id 로 자동 열림)', entry: currentCalledQueueEntry };
-    swapChildTicket('tkt_basic');      // 기상 관측값이 없어 짚코스터 권종은 인터록에 걸린다
-    setAlloc('cash', payCtx.pricing.summary.total);
-    return { ok: !!(payCtx.built && payCtx.built.valid), total: payCtx.pricing.summary.total };
+    return { ok: true };
   });
   assert.ok(r.ok, `준비 실패: ${JSON.stringify(r)}`);
+  return allocCash(ui);
+}
+
+/**
+ * 결제 창에서 기본권(기상 관측값이 없으면 짚코스터 권종은 인터록에 걸린다)·현금 전액 배분.
+ * consentId 를 주면 그 서약서로 결제 창을 먼저 연다 (직원이 목록에서 고르는 경우).
+ * 주의: 배분(setAlloc)을 앞 단계와 같은 page.evaluate 안에서 부르면 playwright 가 "Execution context was destroyed" 를 내는 일이 있어
+ *      (화면은 정상 유지 — 시험 도구 쪽 현상) 단계별로 나눠 호출한다.
+ */
+async function allocCash(ui, consentId) {
+  await ui.page.evaluate((cid) => { if (cid) openPaymentModal(cid); swapChildTicket('tkt_basic'); }, consentId || null);
+  await ui.page.evaluate(() => setAlloc('cash', payCtx.pricing.summary.total));
+  const r = await ui.page.evaluate(() => ({ ok: !!(payCtx && payCtx.built && payCtx.built.valid), total: payCtx && payCtx.pricing.summary.total }));
+  assert.ok(r.ok, `결제 배분 준비 실패: ${JSON.stringify(r)}`);
   return r.total;
 }
 const confirmPay = (ui) => ui.page.evaluate(() => confirmPayment());
@@ -39,9 +51,15 @@ async function scenario(opts, fn) {
   const proxy = await startProxy();
   let ui;
   try {
+    if (opts.needsCancelColumns && !(await hasCancelColumns(c))) { opts.skipped = true; return; }
     const ids = await resetScenario(c, opts);
     ui = await openDesk(proxy, opts);
-    await fn({ c, proxy, ui, ...ids });
+    try {
+      await fn({ c, proxy, ui, ...ids });
+    } catch (e) {
+      if (ui.navs.length > 1) e.message += ` [페이지 이동 기록: ${ui.navs.map((n) => n.url).join(' → ')}]`;
+      throw e;
+    }
   } finally {
     if (ui) await ui.close();
     await proxy.close();
@@ -141,12 +159,8 @@ test('E5 staff closes and reopens the payment window after a partial failure: st
     proxy.fault('rest', 'ticket_ledger', '503', { times: 1, method: 'POST' });
     proxy.fault('rest', 'ticket_ledger', '503', { times: 1, method: 'PATCH' });
     await confirmPay(ui);
-    await ui.page.evaluate((cid) => {
-      closePaymentModal();
-      openPaymentModal(cid);
-      swapChildTicket('tkt_basic');
-      setAlloc('cash', payCtx.pricing.summary.total);
-    }, consentId);
+    await ui.page.evaluate(() => closePaymentModal());
+    await allocCash(ui, consentId);
     await confirmPay(ui);
     await sleep(300);
     const s = await dbState(c, consentId, queueId);
@@ -201,4 +215,80 @@ test('E7 desk write payloads match the DB contract: ledger tables exactly, conse
     assert.deepEqual(ledgerUnknown, [], `원장 쓰기에 DB 에 없는 열: ${ledgerUnknown.join(', ')}`);
     assert.deepEqual(blocked, [], `DB 에 없는 중요 열을 보내 저장이 outbox 에 영구 보류됨: ${blocked.join(', ')}`);
   });
+});
+
+const saleWrites = (proxy, consentId) => ['order_items', 'order_payments', 'ticket_ledger']
+  .flatMap((t) => proxy.calls('rest', t).filter((e) => (e.method === 'POST' || e.method === 'PATCH') && e.body && [].concat(e.body).some((b) => b && b.consent_id === consentId)));
+
+test('E8 page reload after a partial failure, then pay again for the same team: still one order and one payment', { skip }, async () => {
+  // 새로고침하면 화면 메모리(payCtx.activeOrder)가 사라진다. 진행 중 주문을 보존·재사용하지 않으면 주문·결제가 한 번 더 저장된다.
+  await scenario({}, async ({ c, ui, consentId, queueId, proxy }) => {
+    const total = await toPayment(ui);
+    proxy.fault('rest', 'ticket_ledger', '503', { times: 1, method: 'POST' });
+    proxy.fault('rest', 'ticket_ledger', '503', { times: 1, method: 'PATCH' });
+    await confirmPay(ui);
+    await ui.page.reload({ waitUntil: 'load' });
+    assert.ok(await waitFor(() => ui.page.evaluate(() => typeof consents !== 'undefined' && consents.length > 0 && !!BongplayAuth.getAccessCode()), { timeout: 15000 }), '새로고침 후 준비');
+    await sleep(1500);   // 직원 목록 폴링·서약서 동기화가 한 번 돌 시간
+    await allocCash(ui, consentId);
+    await confirmPay(ui);
+    await sleep(300);
+    const s = await dbState(c, consentId, queueId);
+    console.log(`# E8 관찰: 주문 ${JSON.stringify(orderIds(s))}, 결제 합계 ${paidSum(s)} (주문 금액 ${total}), 대기열 ${s.queue.status}→${s.queue.order_id}`);
+    assertSingleIssuance(s, total, 'E8');
+  });
+});
+
+test('E9 paying for a different consent than the team called at this desk is refused before any sale is written', { skip }, async () => {
+  await scenario({ consents: 2 }, async ({ c, ui, teams, proxy }) => {
+    await toPayment(ui);                                   // 첫 팀(A) 호출·처리 시작
+    const [a, b] = teams;
+    const called = await ui.page.evaluate(() => currentCalledQueueEntry && currentCalledQueueEntry.consent_id);
+    assert.equal(called, a.consentId, '준비: A 가 호출되어야 함');
+    await allocCash(ui, b.consentId);
+    await confirmPay(ui);
+    await sleep(300);
+    const sb = await dbState(c, b.consentId, b.queueId);
+    const sa = await dbState(c, a.consentId, a.queueId);
+    assert.equal(saleWrites(proxy, b.consentId).length, 0, `호출되지 않은 B 의 판매가 쓰임 (${saleWrites(proxy, b.consentId).length}건)`);
+    assert.equal(sb.items.length + sb.pays.length + sb.tickets.length, 0, 'B 의 원장이 서버에 저장됨');
+    assert.notEqual(sa.queue.status, 'issued', 'A 가 B 의 결제로 발권 완료됨');
+    assert.ok(ui.dialogs.some((d) => /일치하지 않/.test(d.message)), `불일치 안내 없음: ${ui.dialogs.map((d) => d.message.split('\n')[0]).join(' / ')}`);
+  });
+});
+
+test('E9b paying directly for a waiting team that was never called does not leave money recorded with the queue unfinished', { skip }, async () => {
+  // 창구에 호출 팀이 없을 때 목록에서 대기 팀을 바로 발권하는 경우. 서버는 processing 이 아닌 팀의 완료를 거부한다(INVALID_STATUS).
+  // 계약: 판매를 쓰기 전에 막거나(호출·처리 시작 유도), 대기열 완료까지 끝내야 한다. 결제만 남고 대기열이 남으면 안 된다.
+  await scenario({ consents: 1 }, async ({ c, ui, consentId, queueId, proxy }) => {
+    assert.ok(await waitFor(() => ui.page.evaluate(() => typeof consents !== 'undefined' && consents.length > 0 && !!BongplayAuth.getAccessCode()), { timeout: 15000 }));
+    await sleep(1500);
+    await allocCash(ui, consentId);
+    await confirmPay(ui);
+    await sleep(300);
+    const s = await dbState(c, consentId, queueId);
+    const done = proxy.calls('rpc', 'complete_queue_issuance').map((e) => e.response);
+    console.log(`# E9b 관찰: 결제 ${paidSum(s)}, 대기열 ${s.queue.status}, 완료 응답 ${done.join(' | ')}, 안내: ${ui.dialogs.map((d) => d.message.split('\n')[0]).join(' / ')}`);
+    const moneyWithoutQueue = paidSum(s) > 0 && s.queue.status !== 'issued';
+    assert.ok(!moneyWithoutQueue, `결제 ${paidSum(s)}원이 저장됐는데 대기열은 ${s.queue.status}`);
+  });
+});
+
+test('E10 issuing a previously cancelled consent clears its cancel fields on the server (status not cancelled, cancelled_at/cancel_reason null)', { skip }, async () => {
+  // 취소 3열이 있는 DB 에서만 의미가 있다 (없으면 건너뜀으로 기록).
+  const opts = { cancelledFirst: true, needsCancelColumns: true };
+  await scenario(opts, async ({ c, ui, consentId, queueId }) => {
+    const total = await toPayment(ui);
+    await confirmPay(ui);
+    await sleep(300);
+    const s = await dbState(c, consentId, queueId);
+    assertSingleIssuance(s, total, 'E10');
+    const k = s.consent;
+    console.log(`# E10 관찰: is_issued=${k.is_issued}, status=${k.status}, cancelled_at=${k.cancelled_at}, cancel_reason=${k.cancel_reason}`);
+    assert.equal(k.is_issued, true, '서약서 발권 상태 미저장');
+    assert.notEqual(k.status, 'cancelled', '발권했는데 서버 서약서 status 가 cancelled 로 남음');
+    assert.equal(k.cancelled_at, null, `발권했는데 cancelled_at 이 남음 (${k.cancelled_at})`);
+    assert.equal(k.cancel_reason, null, `발권했는데 cancel_reason 이 남음 (${k.cancel_reason})`);
+  });
+  if (opts.skipped) console.log('# E10 건너뜀: 이 DB 에는 서약서 취소 3열이 없다');
 });

@@ -3,13 +3,15 @@
 #
 # 순서
 #   A. 새 클러스터(슈퍼유저 supabase_admin) → supabase_platform_emulation.sql (호스팅 Supabase 기본 상태 모사)
-#   B. 설치 실행자 postgres(비슈퍼유저)로 00 → FINAL → 대기열 SQL → 40(시험 암호) → 50 → 60 검증
+#   B. 설치 실행자 postgres(비슈퍼유저)로 묶음 ORDER 순서(00 → FINAL → 취소 3열 → 대기열 SQL → 40 → 50) → 60 검증
 #   C. PostgREST(anon JWT) 기동 → verify_http.mjs (H01~H07)
 #   D. 재설치 멱등성: B 를 한 번 더 → 60
 #   D2. FINAL 만 다시 실행 → 60 (FINAL 이 public 정책을 모두 지워도 대기열 표가 막혀 있는지)
 #   E. 90 대기열 초기화 → 대기열 객체 없음 확인 → 대기열 SQL 재설치 → 60
 #   F. 91 전체 초기화 → 객체 없음 확인 → 00~60 처음부터 → 60
 #   G. 운영 보호: 합성 아닌 서약서가 있는 DB 에서 00 거부, 설치 표시 없는 DB 에서 40·50·90·91 거부
+#   H. 서약서 취소 3열(C1): 3열 없이 운영되던 DB(기존 행 포함)에 두 번 적용 → 기존 열 값 불변·기본값·인덱스 1개·
+#      기존 보안 RPC 반환·anon 당일 취소 기록과 null 해제 허용·과거 행 수정 거부 (cancel_columns_compat.sql)
 #
 # 필요: root(클러스터를 postgres OS 사용자로 띄움), PostgreSQL 16 바이너리, PostgREST 바이너리, node 22
 # 사용: PGRST_BIN=<postgrest 경로> [PG_BIN=/usr/lib/postgresql/16/bin] [WORK=/var/lib/postgresql/c011-install] \
@@ -44,14 +46,18 @@ verify() {
   if [ "$nfail" -eq 0 ]; then ok "60_verify FAIL 0건 ($1)"; else bad "60_verify FAIL ${nfail}건 ($1)"; grep '|f|' "$TMP/verify.txt"; fi
   grep '^WARN|[^|]*|f|' "$TMP/verify.txt" | sed 's/^/      참고 /'
 }
+# 설치 순서는 묶음의 ORDER 파일을 따른다 (대기열 SQL 은 QUEUE_SQL 로 바꿔 대조 실행 가능, 40 은 시험 암호 사본)
+order_files() { grep -v '^#' "$BUNDLE/ORDER" | sed '/^$/d'; }
 install_all() {
-  local db="$1"
-  apply "$db" "$BUNDLE/00_preflight.sql"
-  apply "$db" "$DB_DIR/FINAL_SUPABASE_SETUP.sql"
-  apply "$db" "$QUEUE_SQL"
+  local db="$1" f
   sed "s/__TEST_ONLY_STAFF_CODE__/$TEST_CODE/" "$BUNDLE/40_test_staff_code.sql" > "$TMP/40.sql"
-  apply "$db" "$TMP/40.sql"
-  apply "$db" "$BUNDLE/50_synthetic_seed.sql"
+  for f in $(order_files); do
+    case "$f" in
+      PROPOSED_MIGRATION_ticket_queue.sql) apply "$db" "$QUEUE_SQL" ;;
+      test_supabase_install/40_test_staff_code.sql) apply "$db" "$TMP/40.sql" ;;
+      *) apply "$db" "$DB_DIR/$f" ;;
+    esac
+  done
 }
 cleanup() {
   [ -n "${PGRST_PID:-}" ] && kill "$PGRST_PID" 2>/dev/null
@@ -63,11 +69,11 @@ trap cleanup EXIT
 step "A. 일회용 클러스터 + Supabase 플랫폼 모사"
 rm -rf "$WORK"; su postgres -s /bin/sh -c "mkdir -p $WORK && $PG_BIN/initdb -D $WORK/data -A trust -U supabase_admin >/dev/null && \
   $PG_BIN/pg_ctl -D $WORK/data -o '-p $PORT -k $WORK -c listen_addresses=127.0.0.1' -l $WORK/log start >/dev/null" || { echo "클러스터 기동 실패"; exit 2; }
-for d in $DB bp_prodlike bp_nomarker; do
+for d in $DB bp_prodlike bp_nomarker bp_compat; do
   "$PG_BIN/psql" -X -q -h 127.0.0.1 -p "$PORT" -U supabase_admin -d postgres -c "create database $d" || exit 2
   "$PG_BIN/psql" -X -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -p "$PORT" -U supabase_admin -d $d -f "$HERE/supabase_platform_emulation.sql" > "$TMP/emu.log" 2>&1 || { cat "$TMP/emu.log"; exit 2; }
 done
-ok "클러스터·플랫폼 모사 준비 (DB: $DB, bp_prodlike, bp_nomarker)"
+ok "클러스터·플랫폼 모사 준비 (DB: $DB, bp_prodlike, bp_nomarker, bp_compat)"
 psql_as postgres "$DB" -t -A -c "select 'installer=' || current_user || ' superuser=' || rolsuper || ' bypassrls=' || rolbypassrls from pg_roles where rolname = current_user"
 
 step "B. 설치 (1회차)"
@@ -138,6 +144,20 @@ expect_fail bp_nomarker "$BUNDLE/50_synthetic_seed.sql" "시험 설치 표시"
 expect_fail bp_nomarker "$BUNDLE/90_reset_queue.sql" "시험 설치 표시"
 expect_fail bp_nomarker "$BUNDLE/91_reset_all_test.sql" "시험 설치 표시"
 expect_fail "$DB" "$BUNDLE/40_test_staff_code.sql" "자리표시자"
+
+step "H. 서약서 취소 3열(C1): 기존 행 호환·반복 적용·권한"
+# 취소 3열 없이 설치·운영되던 DB 를 흉내 낸 뒤(기존 행 포함) 마이그레이션을 두 번 적용한다
+sed "s/__TEST_ONLY_STAFF_CODE__/$TEST_CODE/" "$BUNDLE/40_test_staff_code.sql" > "$TMP/40.sql"
+for f in "$BUNDLE/00_preflight.sql" "$DB_DIR/FINAL_SUPABASE_SETUP.sql" "$QUEUE_SQL" "$TMP/40.sql" "$BUNDLE/50_synthetic_seed.sql"; do
+  psql_as postgres bp_compat -f "$f" > "$TMP/h.log" 2>&1 || { bad "H 준비 적용 실패: $(basename "$f")"; tail -3 "$TMP/h.log"; }
+done
+CANCEL_SQL="$DB_DIR/PROPOSED_MIGRATION_safety_consents_cancellation.sql"
+if psql_as postgres bp_compat -v code="$TEST_CODE" -v cancel_sql="$CANCEL_SQL" -f "$HERE/cancel_columns_compat.sql" > "$TMP/h.txt" 2>&1; then
+  ok "취소 3열 호환 점검 통과"; grep -E '^NOTICE|COMPAT' "$TMP/h.txt" | sed 's/^/      /'
+else
+  bad "취소 3열 호환 점검 실패"; tail -8 "$TMP/h.txt" | sed 's/^/      /'
+fi
+DB_SAVE="$DB"; DB=bp_compat; verify "호환 점검 DB"; DB="$DB_SAVE"
 
 step "결과"
 if [ "$FAILS" -eq 0 ]; then echo "전체 통과"; else echo "실패 ${FAILS}건"; fi

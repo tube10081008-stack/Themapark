@@ -1,0 +1,8 @@
+# 시험 Supabase 설치 순서 (database/ 기준 상대 경로). 설치·검증 스크립트가 이 순서대로 적용한다.
+# 40_test_staff_code.sql 은 자리표시자를 시험 전용 값으로 바꾼 사본을 적용한다.
+test_supabase_install/00_preflight.sql
+FINAL_SUPABASE_SETUP.sql
+PROPOSED_MIGRATION_safety_consents_cancellation.sql
+PROPOSED_MIGRATION_ticket_queue.sql
+test_supabase_install/40_test_staff_code.sql
+test_supabase_install/50_synthetic_seed.sql

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # CLAUDE-011 — 매표 발권 E2E 용 로컬 스택 (일회용 PostgreSQL + 설치 묶음 + PostgREST). Supabase·운영 DB 에 접속하지 않는다.
-#   start: 클러스터 생성 → Supabase 플랫폼 모사 → 설치 묶음(00 → FINAL → 대기열 SQL → 40 → 50) → PostgREST 기동
+#   start: 클러스터 생성 → Supabase 플랫폼 모사 → 설치 묶음(ORDER 순서, 없으면 00 → FINAL → 대기열 SQL → 40 → 50) → PostgREST 기동
 #          → 접속 정보를 $WORK/stack.env 에 기록 (시험 암호·JWT 비밀은 실행마다 새로 만드는 합성 값)
 #   stop : PostgREST·클러스터 정지, 작업 폴더 삭제
 # 사용: PGRST_BIN=<postgrest> [DB_ROOT=<대상 database 폴더>] [EXTRA_SQL="<변경안 SQL> ..."] bash desk_e2e_stack.sh start|stop
@@ -33,8 +33,19 @@ start() {
   local code="SYN-E2E-$(head -c 10 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   local secret="SYN-E2E-JWT-$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   sed "s/__TEST_ONLY_STAFF_CODE__/$code/" "$BUNDLE/40_test_staff_code.sql" > "$WORK/40.sql"
-  for f in "$BUNDLE/00_preflight.sql" "$DB_ROOT/FINAL_SUPABASE_SETUP.sql" "$DB_ROOT/PROPOSED_MIGRATION_ticket_queue.sql" "$WORK/40.sql" "$BUNDLE/50_synthetic_seed.sql"; do
+  # 설치 순서: 묶음의 ORDER 파일(있으면) — 없으면(e8a9041 이전 판) 당시 고정 순서
+  local files=()
+  if [ -f "$BUNDLE/ORDER" ]; then
+    while read -r f; do
+      [ -z "$f" ] && continue
+      case "$f" in \#*) continue ;; test_supabase_install/40_test_staff_code.sql) files+=("$WORK/40.sql") ;; *) files+=("$DB_ROOT/$f") ;; esac
+    done < "$BUNDLE/ORDER"
+  else
+    files=("$BUNDLE/00_preflight.sql" "$DB_ROOT/FINAL_SUPABASE_SETUP.sql" "$DB_ROOT/PROPOSED_MIGRATION_ticket_queue.sql" "$WORK/40.sql" "$BUNDLE/50_synthetic_seed.sql")
+  fi
+  for f in "${files[@]}"; do
     $P -U postgres -d $DB -f "$f" > "$WORK/apply.log" 2>&1 || { echo "적용 실패: $f"; tail -5 "$WORK/apply.log"; exit 2; }
+    echo "적용: ${f#$DB_ROOT/}" >> "$WORK/applied.log"
   done
   # 검증용 추가 SQL (변경안 효과 확인 전용, 설치 묶음 자체는 바꾸지 않는다). 공백으로 여러 파일 지정 가능
   for f in ${EXTRA_SQL:-}; do

@@ -155,3 +155,20 @@ test('H07 staff flow over HTTP: call, start, complete with confirmed ledger; ret
   assert.equal(part.ok, false, JSON.stringify(part)); assert.equal(part.error, 'PARTIAL_PAYMENT_REJECTED');
   if (skipped.length) console.log(`# 이전 실행의 합성 팀 ${skipped.length}개를 취소하고 진행`);
 });
+
+test('H08 consent cancel fields: the app can record a cancellation and clear it back to null (PATCH and merge upsert)', { skip }, async () => {
+  // 매표 화면은 발권취소 때 status·cancelled_at·cancel_reason 을 쓰고, 재발권·복구 때 null 로 지운다.
+  // 저장 경로는 둘이다: PATCH(BongplaySync.patch)와 POST merge-duplicates(BongplaySync.upsert).
+  const cid = await newConsent('CXL');
+  const get = async () => (await rest('GET', `safety_consents?id=eq.${encodeURIComponent(cid)}&select=status,cancelled_at,cancel_reason`)).json[0];
+  const p1 = await rest('PATCH', `safety_consents?id=eq.${encodeURIComponent(cid)}`, { status: 'cancelled', cancelled_at: new Date().toISOString(), cancel_reason: 'SYN 취소' }, { Prefer: 'return=representation' });
+  assert.equal(p1.status, 200, JSON.stringify(p1.json)); assert.equal(p1.json.length, 1);
+  assert.equal((await get()).status, 'cancelled');
+  const p2 = await rest('PATCH', `safety_consents?id=eq.${encodeURIComponent(cid)}`, { status: 'active', cancelled_at: null, cancel_reason: null }, { Prefer: 'return=representation' });
+  assert.equal(p2.status, 200); assert.deepEqual(await get(), { status: 'active', cancelled_at: null, cancel_reason: null });
+  const u1 = await rest('POST', 'safety_consents', { ...consent('CXL'), status: 'cancelled', cancelled_at: new Date().toISOString(), cancel_reason: 'SYN 취소2' }, { Prefer: 'resolution=merge-duplicates,return=minimal' });
+  assert.ok(u1.status === 200 || u1.status === 201, `merge upsert ${u1.status} ${JSON.stringify(u1.json)}`);   // 기존 행이면 200, 새 행이면 201
+  const u2 = await rest('POST', 'safety_consents', { ...consent('CXL'), status: 'active', cancelled_at: null, cancel_reason: null }, { Prefer: 'resolution=merge-duplicates,return=minimal' });
+  assert.ok(u2.status === 200 || u2.status === 201, `merge upsert ${u2.status} ${JSON.stringify(u2.json)}`);
+  assert.deepEqual(await get(), { status: 'active', cancelled_at: null, cancel_reason: null }, 'merge upsert 로 null 해제가 저장되지 않음');
+});
