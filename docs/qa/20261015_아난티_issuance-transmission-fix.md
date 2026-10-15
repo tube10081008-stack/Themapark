@@ -17,8 +17,8 @@
 
 ### 1.1 대표 접수 데이터 원장 대사
 - **발견 일시**: 2026-10-15 15:12 KST
-- **고객 서약서**: `safety_consents` id: `cst_1792044745246_rzz7a` (보호자: 홍성현, 패스코드: `BP-261015-TSBY`, 도착시각: 15:12 KST)
-- **발권 대기열**: `ticket_queue` id: `q_20261015_0043_39ca` (대기번호 #043, 상태: `waiting`, 고객토큰: `bpq_33454b6df1e7c538a7b9735d4d3a0e69`)
+- **고객 서약서**: `safety_consents` id: `cst_1792044745246_rzz7a` (보호자: 홍*현 [마스킹], 패스코드: `BP-261015-TSBY`, 도착시각: 15:12 KST)
+- **발권 대기열**: `ticket_queue` id: `q_20261015_0043_39ca` (대기번호 #043, 상태: `waiting`, 고객토큰: `bpq_33454...[마스킹]`)
 - **원장 대사 결과**:
   - `order_items`: `[]` (0건)
   - `order_payments`: `[]` (0건)
@@ -142,7 +142,41 @@ Playwright 브라우저 E2E 실측 및 PostgREST 네트워크 트레이싱을 �
 1. **`safety_consents` 테이블의 취소 컬럼 추가 제안**:
    - 현재 프런트엔드에서는 `safety_consents`에 `cancel_reason` 컬럼이 없어 null 필드를 제거하고 저장함으로써 PGRST204 에러를 완벽히 회피하고 있습니다.
    - 그러나 향후 발권 취소(`toggleTicketIssue(id, false)`) 시 실제 취소 사유를 기록하려면 `database/PROPOSED_MIGRATION_safety_consents_cancellation.sql`에 정의된 `cancel_reason TEXT, cancelled_at TIMESTAMPTZ` 컬럼 추가 마이그레이션 적용을 권장합니다.
-2. **대기열 FIFO 순서와 즉시발권 간 계약**:
-   - DB 계약(`complete_queue_issuance`)은 `processing` 상태인 팀만 완료할 수 있습니다.
-   - 직원이 서약서 목록에서 임의의 대기팀을 골라 [즉시발권]을 시도하는 경우, 해당 팀이 아직 창구에서 호출(`called`)되지 않은 상태라면 DB에서 상태 오류가 발생할 수 있습니다.
-   - 따라서 대기열이 운영 중일 때는 반드시 [창구호출] → [발권 시작] 흐름을 따르거나, 특정 대기팀 직접 호출 RPC 지원 여부를 벤이 결정할 필요가 있습니다.
+
+---
+
+## 7. 벤 R1 보완 지시 및 지오 5대 발견 이슈 조치 내역 (2026-10-15 Follow-up)
+
+**기준 커밋 SHA**: `6b9d0ae`  
+**완료 일시**: 2026-10-15 17:55 KST  
+
+### 7.1 벤 5대 보완 지시 이행
+1. **[지시 ①] 부분 저장 뒤 결제 창 재열기·새로고침에도 동일 주문/티켓 ID 복구해 중복 매출 원천 방지**:
+   - `consent-desk.html`의 `confirmPayment()` 시작 시 생성된 `order.order_id`와 `ticketIds`를 `localStorage.setItem('bongplay_pending_order_' + rec.id, ...)`에 기록.
+   - 결제 도중 창을 닫거나 새로고침한 뒤 다시 결제창을 열 때(`openPaymentModal`), 해당 동의서 ID의 pending 기록을 검사하여 동일 `order_id`와 `ticket_ids`를 `payCtx`에 복원.
+   - 발권 및 서약서 확정 저장이 성공 완료된 직후 `localStorage.removeItem('bongplay_pending_order_' + rec.id)`로 정리.
+   - 결제 재시도 시 중복 매출 생성 원천 차단.
+2. **[지시 ②] 결제 직전에 서버의 당일 KST 안전점검 PASS 실시간 확인**:
+   - `confirmPayment()` 진입 직전 `BongplaySync.select('safety_audits', '?audit_date=eq.' + todayStr + '&select=audit_date,decision')` 실시간 서버 조회.
+   - 서버에 합격(`pass`) 기록이 없으면 결제 진입 즉시 차단 및 경고 표출.
+3. **[지시 ③] 원장 저장 전에 서약서-호출고객 일치 및 창구 `processing` 상태 검증, 대기/보류 고객 즉시발권 차단 및 FIFO 순차 호출 안내**:
+   - `toggleTicketIssue`에서 서약서의 대기열 상태가 대기(`waiting`) 또는 부재보류(`held`/`no_show`)인 경우 결제창 진입을 원천 차단하고 `공정 대기 원칙(FIFO)` 경고 표출.
+   - `confirmPayment`에서 선택 서약서와 현재 창구의 `currentCalledQueueEntry`의 일치 여부 검증.
+   - `called` 상태인 경우 `BongplayQueue.startProcessing`을 선행 호출하여 `processing` 상태 전이를 확정하고, 유효한 창구 슬롯인지 철저 검증.
+4. **[지시 ④] 중요 누락 컬럼 공통 동기화 우회 롤백**:
+   - `bongplay-sync.js`를 롤백하여 `criticalCols`(`status`, `cancelled_at`, `cancel_reason`, `closing_status`) 누락 시 우회 삭제 없이 엄격 차단 및 아웃박스 격리 계약 복원.
+   - DB 누락 컬럼 문제는 SQL 마이그레이션 적용을 통해 해결하도록 분리.
+5. **[지시 ⑤] 지오 보고 5대 이슈 조치**:
+   - **R-05 창구 정지 표시**: 버튼 라벨을 '창구 일시 중지 중 (클릭 시 운영 재개)' vs '창구 정상 운영 (클릭 시 일시 중지)'로 명확화하고 배너 안내와 동기화.
+   - **R-04 호출 실패 안내**: 호출 실패 시 사유별 구체적 안내 배너(`deskCallNoticeBanner`) 및 alert 표출.
+   - **R-03 권종 변경 후 결제 배분 자동 갱신**: 단일 결제수단 선택 시 권종/수량 변경 시 총 결제금액에 맞춰 배분 금액 자동 재계산.
+   - **R-06 UTC 시각의 KST 변환**: 창구 배정 팀 호출 시각(`deskCalledTimeText`) 및 전광판 시각(`queue-display.html`)에 `formatKstTime()` 적용하여 06시→15시 KST 정상 표기.
+   - **R-07 미전송 상태의 성공 제목 수정**: `consent.html`에서 오프라인/미전송 상태 시 바우처 상단 제목을 "접수 완료" 대신 "서약 접수 대기 중 (전송 대기/오프라인)"으로 동적 갱신.
+6. **PII 마스킹 준수**: 보고서 및 로그 내 대표 실명(`홍*현`)과 고객 토큰(`bpq_33454...`) 전수 마스킹.
+
+### 7.2 검증 결과 요약
+- `ticket_queue.test.js`: **26 / 26 PASS (100%)**
+- `operations_integrity.test.js`: **29 / 29 PASS (100%)**
+- `save-retry-contract.test.mjs`: **10 / 10 PASS (100%)**
+- `test_r1_supplementary_contract.mjs`: **5 / 5 PASS (100%)**
+

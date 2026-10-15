@@ -277,8 +277,8 @@
           <div class="w-14 h-14 rounded-full bg-brand-500/20 text-brand-400 mx-auto flex items-center justify-center">
             <i data-lucide="check" class="w-8 h-8"></i>
           </div>
-          <h3 class="text-xl font-black text-white mt-3">서약이 완료되었습니다</h3>
-          <p class="text-sm text-slate-300 mt-1">매표소에서 이 화면을 보여주세요.</p>
+          <h3 id="voucherTitleText" class="text-xl font-black text-white mt-3">서약이 완료되었습니다</h3>
+          <p id="voucherSubTitleText" class="text-sm text-slate-300 mt-1">매표소에서 이 화면을 보여주세요.</p>
         </div>
 
         <!-- Big QR Code Container -->
@@ -983,9 +983,13 @@
       const qAlertEl = document.getElementById('voucherQueueOfflineAlert');
       const qSubText = document.getElementById('voucherQueueSubText');
       const btnStatus = document.getElementById('btnOpenQueueStatusPage');
+      const titleEl = document.getElementById('voucherTitleText');
+      const subTitleEl = document.getElementById('voucherSubTitleText');
       if (!qNumEl) return;
 
       if (v.queueExhausted) {
+        if (titleEl) titleEl.textContent = '대기열 접수 미완료';
+        if (subTitleEl) subTitleEl.textContent = '매표소 직원에게 문의해 주십시오.';
         qNumEl.textContent = '접수 미완료 — 매표소 문의';
         qBadgeEl.textContent = '접수 미완료';
         qBadgeEl.className = 'text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-red-950 text-red-300 border border-red-700';
@@ -1000,6 +1004,8 @@
       }
 
       if (v.queueOffline || (!v.queueNumber && !v.queueId)) {
+        if (titleEl) titleEl.textContent = (!v.consentConfirmed ? '서약 접수 대기 중 (전송 대기)' : '서약 접수 대기 중 (오프라인)');
+        if (subTitleEl) subTitleEl.textContent = (!v.consentConfirmed ? '네트워크 연결 후 서버로 자동 전송됩니다.' : '서버 연결 확인 후 공식 대기번호가 발급됩니다.');
         qNumEl.textContent = '접수 대기 중';
         qBadgeEl.textContent = '오프라인';
         qBadgeEl.className = 'text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-700';
@@ -1017,6 +1023,8 @@
         return;
       }
 
+      if (titleEl) titleEl.textContent = '서약이 완료되었습니다';
+      if (subTitleEl) subTitleEl.textContent = '매표소에서 이 화면을 보여주세요.';
       qNumEl.textContent = v.formattedQueueNumber || ('#' + v.queueNumber);
       qBadgeEl.textContent = '대기 중';
       qBadgeEl.className = 'text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-brand-900 text-brand-200 border border-brand-700';

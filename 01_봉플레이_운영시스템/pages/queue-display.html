@@ -236,6 +236,23 @@
       document.getElementById('displayClockDate').textContent = `${y}년 ${m}월 ${d}일 (${dayNames[now.getDay()]})`;
     }
 
+    function formatKstTime(isoStr) {
+      if (!isoStr) return '-';
+      try {
+        const d = new Date(isoStr);
+        if (isNaN(d.getTime())) return String(isoStr).slice(11, 19);
+        return d.toLocaleTimeString('ko-KR', {
+          timeZone: 'Asia/Seoul',
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        });
+      } catch (e) {
+        return String(isoStr).slice(11, 19);
+      }
+    }
+
     function toggleSound() {
       soundEnabled = !soundEnabled;
       const text = document.getElementById('soundToggleText');
@@ -383,7 +400,7 @@
         if (currentTeam) {
           numEl.textContent = currentTeam.formatted_number || ('#' + currentTeam.queue_number);
           statusEl.textContent = (currentTeam.status === 'processing') ? '발권 진행 중' : '호출 중';
-          timeEl.textContent = '호출 시각: ' + (currentTeam.called_at ? currentTeam.called_at.slice(11, 19) : '-');
+          timeEl.textContent = '호출 시각: ' + (currentTeam.called_at ? formatKstTime(currentTeam.called_at) : '-');
 
           // 신규 호출 또는 재호출 감지 시 플래시 및 알림음
           const prev = prevCalledMap[deskNo];

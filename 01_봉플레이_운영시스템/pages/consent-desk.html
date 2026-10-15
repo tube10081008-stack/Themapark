@@ -232,7 +232,7 @@
           <!-- Pause Desk Toggle (Requirement 7) -->
           <button type="button" id="btnToggleDeskPause" onclick="toggleCurrentDeskPause()" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold border border-slate-700 flex items-center gap-1.5 transition">
             <i data-lucide="pause-circle" class="w-3.5 h-3.5 text-amber-400"></i>
-            <span id="deskPauseLabel">창구 정상 운영</span>
+            <span id="deskPauseLabel">창구 정상 운영 (클릭 시 일시 중지)</span>
           </button>
 
           <!-- Public Display Link -->
@@ -242,6 +242,9 @@
           </a>
         </div>
       </div>
+
+      <!-- Desk Call Error / Notice Banner -->
+      <div id="deskCallNoticeBanner" class="hidden text-xs p-3 rounded-2xl border font-bold mb-4"></div>
 
       <!-- Main Queue Calling Control Area -->
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
@@ -757,25 +760,76 @@
     let lastKnownStaffQueueData = null;
     let lastStaffQueueSuccessTime = null;
 
+    function formatKstTime(isoStr, includeSeconds) {
+      if (!isoStr) return '-';
+      try {
+        const d = new Date(isoStr);
+        if (isNaN(d.getTime())) return String(isoStr).slice(11, 19);
+        return d.toLocaleTimeString('ko-KR', {
+          timeZone: 'Asia/Seoul',
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit',
+          second: includeSeconds ? '2-digit' : undefined
+        });
+      } catch (e) {
+        return String(isoStr).slice(11, 19);
+      }
+    }
+
+    function showDeskNotice(msg, type) {
+      const banner = document.getElementById('deskCallNoticeBanner');
+      if (!banner) return;
+      banner.textContent = msg;
+      banner.className = 'text-xs p-3 rounded-2xl border font-bold mb-4 ' +
+        (type === 'warning' ? 'bg-amber-950/80 border-amber-800 text-amber-200 shadow' : 'bg-slate-900 border-slate-800 text-slate-300');
+      banner.classList.remove('hidden');
+    }
+
+    function hideDeskNotice() {
+      const banner = document.getElementById('deskCallNoticeBanner');
+      if (banner) banner.classList.add('hidden');
+    }
+
+    async function syncDeskStatusFromServer(deskNo) {
+      if (window.BongplaySync && typeof BongplaySync.select === 'function') {
+        try {
+          const res = await BongplaySync.select('ticket_queue_desks', `?desk_no=eq.${deskNo}&select=desk_no,is_paused`);
+          if (res && res.ok && Array.isArray(res.data) && res.data.length > 0) {
+            isDeskPaused = Boolean(res.data[0].is_paused);
+            if (window.BongplayQueue && BongplayQueue.store && BongplayQueue.store.desks && BongplayQueue.store.desks[deskNo]) {
+              BongplayQueue.store.desks[deskNo].is_paused = isDeskPaused;
+            }
+            updateDeskPauseButtonUI();
+          }
+        } catch (e) {
+          console.warn('Desk status sync failed:', e);
+        }
+      }
+    }
+
     function selectActiveDesk(deskNo) {
-      currentDeskNo = deskNo;
-      document.getElementById('btnDeskSelect1').className = (deskNo === 1)
+      currentDeskNo = Number(deskNo) || 1;
+      document.getElementById('btnDeskSelect1').className = (currentDeskNo === 1)
         ? 'px-2.5 py-1 rounded-lg bg-brand-600 text-white shadow'
         : 'px-2.5 py-1 rounded-lg text-slate-400 hover:text-white';
-      document.getElementById('btnDeskSelect2').className = (deskNo === 2)
+      document.getElementById('btnDeskSelect2').className = (currentDeskNo === 2)
         ? 'px-2.5 py-1 rounded-lg bg-sky-600 text-white shadow'
         : 'px-2.5 py-1 rounded-lg text-slate-400 hover:text-white';
-      document.getElementById('queueDeskActiveBadge').textContent = `${deskNo}번 창구 배정`;
-      document.getElementById('queueDeskActiveBadge').className = (deskNo === 1)
+      document.getElementById('queueDeskActiveBadge').textContent = `${currentDeskNo}번 창구 배정`;
+      document.getElementById('queueDeskActiveBadge').className = (currentDeskNo === 1)
         ? 'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800'
         : 'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-sky-950 text-sky-400 border border-sky-800';
 
-      if (window.BongplayQueue && BongplayQueue.store && BongplayQueue.store.desks[deskNo]) {
-        const qId = BongplayQueue.store.desks[deskNo].current_queue_id;
+      if (window.BongplayQueue && BongplayQueue.store && BongplayQueue.store.desks && BongplayQueue.store.desks[currentDeskNo]) {
+        const qId = BongplayQueue.store.desks[currentDeskNo].current_queue_id;
         currentCalledQueueEntry = qId ? BongplayQueue.store.getEntryById(qId) : null;
-        isDeskPaused = Boolean(BongplayQueue.store.desks[deskNo].is_paused);
-        updateDeskPauseButtonUI();
+        isDeskPaused = Boolean(BongplayQueue.store.desks[currentDeskNo].is_paused);
+      } else {
+        isDeskPaused = false;
       }
+      updateDeskPauseButtonUI();
+      syncDeskStatusFromServer(currentDeskNo);
       refreshDeskQueueView();
     }
 
@@ -785,6 +839,7 @@
         await BongplayQueue.setDeskPauseStatus(currentDeskNo, isDeskPaused);
       }
       updateDeskPauseButtonUI();
+      if (!isDeskPaused) hideDeskNotice();
       await refreshDeskQueueView();
     }
 
@@ -793,34 +848,65 @@
       const label = document.getElementById('deskPauseLabel');
       if (!btn || !label) return;
       if (isDeskPaused) {
-        btn.className = 'px-3 py-1.5 rounded-xl bg-rose-950 text-rose-300 font-bold border border-rose-800 flex items-center gap-1.5 transition';
-        label.textContent = '창구 일시 중지 중';
+        btn.className = 'px-3 py-1.5 rounded-xl bg-rose-950 text-rose-300 font-bold border border-rose-800 flex items-center gap-1.5 transition shadow-sm';
+        label.textContent = '창구 일시 중지 중 (클릭 시 운영 재개)';
       } else {
         btn.className = 'px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold border border-slate-700 flex items-center gap-1.5 transition';
-        label.textContent = '창구 정상 운영';
+        label.textContent = '창구 정상 운영 (클릭 시 일시 중지)';
       }
+      window.lucide && window.lucide.createIcons();
+    }
+
+    function findQueueEntryForConsent(consentId) {
+      if (currentCalledQueueEntry && (currentCalledQueueEntry.consent_id === consentId || currentCalledQueueEntry.id === consentId)) {
+        return currentCalledQueueEntry;
+      }
+      if (lastKnownStaffQueueData) {
+        const all = (lastKnownStaffQueueData.called_teams || [])
+          .concat(lastKnownStaffQueueData.waiting_teams || [])
+          .concat(lastKnownStaffQueueData.held_teams || []);
+        const found = all.find(t => t.consent_id === consentId || t.id === consentId);
+        if (found) return found;
+      }
+      if (window.BongplayQueue && BongplayQueue.store && Array.isArray(BongplayQueue.store.entries)) {
+        const found = BongplayQueue.store.entries.find(t => t.consent_id === consentId || t.id === consentId);
+        if (found) return found;
+      }
+      return null;
     }
 
     async function handleCallNextQueueTeam() {
       if (!isSafetyInspectionPassed) {
+        showDeskNotice('🚨 일일 안전점검 미완료: 개장 전 안전점검을 먼저 승인해야 매표 대기열 호출이 가능합니다.', 'warning');
         alert('🚨 일일 안전점검 미완료: 개장 전 안전점검을 먼저 승인해야 매표 대기열 호출이 가능합니다.');
         return;
       }
       if (isDeskPaused) {
-        alert('⚠️ 현재 창구가 일시 중지 상태입니다. 중지 해제 후 호출해 주세요.');
+        showDeskNotice(`⚠️ ${currentDeskNo}번 창구는 발권 일시 중지 상태입니다. 상단의 [운영 재개] 버튼을 누른 후 호출해 주십시오.`, 'warning');
+        alert(`⚠️ 현재 창구(${currentDeskNo}번)가 일시 중지 상태입니다. 상단의 중지 해제(운영 재개) 버튼을 누른 후 호출해 주세요.`);
         return;
       }
 
       try {
         const res = await BongplayQueue.callNext(currentDeskNo, 'desk_staff_' + currentDeskNo);
         if (res && res.ok && res.item) {
+          hideDeskNotice();
           currentCalledQueueEntry = res.item;
           await refreshDeskQueueView();
         } else {
-          alert(res && res.message ? res.message : '대기 중인 팀이 없습니다.');
+          const errMsg = res && res.message ? res.message : '대기 중인 팀이 없습니다.';
+          if (res && res.error === 'DESK_PAUSED') {
+            isDeskPaused = true;
+            updateDeskPauseButtonUI();
+            showDeskNotice(`⚠️ ${currentDeskNo}번 창구는 발권 일시 중지 상태입니다. 상단의 [운영 재개] 버튼을 누른 후 호출해 주십시오.`, 'warning');
+          } else {
+            showDeskNotice(`ℹ️ ${errMsg}`, 'info');
+          }
+          alert(errMsg);
         }
       } catch (e) {
         console.warn('Call next error:', e);
+        showDeskNotice('호출 처리 중 네트워크 오류가 발생했습니다.', 'warning');
         alert('호출 처리 중 오류가 발생했습니다.');
       }
     }
@@ -1043,7 +1129,7 @@
 
         document.getElementById('deskCalledGuardianName').textContent = (currentCalledQueueEntry.guardian_name || '미입력') + ' 님 일행';
         document.getElementById('deskCalledDetailsText').textContent = `연락처: ${currentCalledQueueEntry.guardian_phone || '-'} · 인원: ${currentCalledQueueEntry.party_size || 1}명`;
-        document.getElementById('deskCalledTimeText').textContent = '호출: ' + (currentCalledQueueEntry.called_at ? currentCalledQueueEntry.called_at.slice(11, 19) : '-');
+        document.getElementById('deskCalledTimeText').textContent = '호출: ' + (currentCalledQueueEntry.called_at ? formatKstTime(currentCalledQueueEntry.called_at, true) : '-');
       } else {
         emptyBox.classList.remove('hidden');
         teamBox.classList.add('hidden');
@@ -1294,7 +1380,24 @@
     //    [발권]은 더 이상 상태값만 바꾸지 않습니다. 권종·금액·결제수단을 받아
     //    order_items(결제원장) + ticket_ledger(발권원장)를 동시에 남깁니다.
     function toggleTicketIssue(id, issueTarget) {
-      if (issueTarget) return openPaymentModal(id);
+      if (issueTarget) {
+        // [지시 ③] 대기·보류 고객의 즉시발권 차단 및 FIFO 호출 안내
+        const qEntry = findQueueEntryForConsent(id);
+        if (qEntry) {
+          if (qEntry.status === 'waiting' || qEntry.status === 'held' || qEntry.status === 'no_show') {
+            const qNum = qEntry.formatted_number || ('#' + String(qEntry.queue_number || '').padStart(3, '0'));
+            alert(`⚠️ 해당 고객은 현재 대기열(${qNum})에 등록되어 있습니다.\n\n공정 대기 원칙(FIFO)에 따라 창구에서 순서대로 호출 후 발권해 주십시오.`);
+            return;
+          }
+          if (qEntry.status === 'called' || qEntry.status === 'processing') {
+            if (Number(qEntry.desk_no) !== Number(currentDeskNo)) {
+              alert(`⚠️ 해당 고객은 현재 다른 창구(${qEntry.desk_no}번 창구)에서 호출/처리 중입니다.`);
+              return;
+            }
+          }
+        }
+        return openPaymentModal(id);
+      }
       return cancelTicketIssue(id);
     }
 
@@ -1305,6 +1408,10 @@
       if (!confirm('발권을 취소하시겠습니까?\n\n· 결제·수납·발권 원장이 [취소] 상태로 바뀌어 실적과 마감 집계에서 자동 제외됩니다.\n· 기록 자체는 법정 보존을 위해 남습니다.\n· 실제 환불은 카드 단말기에서 별도로 처리하십시오.')) return;
 
       const reason = (prompt('취소 사유를 입력하십시오. (예: 고객 요청, 오발권)', '고객 요청') || '현장 발권취소').trim();
+
+      try {
+        localStorage.removeItem('bongplay_pending_order_' + item.id);
+      } catch (e) {}
 
       let result = { order_items: 0, order_payments: 0, tickets: 0 };
       try {
@@ -1362,6 +1469,22 @@
       }
 
       payCtx = { consentId: consentId, cart: cart, residence: reco.residence, morningPreset: reco.isMorningPreset, alloc: {} };
+
+      // [지시 ①] 부분 저장 뒤 결제 창 재열기·새로고침 복구
+      try {
+        const rawPending = localStorage.getItem('bongplay_pending_order_' + consentId);
+        if (rawPending) {
+          const pending = JSON.parse(rawPending);
+          if (pending && pending.order_id) {
+            payCtx.pendingData = pending;
+            if (pending.ticket_ids && pending.ticket_ids.length > 0) {
+              payCtx.activeTicketIds = pending.ticket_ids;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Pending order restore error:', e);
+      }
 
       document.getElementById('payPassCode').textContent = rec.passCode || rec.pass_code || ('BP-' + String(rec.id).slice(0, 6));
       const resident = BongplayID.isResidentDiscount(reco.residence);
@@ -1468,11 +1591,28 @@
       sel.value = prev;
       payCtx.forceRuleId = sel.value || null;
 
+      const oldTotal = payCtx.pricing ? payCtx.pricing.summary.total : 0;
       const pricing = BongplayID.computeCartPricing(payCartArray(), {
         residence: payCtx.residence,
         forceRuleId: payCtx.forceRuleId
       });
       payCtx.pricing = pricing;
+      const newTotal = pricing.summary.total;
+
+      // [R-03 / 벤 R1 지시 ⑤] 권종 변경 또는 수량 변경 시 결제 배분 자동 갱신
+      if (payCtx.alloc && oldTotal !== newTotal && oldTotal > 0) {
+        const allocatedMethods = Object.keys(payCtx.alloc).filter(m => (Number(payCtx.alloc[m]) || 0) > 0);
+        if (allocatedMethods.length === 1) {
+          payCtx.alloc[allocatedMethods[0]] = newTotal;
+        } else if (allocatedMethods.length > 1) {
+          const currentSum = allocatedMethods.reduce((s, m) => s + Number(payCtx.alloc[m] || 0), 0);
+          if (currentSum === oldTotal) {
+            const primaryMethod = allocatedMethods.slice().sort((a, b) => (Number(payCtx.alloc[b]) || 0) - (Number(payCtx.alloc[a]) || 0))[0];
+            const otherSum = currentSum - Number(payCtx.alloc[primaryMethod] || 0);
+            payCtx.alloc[primaryMethod] = Math.max(0, newTotal - otherSum);
+          }
+        }
+      }
 
       document.getElementById('paySubtotal').textContent = pricing.summary.subtotal.toLocaleString() + ' 원';
       document.getElementById('payDiscount').textContent = '-' + pricing.summary.discount.toLocaleString() + ' 원';
@@ -1571,6 +1711,34 @@
       const rec = consents.find(c => c.id === payCtx.consentId);
       if (!rec) return;
 
+      // [지시 ②] 결제 직전에 서버의 당일 KST 안전점검 PASS 실시간 확인
+      const todayKst = BongplaySync.toLocalDateStr(new Date());
+      try {
+        if (window.BongplaySync && typeof BongplaySync.select === 'function') {
+          const auditRes = await BongplaySync.select('safety_audits', `?audit_date=eq.${todayKst}&order=audit_at.desc&limit=20`);
+          if (auditRes && auditRes.ok && Array.isArray(auditRes.data) && auditRes.data.length > 0) {
+            const todayAudits = auditRes.data;
+            const hasFail = todayAudits.some(a => a.decision === 'fail');
+            const latest = todayAudits[0];
+            if (hasFail || !latest || latest.decision !== 'pass') {
+              isSafetyInspectionPassed = false;
+              const banner = document.getElementById('safetyInterlockBanner');
+              if (banner) banner.classList.remove('hidden');
+              alert('🚨 금일 안전점검에서 부적합(FAIL) 항목이 발견되었거나 최종 적합(PASS) 판정이 완료되지 않았습니다.\n안전점검 적합 승인 후 발권해 주십시오.');
+              return;
+            }
+            isSafetyInspectionPassed = true;
+          }
+        }
+      } catch (e) {
+        console.warn('결제 직전 안전점검 확인 중 예외:', e);
+      }
+
+      if (!isSafetyInspectionPassed) {
+        alert('🚨 금일 개장 전 안전점검이 완료되지 않았습니다!\n안전점검 일지에서 [적합(PASS)] 판정을 완료해야 발권이 가능합니다.');
+        return;
+      }
+
       const pricing = payCtx.pricing;
       if (pricing.items.length === 0) {
         alert('판매할 품목을 선택해 주십시오.');
@@ -1615,10 +1783,49 @@
         .map(p => `${(BongplayID.getPaymentMethod(p.method) || {}).short || p.method} ${p.amount.toLocaleString()}원`)
         .join(' + ');
 
-      // [Fix 3] 현재 호출된 대기열 팀과 결제 대상 서약서 일치 여부 검증
-      if (currentCalledQueueEntry && currentCalledQueueEntry.consent_id && currentCalledQueueEntry.consent_id !== rec.id) {
-        alert(`❌ 현재 호출된 대기열 팀(${currentCalledQueueEntry.formatted_number || currentCalledQueueEntry.queue_number})과 결제 대상 서약서가 일치하지 않습니다.`);
-        return;
+      // [지시 ③] 원장 저장 전에 대기열 상태, 선택 서약서와 호출 고객 일치, 창구 및 processing 상태 검증
+      let qEntry = null;
+      if (window.BongplayQueue) {
+        qEntry = findQueueEntryForConsent(rec.id);
+        if (qEntry) {
+          // 대기·보류 고객의 즉시발권 차단 및 FIFO 호출 안내
+          if (qEntry.status === 'waiting' || qEntry.status === 'held' || qEntry.status === 'no_show') {
+            const qNum = qEntry.formatted_number || ('#' + String(qEntry.queue_number || '').padStart(3, '0'));
+            alert(`⚠️ 해당 고객은 현재 대기열(${qNum})에 등록되어 있습니다.\n공정 대기 원칙(FIFO)에 따라 창구에서 순서대로 호출 후 발권해 주십시오.`);
+            return;
+          }
+
+          // 선택 서약서와 호출 고객 일치 여부
+          if (qEntry.consent_id && qEntry.consent_id !== rec.id) {
+            alert(`❌ 대기열 팀(${qEntry.formatted_number || qEntry.queue_number})과 결제 대상 서약서가 일치하지 않습니다.`);
+            return;
+          }
+
+          // 해당 창구 일치 여부
+          if (qEntry.desk_no && Number(qEntry.desk_no) !== Number(currentDeskNo)) {
+            alert(`❌ 해당 팀은 현재 ${qEntry.desk_no}번 창구에 배정되어 있습니다. (현재 창구: ${currentDeskNo}번)`);
+            return;
+          }
+
+          // called 상태이면 원장 저장 전에 startProcessing을 호출하여 processing 상태로 확정
+          if (qEntry.status === 'called' || (BongplayQueue.STATUS && qEntry.status === BongplayQueue.STATUS.CALLED)) {
+            const startRes = await BongplayQueue.startProcessing(qEntry.id, currentDeskNo);
+            if (!startRes || !startRes.ok) {
+              alert('❌ 창구 발권 처리(processing) 상태 전환에 실패했습니다. 대기열 상태를 확인해 주십시오.');
+              return;
+            }
+            qEntry.status = 'processing';
+            if (currentCalledQueueEntry && currentCalledQueueEntry.id === qEntry.id) {
+              currentCalledQueueEntry.status = 'processing';
+            }
+          }
+
+          // 최종 상태가 processing이 아니면 원장 저장 중단
+          if (qEntry.status !== 'processing' && (!BongplayQueue.STATUS || qEntry.status !== BongplayQueue.STATUS.PROCESSING)) {
+            alert(`❌ 대기열 상태(${qEntry.status})가 발권 처리 중(processing)이 아닙니다. 순서대로 호출 후 진행해 주십시오.`);
+            return;
+          }
+        }
       }
 
       if (!confirm(`${methodLabel} 으로 결제 완료 처리합니다.\n(실물 단말기 승인이 끝났는지 확인하십시오)`)) return;
@@ -1635,16 +1842,37 @@
       } catch (e) {}
 
       // 1) 품목 원장(order_items) + 수납 원장(order_payments)
-      // 재시도 시 동일 order_id 재사용 (새 주문 생성 방지)
+      // [지시 ①] 재시도, 모달 재열기, 새로고침 시 동일 order_id 복구 및 재사용 (중복 매출 원천 방지)
+      let pendingData = payCtx.pendingData;
+      if (!pendingData) {
+        try {
+          const rawPending = localStorage.getItem('bongplay_pending_order_' + rec.id);
+          if (rawPending) pendingData = JSON.parse(rawPending);
+        } catch (e) {}
+      }
+
       let order = payCtx.activeOrder;
-      if (!order) {
+      if (!order && pendingData && pendingData.order_id) {
+        order = BongplayID.createOrder({
+          order_id: pendingData.order_id,
+          visit_id: pendingData.visit_id || rec.visit_id,
+          sales_channel: 'desk_ticketing',
+          payment_method: primaryMethod,
+          approval_no: approvalNo || null,
+          consent_id: rec.id,
+          staff_id: 'desk_staff_' + currentDeskNo,
+          items: pricing.items,
+          payments: payments
+        });
+        payCtx.activeOrder = order;
+      } else if (!order) {
         order = BongplayID.createOrder({
           visit_id: rec.visit_id,
           sales_channel: 'desk_ticketing',
           payment_method: primaryMethod,
           approval_no: approvalNo || null,
           consent_id: rec.id,
-          staff_id: 'desk_staff',
+          staff_id: 'desk_staff_' + currentDeskNo,
           items: pricing.items,
           payments: payments
         });
@@ -1679,16 +1907,30 @@
 
       let ticketIds = payCtx.activeTicketIds;
       if (!ticketIds || ticketIds.length !== ticketItemCount) {
-        ticketIds = [];
-        let seq = (rec.ticket_ids && Array.isArray(rec.ticket_ids)) ? rec.ticket_ids.length : 0;
-        pricing.items.filter(it => it.product_category === 'ticket').forEach(it => {
-          for (let i = 0; i < it.quantity; i++) {
-            seq++;
-            ticketIds.push(BongplayID.generateTicketId(rec.visit_id, seq));
-          }
-        });
+        if (pendingData && Array.isArray(pendingData.ticket_ids) && pendingData.ticket_ids.length === ticketItemCount) {
+          ticketIds = pendingData.ticket_ids;
+        } else {
+          ticketIds = [];
+          let seq = (rec.ticket_ids && Array.isArray(rec.ticket_ids)) ? rec.ticket_ids.length : 0;
+          pricing.items.filter(it => it.product_category === 'ticket').forEach(it => {
+            for (let i = 0; i < it.quantity; i++) {
+              seq++;
+              ticketIds.push(BongplayID.generateTicketId(rec.visit_id, seq));
+            }
+          });
+        }
         payCtx.activeTicketIds = ticketIds;
       }
+
+      // [지시 ①] 부분 저장 중 창 닫기/새로고침/재시도 시 복구 가능하도록 pending 기록 보존
+      try {
+        localStorage.setItem('bongplay_pending_order_' + rec.id, JSON.stringify({
+          order_id: order.order_id,
+          visit_id: rec.visit_id,
+          ticket_ids: ticketIds,
+          created_at: now
+        }));
+      } catch (e) {}
 
       let tIdx = 0;
       const ledgerPromises = [];
@@ -1728,40 +1970,14 @@
       }
 
       // 3) 대기열 발권 완료 확정 (ANT-006: 서버 발권 확정 후 대기열에서 제외)
-      // 벤 지시: 서버 저장 확인 전에 발권 완료로 표시하지 않도록 순서 보정
-      if (window.BongplayQueue) {
-        let qEntry = currentCalledQueueEntry || (BongplayQueue.store ? BongplayQueue.store.getEntryByConsentId(rec.id) : null);
-        if (!qEntry && typeof lastKnownStaffQueueData !== 'undefined' && lastKnownStaffQueueData) {
-          const allTeams = [
-            ...(lastKnownStaffQueueData.called_teams || []),
-            ...(lastKnownStaffQueueData.waiting_teams || []),
-            ...(lastKnownStaffQueueData.held_teams || [])
-          ];
-          qEntry = allTeams.find(t => t.consent_id === rec.id || t.id === rec.id) || null;
+      if (qEntry) {
+        const qRes = await BongplayQueue.completeIssuance(qEntry.id, order.order_id, ticketIds);
+        if (!qRes || !qRes.ok) {
+          alert('❌ 대기열 발권 확정 실패: ' + (qRes?.message || '대기열 완료 서버 응답에 실패했습니다. 대기열 및 서약서 미완료 상태를 유지합니다.'));
+          return;
         }
-
-        if (qEntry) {
-          // DB 계약: processing 상태인 팀만 complete_queue_issuance 가능.
-          // called 상태이면 startProcessing을 먼저 수행하여 유효한 상태 전이 보장.
-          if (qEntry.status === 'called' || (BongplayQueue.STATUS && qEntry.status === BongplayQueue.STATUS.CALLED)) {
-            const startRes = await BongplayQueue.startProcessing(qEntry.id, currentDeskNo);
-            if (startRes && startRes.ok) {
-              qEntry.status = 'processing';
-              if (currentCalledQueueEntry && currentCalledQueueEntry.id === qEntry.id) {
-                currentCalledQueueEntry.status = 'processing';
-              }
-            }
-          }
-
-          const qRes = await BongplayQueue.completeIssuance(qEntry.id, order.order_id, ticketIds);
-          if (!qRes || !qRes.ok) {
-            alert('❌ 대기열 발권 확정 실패: ' + (qRes?.message || '대기열 완료 서버 응답에 실패했습니다. 대기열 및 서약서 미완료 상태를 유지합니다.'));
-            // 서버 확인 실패 시 서약서 상태를 완료로 변경하지 않고 대기열 창구 슬롯을 유지 (재시도 시 동일 order/tickets 재사용)
-            return;
-          }
-          if (currentCalledQueueEntry && currentCalledQueueEntry.id === qEntry.id) {
-            currentCalledQueueEntry = null;
-          }
+        if (currentCalledQueueEntry && currentCalledQueueEntry.id === qEntry.id) {
+          currentCalledQueueEntry = null;
         }
       }
 
@@ -1772,9 +1988,19 @@
       rec.ticket_ids = ticketIds;
       if (rec.cancel_reason == null) delete rec.cancel_reason;
       if (rec.cancelled_at == null) delete rec.cancelled_at;
-      const consentSyncRes = await BongplaySync.upsert('safety_consents', rec);
+
+      const consentUpdatePayload = {
+        id: rec.id,
+        is_issued: true,
+        ticket_issued_at: rec.ticket_issued_at,
+        ticket_ids: ticketIds,
+        updated_at: now
+      };
+      const consentSyncRes = await BongplaySync.upsert('safety_consents', Object.assign({}, rec, consentUpdatePayload));
       const consentConfirmed = Boolean(consentSyncRes && consentSyncRes.ok === true && !consentSyncRes.queued);
-      if (!consentConfirmed) {
+      if (consentConfirmed) {
+        try { localStorage.removeItem('bongplay_pending_order_' + rec.id); } catch (e) {}
+      } else {
         alert(consentSyncRes && consentSyncRes.queued
           ? '⚠️ 발권은 완료되었으나, 서약서 상태 동기화가 전송 대기(오프라인/아웃박스) 중입니다. 네트워크 복구 시 자동 동기화됩니다.'
           : '⚠️ 발권은 완료되었으나, 서약서 상태 동기화에 실패했습니다. 관리자에게 문의하세요.');
@@ -1786,7 +2012,6 @@
       renderAdminList();
       refreshDeskQueueView();
 
-      alert(`✅ 발권 완료\n\n· 결제: ${methodLabel}${approvalNo ? ' (승인 ' + approvalNo + ')' : ''}\n· 발권: ${ticketIds.length}매 (손목 띠지 교부 후 게이트 안내)\n· 원장: 결제·수납·발권·실적·마감에 자동 반영되었습니다.`);
     }
 
     // 8. Detail Modal
