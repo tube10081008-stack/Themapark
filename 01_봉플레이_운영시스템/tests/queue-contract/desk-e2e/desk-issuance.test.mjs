@@ -98,6 +98,10 @@ test('E0 normal issuance: order, payment, tickets, queue completion AND consent 
     const s = await dbState(c, consentId, queueId);
     assertSingleIssuance(s, total, 'E0');
     const cons = proxy.calls('rest', 'safety_consents').filter((e) => e.method !== 'GET');
+    if ('status' in s.consent) {
+      // R2 결정: 서약서 status 는 active/cancelled 만, 발권 여부는 is_issued 로 분리
+      assert.equal(s.consent.status, 'active', `발권 뒤 서약서 status 가 ${s.consent.status} (R2: active/cancelled 만, 발권은 is_issued)`);
+    }
     assert.equal(s.consent.is_issued, true,
       `서약서 발권 상태가 서버에 저장되지 않음 (화면 안내: ${ui.dialogs.map((d) => d.message.split('\n')[0]).join(' / ')}; ` +
       `서버 응답: ${cons.map((e) => e.status + ' ' + (e.response || '')).join(' | ')})`);
@@ -182,7 +186,7 @@ test('E5 staff closes and reopens the payment window after a partial failure: st
   });
 });
 
-test('E6 a correct staff code still completes after another device behind the same IP sent wrong codes (no shared lockout)', { skip }, async () => {
+test('E6 a correct staff code still completes after another device behind the same IP sent wrong codes (no shared lockout)', { skip, todo: '알려진 제한: IP 단위 잠금 공유 (C3 미적용, 벤 R1 결정)' }, async () => {
   // private.verify_access_code 는 x-forwarded-for(IP) 별 10분 20회 실패면 그 IP 의 모든 검증을 거부한다.
   // 현장 단말은 같은 공유기(같은 공인 IP) 뒤에 있으므로, 옛 암호가 남은 단말 하나가 폴링하면 정상 단말의 발권 완료까지 막힌다.
   await scenario({}, async ({ c, ui, consentId, queueId, proxy }) => {
@@ -290,7 +294,7 @@ test('E9b paying directly for a waiting team that was never called does not leav
   });
 });
 
-test('E10 issuing a previously cancelled consent clears its cancel fields on the server (status not cancelled, cancelled_at/cancel_reason null)', { skip }, async (t) => {
+test('E10 issuing a previously cancelled consent clears its cancel fields on the server (status active, cancelled_at/cancel_reason null)', { skip }, async (t) => {
   // 취소 3열이 있는 DB 에서만 의미가 있다 (없으면 node:test 건너뜀으로 기록).
   const opts = { cancelledFirst: true, needsCancelColumns: true };
   await scenario(opts, async ({ c, ui, consentId, queueId }) => {
@@ -302,9 +306,43 @@ test('E10 issuing a previously cancelled consent clears its cancel fields on the
     const k = s.consent;
     console.log(`# E10 관찰: is_issued=${k.is_issued}, status=${k.status}, cancelled_at=${k.cancelled_at}, cancel_reason=${k.cancel_reason}`);
     assert.equal(k.is_issued, true, '서약서 발권 상태 미저장');
-    assert.notEqual(k.status, 'cancelled', '발권했는데 서버 서약서 status 가 cancelled 로 남음');
+    assert.equal(k.status, 'active', `발권 뒤 서약서 status 가 ${k.status} (R2: 발권 성공이면 active, 발권 여부는 is_issued)`);
     assert.equal(k.cancelled_at, null, `발권했는데 cancelled_at 이 남음 (${k.cancelled_at})`);
     assert.equal(k.cancel_reason, null, `발권했는데 cancel_reason 이 남음 (${k.cancel_reason})`);
   });
   if (opts.skipped) t.skip('이 DB 에는 서약서 취소 3열이 없다 (C1 미적용 판)');
+});
+
+test('E11 after the staff code changes on the server, the desk stops repeating staff calls with the stale code and asks for re-authentication', { skip }, async () => {
+  // 암호를 바꾸면(또는 세션 암호가 무효가 되면) 매표 화면은 3초 폴링 등으로 옛 암호를 계속 보낸다.
+  // 실패는 private.auth_attempts 에 IP 별로 쌓이고 10분 20회면 같은 IP 의 모든 단말이 잠긴다 (E6).
+  // 계약: 인증 실패를 받으면 자동 반복 요청을 멈추고 재인증을 안내한다. 30초 동안 실패 3회 이하, 재인증 안내 표시.
+  const env = loadEnv();
+  const c0 = await db();
+  try {
+    await scenario({}, async ({ c, ui, proxy }) => {
+      assert.ok(await waitFor(() => ui.page.evaluate(() => typeof consents !== 'undefined' && consents.length > 0 && !!BongplayAuth.getAccessCode()), { timeout: 15000 }), '준비: 로그인');
+      await c.query(`update private.app_settings set value = extensions.crypt($1, extensions.gen_salt('bf')), updated_at = now() where key = 'access_code'`,
+        ['SYN-ROTATED-' + Date.now().toString(36)]);
+      await c.query(`delete from private.auth_attempts`);
+      const t0 = Date.now();
+      await sleep(30000);
+      const fails = (await c.query(`select count(*)::int n from private.auth_attempts where not ok`)).rows[0].n;
+      const staffCalls = proxy.state.log.filter((e) => e.t >= t0 && e.kind === 'rpc' && e.body && e.body.p_access_code === env.E2E_STAFF_CODE);
+      const ui2 = await ui.page.evaluate(() => ({
+        overlay: !!document.getElementById('bongplay-auth-overlay'),
+        code: !!(window.BongplayAuth && BongplayAuth.getAccessCode())
+      }));
+      const reauthDialog = ui.dialogs.some((d) => d.t >= t0 && /인증|암호|로그인/.test(d.message));
+      const byName = staffCalls.reduce((m, e) => ((m[e.name] = (m[e.name] || 0) + 1), m), {});
+      console.log(`# E11 관찰: 30초 동안 옛 암호 직원 호출 ${staffCalls.length}회 ${JSON.stringify(byName)}, 서버 인증 실패 기록 ${fails}건 (IP 잠금 기준 20), 재인증 창 ${ui2.overlay}, 세션 암호 유지 ${ui2.code}, 재인증 안내 대화상자 ${reauthDialog}`);
+      assert.ok(fails <= 3, `인증 실패 뒤에도 옛 암호로 계속 요청 (30초 동안 실패 ${fails}건 — 10분 20건이면 같은 IP 단말 전체 잠김)`);
+      assert.ok(ui2.overlay || reauthDialog, '인증 실패 뒤 재인증 안내가 없음');
+    });
+  } finally {
+    // 다음 시험을 위해 시험 암호를 되돌린다
+    await c0.query(`update private.app_settings set value = extensions.crypt($1, extensions.gen_salt('bf')), updated_at = now() where key = 'access_code'`, [env.E2E_STAFF_CODE]);
+    await c0.query(`delete from private.auth_attempts`);
+    await c0.end();
+  }
 });

@@ -109,6 +109,11 @@ checks(level, check_id, ok, detail) as (
          coalesce(string_agg(f.nspname || '.' || f.proname, ', ') filter (where not exists (select 1 from unnest(f.proconfig) c where c like 'search_path=%')), '')
   from fns f where f.prosecdef
   union all
+  select 'FAIL', 'S02 안전점검 수정 정책이 KST 날짜 기준 (C2, UTC current_date 아님)',
+         exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'safety_audits' and policyname = 'audits_update'
+                 and qual like '%Asia/Seoul%' and with_check like '%Asia/Seoul%'),
+         'FINAL_SUPABASE_SETUP.sql 5-3 판 확인'
+  union all
   select 'FAIL', 'Q01 대기열 고유 제약 (번호·서약서·멱등키)',
          (select count(*) from pg_constraint where conname in
            ('uq_ticket_queue_site_date_number', 'uq_ticket_queue_site_date_consent', 'uq_ticket_queue_site_date_idempotency')) = 3, ''

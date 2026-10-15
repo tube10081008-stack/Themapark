@@ -2,15 +2,17 @@
 # CLAUDE-011 — safety_audits 수정 정책 KST 경계 시각 시험 (C2). Supabase·운영 DB 에 접속하지 않는다.
 #
 # PostgreSQL 서버 전체를 libfaketime 아래에서 띄워 now()/current_date 가 지정 시각을 따르게 한다 (세션 시간대 UTC = Supabase 기본).
-# 같은 클러스터에 두 DB 를 둔다:
-#   current: FINAL_SUPABASE_SETUP.sql 그대로 (audits_update = current_date, UTC)
-#   patched: FINAL + PROPOSED_PATCH_audits_update_kst.sql
+# 같은 클러스터에 판별 DB 를 둔다 (모두 00_preflight 다음에 적용):
+#   final        : 지금 FINAL_SUPABASE_SETUP.sql (2026-10-15 R2 로 audits_update 를 KST 로 고친 판)
+#   final_patch  : 지금 FINAL + PROPOSED_PATCH_audits_update_kst.sql (패치 재적용 무해 확인)
+#   old          : BASELINE_FINAL 로 준 옛 FINAL (current_date, UTC) — 지정할 때만. 재현용이라 종료 코드에 넣지 않는다
+#   old_patch    : 옛 FINAL + 패치 (이미 설치된 DB 에 패치만 적용하는 경우) — BASELINE_FINAL 지정할 때만
 # 각 경계 시각마다 관리자 연결로 "오늘(KST)"·"어제(KST)" 점검 기록을 만들고, anon(앱)으로 두 기록의 note 수정을 시도한다.
 # 계약: 오늘(KST) 기록은 수정 1건, 어제(KST) 기록은 수정 0건.
 # 추가: 같은 시각에 오늘(KST) PASS 가 있으면 안전 인터록이 주문 품목 쓰기를 허용하는지 (트리거는 원래 KST 기준).
 #
-# 사용: [PG_BIN=/usr/lib/postgresql/16/bin] [FAKETIME_LIB=/usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1] bash audits_kst_boundary.sh
-# 종료 코드: patched 의 계약 위반 수 (current 의 위반은 재현 결과로만 출력)
+# 사용: [BASELINE_FINAL=<옛 FINAL 경로>] [PG_BIN=…] [FAKETIME_LIB=…] bash audits_kst_boundary.sh
+# 종료 코드: old 를 뺀 판들의 계약 위반 수
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OPS="$(cd "$HERE/../../.." && pwd)"
@@ -30,13 +32,18 @@ su postgres -s /bin/sh -c "TZ=UTC LD_PRELOAD=$LIB FAKETIME_TIMESTAMP_FILE=$WORK/
   $PG_BIN/pg_ctl -D $WORK/data -o '-p $PORT -k $WORK -c listen_addresses=127.0.0.1 -c timezone=UTC' -l $WORK/log start >/dev/null" || { cat "$WORK/log"; exit 2; }
 
 P="$PG_BIN/psql -X -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -p $PORT"
-for d in current patched; do
+PATCH="$DB_DIR/PROPOSED_PATCH_audits_update_kst.sql"
+declare -A VFILES=( [final]="$DB_DIR/FINAL_SUPABASE_SETUP.sql" [final_patch]="$DB_DIR/FINAL_SUPABASE_SETUP.sql $PATCH" )
+VARIANTS=(final final_patch)
+if [ -n "${BASELINE_FINAL:-}" ]; then
+  VFILES[old]="$BASELINE_FINAL"; VFILES[old_patch]="$BASELINE_FINAL $PATCH"; VARIANTS=(old old_patch final final_patch)
+fi
+for d in "${VARIANTS[@]}"; do
   $P -U supabase_admin -d postgres -c "create database $d" || exit 2
   $P -U supabase_admin -d $d -f "$HERE/supabase_platform_emulation.sql" >/dev/null 2>&1 || exit 2
   $P -U postgres -d $d -f "$DB_DIR/test_supabase_install/00_preflight.sql" >/dev/null 2>&1 || exit 2
-  $P -U postgres -d $d -f "$DB_DIR/FINAL_SUPABASE_SETUP.sql" >/dev/null 2>&1 || { echo "FINAL 적용 실패 ($d)"; exit 2; }
+  for f in ${VFILES[$d]}; do $P -U postgres -d $d -f "$f" >/dev/null 2>&1 || { echo "적용 실패 ($d): $f"; exit 2; }; done
 done
-$P -U postgres -d patched -f "$DB_DIR/PROPOSED_PATCH_audits_update_kst.sql" >/dev/null || exit 2
 
 probe() {   # $1 = DB. 출력: "서버UTC|KST날짜|current_date|오늘수정|어제수정|인터록"
   $P -U postgres -d "$1" -t -A <<'SQL'
@@ -64,19 +71,21 @@ rollback;
 SQL
 }
 
-FAILS=0; CUR_FAILS=0
-printf '%-22s %-11s %-12s | %-24s | %-24s | %s\n' "서버 시각(UTC)" "KST 날짜" "current_date" "current: 오늘/어제 수정" "patched: 오늘/어제 수정" "인터록(오늘 PASS)"
+FAILS=0
+declare -A VFAIL
+printf '%-22s %-11s %-12s' "서버 시각(UTC)" "KST 날짜" "current_date"; for d in "${VARIANTS[@]}"; do printf ' | %-16s' "$d 오늘/어제"; done; printf ' | %s\n' "인터록(오늘 PASS)"
 for t in "2026-10-15 14:59:30" "2026-10-15 15:00:30" "2026-10-15 23:59:30" "2026-10-16 00:00:30"; do
   echo "@$t" > "$WORK/faketime"
-  rc=$(probe current 2>&1 | grep '|' | head -1)
-  rp=$(probe patched 2>&1); il=$(echo "$rp" | grep -c INTERLOCK_OK); rp=$(echo "$rp" | grep '|' | head -1)
-  IFS='|' read -r utc kst cd ct cy <<< "$rc"
-  IFS='|' read -r _ _ _ pt py <<< "$rp"
-  cv=$([ "$ct" = 1 ] && [ "$cy" = 0 ] && echo "계약 충족" || echo "위반")
-  pv=$([ "$pt" = 1 ] && [ "$py" = 0 ] && echo "계약 충족" || echo "위반")
-  [ "$cv" = "위반" ] && CUR_FAILS=$((CUR_FAILS + 1))
-  [ "$pv" = "위반" ] && FAILS=$((FAILS + 1))
-  printf '%-22s %-11s %-12s | %s/%s %-18s | %s/%s %-18s | %s\n' "$utc" "$kst" "$cd" "$ct" "$cy" "$cv" "$pt" "$py" "$pv" "$([ "$il" = 1 ] && echo 허용 || echo 거부)"
+  line=""; il=""
+  for d in "${VARIANTS[@]}"; do
+    out=$(probe "$d" 2>&1); r=$(echo "$out" | grep '|' | head -1)
+    IFS='|' read -r utc kst cd ct cy <<< "$r"
+    v=$([ "$ct" = 1 ] && [ "$cy" = 0 ] && echo "충족" || echo "위반")
+    if [ "$v" = "위반" ]; then VFAIL[$d]=$(( ${VFAIL[$d]:-0} + 1 )); [ "$d" != old ] && FAILS=$((FAILS + 1)); fi
+    line="$line | $(printf '%-16s' "$ct/$cy $v")"
+    [ "$d" = final ] && il=$([ "$(echo "$out" | grep -c INTERLOCK_OK)" = 1 ] && echo 허용 || echo 거부)
+  done
+  printf '%-22s %-11s %-12s%s | %s\n' "$utc" "$kst" "$cd" "$line" "$il"
 done
-echo "current(FINAL 그대로) 위반 시각 ${CUR_FAILS}개 / patched 위반 시각 ${FAILS}개"
+for d in "${VARIANTS[@]}"; do echo "$d: 위반 시각 ${VFAIL[$d]:-0}개"; done
 exit "$FAILS"
