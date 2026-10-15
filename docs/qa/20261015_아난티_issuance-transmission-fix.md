@@ -7,6 +7,7 @@
 **작업 공간**: `c:\Users\bongp\OneDrive\문서\new\.worktrees\ANT-006-ticket-queue` (전용 worktree)  
 **작업 브랜치**: `antigravity/ANT-006-queue-followup`  
 **기준 커밋 SHA (Base SHA)**: `2a0aacf910d65b91b97aee41f53d463fa78d5fd5`  
+**구현 완료 SHA**: `d5c1b5a4eb53d05dc512493570712f99887b7214`  
 **PR 대상 브랜치**: `master` (직접 병합/배포 금지)  
 **배포 기준 환경**: 프런트 `2a0aacf` + DB 계약 `e8a9041` + 벤의 배포 보완본 `20261015-r2`  
 
