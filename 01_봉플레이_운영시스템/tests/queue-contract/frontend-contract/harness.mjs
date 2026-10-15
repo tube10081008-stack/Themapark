@@ -43,6 +43,18 @@ export async function startMockServer() {
   const rowsOf = (name) => [...table(name).values()];
   const pkOf = (name, row) => (name === 'ticket_ledger' ? row.ticket_id : (row.id ?? row.item_id ?? row.ticket_id));
 
+  const today = kstToday();
+  table('safety_audits').set('audit_' + today, {
+    id: 'audit_' + today,
+    site_id: 'bongplay_bonghwa',
+    audit_date: today,
+    audit_at: new Date().toISOString(),
+    inspector: 'SYN 점검자',
+    decision: 'pass',
+    is_safe: true,
+    note: '합성 PASS'
+  });
+
   function takeFault(kind, name, method) {
     const f = state.faults.find((x) => x.kind === kind && x.name === name && (!x.method || x.method === method) && x.times > 0);
     if (f) f.times -= 1;
@@ -235,6 +247,7 @@ window.BongplayAuth = {
     calls(kind, name) { return state.log.filter((e) => e.kind === kind && e.name === name); },
     rows: rowsOf,
     seedConsent(row) { table('safety_consents').set(row.id, row); },
+    seedAudit(audit) { table('safety_audits').set(audit.id, audit); },
     seedQueue(consent) { return rpc.enqueue_consent_team({ p_consent_id: consent.id, p_idempotency_key: 'seed_' + consent.id, p_party_size: 2, p_guardian_name: consent.guardian_name, p_guardian_phone: consent.guardian_phone }); },
     close: () => new Promise((r) => { server.closeAllConnections?.(); server.close(r); })
   };

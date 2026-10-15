@@ -733,15 +733,22 @@
       const todayStr = BongplaySync.toLocalDateStr(new Date());
 
       try {
-        const rawAudits = localStorage.getItem('bongplay_safety_audit_logs');
-        let audits = rawAudits ? JSON.parse(rawAudits) : [];
-        if (!audits.length && window.BongplaySync) {
+        let audits = [];
+        if (window.BongplaySync && typeof BongplaySync.select === 'function') {
           const res = await BongplaySync.select('safety_audits', `?audit_date=eq.${todayStr}&select=*`);
-          if (res.ok && res.data) audits = res.data;
+          if (res && res.ok && Array.isArray(res.data)) audits = res.data;
         }
 
-        const todayAudit = audits.find(a => (a.audit_date === todayStr) || (a.date || '').slice(0, 10) === todayStr);
-        if (todayAudit && todayAudit.decision === 'pass') {
+        // 서버 조회가 지원되지 않거나 네트워크 부재 시에만 로컬 스토리지 보조 확인
+        if (!audits.length && (!window.BongplaySync || typeof BongplaySync.select !== 'function')) {
+          const rawAudits = localStorage.getItem('bongplay_safety_audit_logs');
+          if (rawAudits) audits = JSON.parse(rawAudits);
+        }
+
+        const todayAudits = audits.filter(a => (a.audit_date === todayStr) || (a.date || '').slice(0, 10) === todayStr);
+        const hasFail = todayAudits.some(a => a.decision === 'fail');
+        const latest = todayAudits[0];
+        if (todayAudits.length > 0 && !hasFail && latest && latest.decision === 'pass') {
           isSafetyInspectionPassed = true;
           banner.classList.add('hidden');
         } else {
@@ -750,6 +757,8 @@
         }
       } catch (e) {
         console.warn('Safety interlock check failed:', e);
+        isSafetyInspectionPassed = false;
+        if (banner) banner.classList.remove('hidden');
       }
     }
 
@@ -1711,8 +1720,10 @@
       const rec = consents.find(c => c.id === payCtx.consentId);
       if (!rec) return;
 
-      // [지시 ②] 결제 직전에 서버의 당일 KST 안전점검 PASS 실시간 확인
+      // [E1 보완] 결제 직전 안전점검 판정을 false로 초기화하고, 서버 조회 성공 및 유효한 당일 PASS 확인 때만 허용
+      isSafetyInspectionPassed = false;
       const todayKst = BongplaySync.toLocalDateStr(new Date());
+      let auditConfirmed = false;
       try {
         if (window.BongplaySync && typeof BongplaySync.select === 'function') {
           const auditRes = await BongplaySync.select('safety_audits', `?audit_date=eq.${todayKst}&order=audit_at.desc&limit=20`);
@@ -1720,22 +1731,21 @@
             const todayAudits = auditRes.data;
             const hasFail = todayAudits.some(a => a.decision === 'fail');
             const latest = todayAudits[0];
-            if (hasFail || !latest || latest.decision !== 'pass') {
-              isSafetyInspectionPassed = false;
-              const banner = document.getElementById('safetyInterlockBanner');
-              if (banner) banner.classList.remove('hidden');
-              alert('🚨 금일 안전점검에서 부적합(FAIL) 항목이 발견되었거나 최종 적합(PASS) 판정이 완료되지 않았습니다.\n안전점검 적합 승인 후 발권해 주십시오.');
-              return;
+            if (!hasFail && latest && latest.decision === 'pass') {
+              auditConfirmed = true;
             }
-            isSafetyInspectionPassed = true;
           }
         }
       } catch (e) {
         console.warn('결제 직전 안전점검 확인 중 예외:', e);
+        auditConfirmed = false;
       }
 
+      isSafetyInspectionPassed = auditConfirmed;
       if (!isSafetyInspectionPassed) {
-        alert('🚨 금일 개장 전 안전점검이 완료되지 않았습니다!\n안전점검 일지에서 [적합(PASS)] 판정을 완료해야 발권이 가능합니다.');
+        const banner = document.getElementById('safetyInterlockBanner');
+        if (banner) banner.classList.remove('hidden');
+        alert('🚨 금일 개장 전 안전점검이 완료되지 않았거나 서버의 적합(PASS) 판정이 확인되지 않았습니다!\n안전점검 적합 승인 후 발권해 주십시오.');
         return;
       }
 
@@ -1984,14 +1994,18 @@
       // 4) 서버 대기열 완료 확정 후에만 서약서 상태를 '발권 완료'로 변경 및 저장
       rec.isIssued = true;
       rec.is_issued = true;
+      rec.status = 'active';
+      rec.cancelled_at = null;
+      rec.cancel_reason = null;
       rec.ticket_issued_at = rec.ticket_issued_at || now;
       rec.ticket_ids = ticketIds;
-      if (rec.cancel_reason == null) delete rec.cancel_reason;
-      if (rec.cancelled_at == null) delete rec.cancelled_at;
 
       const consentUpdatePayload = {
         id: rec.id,
         is_issued: true,
+        status: 'active',
+        cancelled_at: null,
+        cancel_reason: null,
         ticket_issued_at: rec.ticket_issued_at,
         ticket_ids: ticketIds,
         updated_at: now

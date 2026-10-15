@@ -180,3 +180,29 @@ Playwright 브라우저 E2E 실측 및 PostgREST 네트워크 트레이싱을 �
 - `save-retry-contract.test.mjs`: **10 / 10 PASS (100%)**
 - `test_r1_supplementary_contract.mjs`: **5 / 5 PASS (100%)**
 
+---
+
+## 8. 벤 R2 보완 지시 (E1·E10) 조치 내역 (2026-10-15 Round 2)
+
+**기준 커밋 SHA**: `71c944b`  
+**완료 일시**: 2026-10-15 18:38 KST  
+
+### 8.1 벤 R2 보완 지시 이행
+1. **[지시 ① - E1] 결제 직전 안전점검 판정 false 초기화 및 서버 유효 당일 PASS 확인 (Fail-Closed 엄수)**:
+   - `confirmPayment()` 진입 시 `isSafetyInspectionPassed`를 즉시 `false`로 초기화하고 `auditConfirmed = false`를 기본값으로 설정.
+   - 서버 `safety_audits` 실시간 조회 성공 및 `data.length > 0`이면서 부적합(`fail`)이 없고 최신 판정이 `pass`일 때만 `isSafetyInspectionPassed = true`로 승인.
+   - 빈 결과(0건), 조회 실패, 네트워크 예외 발생 시 일체 원장 쓰기(`order_items`, `order_payments`, `ticket_ledger`)를 진행하지 않고 즉시 차단 알림 표출.
+   - `checkSafetyInterlock()`에서도 서버 조회가 가능한 환경에서는 로컬 캐시 우선이 아닌 서버 조회를 우선하여 단말-서버 간 안전 상태 불일치 방지.
+2. **[지시 ② - E10] 발권 확정 저장 payload에 `status='active'`, `cancelled_at=null`, `cancel_reason=null` 명시**:
+   - `consent-desk.html`의 발권 완료 저장 단계에서 `consentUpdatePayload`에 `status: 'active'`, `cancelled_at: null`, `cancel_reason: null`을 명시적으로 포함하여 전송.
+   - 예전에 취소된 서약서의 재발권 시 과거 취소 필드가 서버에 잔류하지 않고 깨끗이 해제되도록 보장.
+   - 발권 여부는 `is_issued: true`로 명확히 관리하며, 기존 발권 대기열의 재발권 허용 범위는 확대하지 않고 기존 FIFO 및 processing 계약 유지.
+
+### 8.2 검증 결과 요약
+- `ticket_queue.test.js`: **26 / 26 PASS (100%)**
+- `operations_integrity.test.js`: **29 / 29 PASS (100%)**
+- `save-retry-contract.test.mjs`: **10 / 10 PASS (100%)**
+- `test_r1_supplementary_contract.mjs`: **5 / 5 PASS (100%)**
+- `test_r2_e1_e10.mjs` (E1 빈 결과 차단, 503 에러 차단, E10 취소 필드 해제): **4 / 4 PASS (100%)**
+
+
