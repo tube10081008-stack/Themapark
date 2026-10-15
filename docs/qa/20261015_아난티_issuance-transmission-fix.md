@@ -205,4 +205,49 @@ Playwright 브라우저 E2E 실측 및 PostgREST 네트워크 트레이싱을 �
 - `test_r1_supplementary_contract.mjs`: **5 / 5 PASS (100%)**
 - `test_r2_e1_e10.mjs` (E1 빈 결과 차단, 503 에러 차단, E10 취소 필드 해제): **4 / 4 PASS (100%)**
 
+---
+
+## 9. 벤 R3 보완 지시 (E11) 조치 내역 (2026-10-15)
+
+### 9.1 지시 사항 및 배경
+- **배경 (E11 결함 원인)**:
+  - 서버에서 운영자 암호가 변경되거나 세션이 만료된 경우, 매표 화면(`consent-desk.html`)이 3초 주기의 `refreshDeskQueueView()`를 통해 옛 암호로 `get_staff_queue_list`를 계속 반복 요청함.
+  - 이로 인해 Supabase `private.auth_attempts`에 실패 로그가 지속 누적되어 10분 20회 초과 시 매표소 공유기 IP 전체가 잠기는 치명적 운영 사고(E6) 위험이 존재함.
+- **벤 R3 지시 요건**:
+  1. 직원 인증 실패(`UNAUTHORIZED_STAFF`) 수신 시 직원 자동 조회 및 재시도를 즉시 중단할 것.
+  2. 저장된 직원 암호(`localStorage['bongplay_staff_session_v2']`)를 제거하고 재인증을 안내할 것 (`#bongplay-auth-overlay` 표출).
+  3. 재인증 성공 시에만 조회를 재개하고, `setInterval` 타이머가 중복 생성되지 않도록 가드할 것.
+  4. 진행 중인 주문·티켓 복구 기록(`bongplay_pending_order_*`)은 삭제하지 않고 안전하게 보존할 것.
+  5. 서버 인증 제한(10분 20회 잠금 규칙)은 일체 완화하지 말 것.
+
+### 9.2 상세 수정 내용
+1. **`assets/config.template.js` 및 `assets/config.js`**:
+   - `showAuthModal(onSuccess)`에 성공 콜백 인자 지원 및 이미 열려 있을 경우 포커스만 재지정.
+   - `window.BongplayAuth`에 세션 제거 메서드 `clearSession()` 및 재인증 요청 메서드 `promptReauth(onSuccess)` 추가.
+   - `promptReauth`: 기존 `bongplay_staff_session_v2`를 삭제하고 재인증 오버레이 모달을 띄워 서버 검증 성공 시 콜백 실행.
+2. **`pages/consent-desk.html`**:
+   - `deskQueuePollTimer`, `isStaffAuthFailed` 상태 변수 추가.
+   - `stopQueuePolling()`: 활성화된 폴링 타이머가 있으면 `clearInterval` 후 null 처리.
+   - `startQueuePolling()`: 항상 기존 타이머를 먼저 정리하고, `isStaffAuthFailed`가 아닐 때만 단일 3초 인터벌 등록 (타이머 중복 생성 원천 차단).
+   - `isUnauthorizedStaff(resOrErr)`: 응답/에러 객체, 메시지, 문자열 전체에서 `UNAUTHORIZED_STAFF` 정밀 탐지.
+   - `handleStaffAuthFailure(errorMsg)`:
+     - 중복 호출 방지 가드 (`if (isStaffAuthFailed) return; isStaffAuthFailed = true;`).
+     - 자동 조회 즉시 중단 (`stopQueuePolling()`).
+     - 저장된 직원 암호 세션 제거 (`localStorage.removeItem('bongplay_staff_session_v2')`). 단, 진행 중 주문 복구 키인 `bongplay_pending_order_*`는 일체 건드리지 않고 보존.
+     - `BongplayAuth.promptReauth(onReauthSuccess)` 호출하여 재인증 오버레이 표시.
+     - 재인증 성공 시 `isStaffAuthFailed = false`, `startQueuePolling()`, `loadData()`, `refreshDeskQueueView()` 순차 실행하여 정상 복구.
+   - `refreshDeskQueueView()`, `loadData()`, `toggleCurrentDeskPause()`, `handleCallNextQueueTeam()`, `handleRecallQueueTeam()`, `handleStartQueueProcessing()`, `handleHoldQueueTeam()`, `handleRestoreHeldTeam()`, `handleCancelQueueTeam()`, `confirmPayment()`의 `completeIssuance()` 전역에서 `UNAUTHORIZED_STAFF` 감지 시 즉시 핸들러로 라우팅.
+3. **`tests/queue-contract/frontend-contract/harness.mjs`**:
+   - 모의 `window.BongplayAuth`에 `clearSession`, `promptReauth` 지원.
+   - `ROOT` 미설정 시 기본 경로 폴백 추가하여 계약 테스트 신뢰성 확보.
+
+### 9.3 전수 검증 결과
+- `ticket_queue.test.js`: **26 / 26 PASS (100%)**
+- `operations_integrity.test.js`: **29 / 29 PASS (100%)**
+- `save-retry-contract.test.mjs`: **10 / 10 PASS (100%)**
+- `test_r2_e1_e10.mjs` (E1 fail-closed & E10 cancel fields reset): **4 / 4 PASS (100%)**
+- `test_r3_e11.mjs` (E11 UNAUTHORIZED_STAFF 폴링 중단, 암호 삭제, 재인증 안내, 타이머 중복 방지, pending_order 보존): **4 / 4 PASS (100%)**
+- **모든 테스트 통과 합계: 73건 전수 PASS**
+
+
 

@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export const ROOT = process.env.ANT006_ROOT || null;
+export const ROOT = process.env.ANT006_ROOT || path.resolve(import.meta.dirname, '../../../../');
 export const STAFF_CODE = 'SENTINEL-STAFF-CODE';
 const ANON_KEY = 'SENTINEL-ANON-KEY';
 const OPS = ROOT ? path.join(ROOT, '01_봉플레이_운영시스템') : null;
@@ -162,6 +162,16 @@ try { localStorage.setItem('bongplay_supabase_config', JSON.stringify({ url: loc
 window.BongplayAuth = {
   getAccessCode: function () { try { var s = JSON.parse(localStorage.getItem('bongplay_staff_session_v2') || 'null'); return s && s.code; } catch (e) { return null; } },
   isAuthenticated: function () { return !!this.getAccessCode(); },
+  clearSession: function () { try { localStorage.removeItem('bongplay_staff_session_v2'); } catch (e) {} },
+  promptReauth: function (onSuccess) {
+    try { localStorage.removeItem('bongplay_staff_session_v2'); } catch (e) {}
+    if (!document.getElementById('bongplay-auth-overlay')) {
+      var overlay = document.createElement('div');
+      overlay.id = 'bongplay-auth-overlay';
+      overlay.innerHTML = '<div id="bongplay-auth-modal"><input id="bongplay-auth-input" type="password"/><button id="bongplay-auth-submit">인증</button></div>';
+      document.body ? document.body.appendChild(overlay) : document.documentElement.appendChild(overlay);
+    }
+  },
   logout: function () {}
 };`;
 

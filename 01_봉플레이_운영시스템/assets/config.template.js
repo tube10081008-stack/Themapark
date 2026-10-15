@@ -74,28 +74,6 @@ window.BONGPLAY_CONFIG = {
     return null;
   }
 
-  // 보안 RPC(get_today_consents_secure 등)에 전달할 암호는 여기서만 꺼냅니다.
-  window.BongplayAuth = {
-    getAccessCode: function () { var s = readSession(); return s ? s.code : null; },
-    isAuthenticated: function () { return !!readSession(); },
-    logout: function () {
-      try { localStorage.removeItem(AUTH_KEY); } catch (err) {}
-      window.location.reload();
-    }
-  };
-
-  // 3. 인증 제외 화면 판별
-  //    · 손님 화면은 페이지 스스로 window.BONGPLAY_GUEST_MODE = true 를 선언합니다.
-  //    · 메인 포털(루트 index.html)은 바로가기 모음이라 제외합니다.
-  //    ※ 예전처럼 경로('/pages/' 포함 여부)로 판별하면 _redirects 짧은 주소
-  //      (/operations, /closing 등)로 접속할 때 인증 창이 뜨지 않았습니다.
-  //      그래서 "명시적으로 손님 화면이라고 선언하지 않은 모든 화면"을 잠급니다.
-  var path = window.location.pathname.toLowerCase();
-  var isPortalRoot = path.indexOf('/pages/') === -1 && path.indexOf('/forms/') === -1 &&
-                     (/\/$/.test(path) || /\/index\.html$/.test(path));
-  if (window.BONGPLAY_GUEST_MODE === true || isPortalRoot) return;
-  if (readSession()) return;
-
   function verifyOnServer(code) {
     if (!sbUrl || !sbKey) return Promise.reject(new Error('unconfigured'));
     return fetch(sbUrl + '/rest/v1/rpc/verify_staff_access', {
@@ -113,8 +91,21 @@ window.BONGPLAY_CONFIG = {
     }).then(function (ok) { return ok === true; });
   }
 
-  function showAuthModal() {
-    if (document.getElementById('bongplay-auth-overlay')) return;
+  var activeOnSuccess = null;
+
+  function showAuthModal(onSuccess) {
+    if (typeof onSuccess === 'function') {
+      activeOnSuccess = onSuccess;
+    }
+
+    var existing = document.getElementById('bongplay-auth-overlay');
+    if (existing) {
+      existing.style.display = 'flex';
+      existing.style.opacity = '1';
+      var existingInput = document.getElementById('bongplay-auth-input');
+      if (existingInput) setTimeout(function () { existingInput.focus(); }, 150);
+      return;
+    }
 
     var overlay = document.createElement('div');
     overlay.id = 'bongplay-auth-overlay';
@@ -181,6 +172,11 @@ window.BONGPLAY_CONFIG = {
         setTimeout(function () {
           if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
         }, 250);
+        if (typeof activeOnSuccess === 'function') {
+          var cb = activeOnSuccess;
+          activeOnSuccess = null;
+          try { cb(val); } catch (cbErr) { console.warn(cbErr); }
+        }
       }).catch(function (err) {
         var reason = String(err && err.message || err);
         if (reason === 'rpc_missing') {
@@ -197,8 +193,32 @@ window.BONGPLAY_CONFIG = {
     });
   }
 
+  // 보안 RPC(get_today_consents_secure 등)에 전달할 암호는 여기서만 꺼냅니다.
+  window.BongplayAuth = {
+    getAccessCode: function () { var s = readSession(); return s ? s.code : null; },
+    isAuthenticated: function () { return !!readSession(); },
+    clearSession: function () {
+      try { localStorage.removeItem(AUTH_KEY); } catch (err) {}
+    },
+    promptReauth: function (onSuccess) {
+      try { localStorage.removeItem(AUTH_KEY); } catch (err) {}
+      showAuthModal(onSuccess);
+    },
+    logout: function () {
+      try { localStorage.removeItem(AUTH_KEY); } catch (err) {}
+      window.location.reload();
+    }
+  };
+
+  // 3. 인증 제외 화면 판별 및 미인증 시 모달 표시
+  var path = window.location.pathname.toLowerCase();
+  var isPortalRoot = path.indexOf('/pages/') === -1 && path.indexOf('/forms/') === -1 &&
+                     (/\/$/.test(path) || /\/index\.html$/.test(path));
+  if (window.BONGPLAY_GUEST_MODE === true || isPortalRoot) return;
+  if (readSession()) return;
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', showAuthModal);
+    document.addEventListener('DOMContentLoaded', function () { showAuthModal(); });
   } else {
     showAuthModal();
   }

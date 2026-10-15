@@ -626,6 +626,90 @@
     let isSafetyInspectionPassed = false;
     let selectedConsentId = null;
 
+    let deskQueuePollTimer = null;
+    let isStaffAuthFailed = false;
+
+    function stopQueuePolling() {
+      if (deskQueuePollTimer) {
+        clearInterval(deskQueuePollTimer);
+        deskQueuePollTimer = null;
+      }
+    }
+
+    function startQueuePolling() {
+      stopQueuePolling();
+      if (isStaffAuthFailed) return;
+      deskQueuePollTimer = setInterval(refreshDeskQueueView, 3000);
+    }
+
+    function isUnauthorizedStaff(resOrErr) {
+      if (!resOrErr) return false;
+      if (typeof resOrErr === 'string') return resOrErr.indexOf('UNAUTHORIZED_STAFF') !== -1;
+      try {
+        const str = JSON.stringify(resOrErr);
+        if (str.indexOf('UNAUTHORIZED_STAFF') !== -1) return true;
+      } catch (e) {}
+      const err = resOrErr.error ? String(resOrErr.error) : '';
+      const msg = resOrErr.message ? String(resOrErr.message) : '';
+      const code = resOrErr.code ? String(resOrErr.code) : '';
+      return err.indexOf('UNAUTHORIZED_STAFF') !== -1 ||
+             msg.indexOf('UNAUTHORIZED_STAFF') !== -1 ||
+             code.indexOf('UNAUTHORIZED_STAFF') !== -1;
+    }
+
+    function handleStaffAuthFailure(errorMsg) {
+      if (isStaffAuthFailed) return;
+      isStaffAuthFailed = true;
+
+      console.warn('[StaffAuth] Authentication failed (UNAUTHORIZED_STAFF). Stopping polling and clearing session:', errorMsg);
+
+      // 1. 직원 자동 조회·재시도 즉시 중단
+      stopQueuePolling();
+
+      // 2. 저장된 직원 암호 제거 (단, 진행 중 주문·티켓 복구 기록 bongplay_pending_order_* 는 보존)
+      try {
+        localStorage.removeItem('bongplay_staff_session_v2');
+        if (window.BongplayAuth && typeof BongplayAuth.clearSession === 'function') {
+          BongplayAuth.clearSession();
+        }
+      } catch (e) {
+        console.warn('Error clearing staff session:', e);
+      }
+
+      // UI 연결 배지 업데이트
+      const connBadge = document.getElementById('queueDeskConnBadge');
+      if (connBadge) {
+        connBadge.classList.remove('hidden');
+        const lastSyncTimeEl = document.getElementById('queueDeskLastSyncTime');
+        if (lastSyncTimeEl) lastSyncTimeEl.textContent = '직원 인증 만료 (재인증 필요)';
+      }
+
+      // 3. 재인증 성공 시에만 조회 재개 (타이머 중복 생성 방지)
+      const onReauthSuccess = function (newCode) {
+        console.log('[StaffAuth] Re-authentication successful. Resuming queue polling.');
+        isStaffAuthFailed = false;
+        startQueuePolling();
+        loadData();
+        refreshDeskQueueView();
+      };
+
+      // 4. 재인증 안내 창 표출
+      if (window.BongplayAuth && typeof BongplayAuth.promptReauth === 'function') {
+        BongplayAuth.promptReauth(onReauthSuccess);
+      } else if (typeof showAuthModal === 'function') {
+        showAuthModal(onReauthSuccess);
+      } else {
+        if (!document.getElementById('bongplay-auth-overlay')) {
+          const overlay = document.createElement('div');
+          overlay.id = 'bongplay-auth-overlay';
+          overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(15,23,42,0.96);z-index:999999;display:flex;align-items:center;justify-content:center;color:#fff;';
+          overlay.innerHTML = '<div style="background:#1e293b;padding:24px;border-radius:12px;text-align:center;"><h3>직원 재인증 필요</h3><p>암호가 변경되었거나 만료되었습니다.<br>페이지를 새로고침하여 재인증하십시오.</p></div>';
+          document.body ? document.body.appendChild(overlay) : document.documentElement.appendChild(overlay);
+        }
+        alert('직원 인증이 만료되었거나 암호가 변경되었습니다.\n다시 인증해 주세요. (UNAUTHORIZED_STAFF)');
+      }
+    }
+
     // 1. Initial Load
     document.addEventListener('DOMContentLoaded', async function () {
       window.lucide && window.lucide.createIcons();
@@ -640,7 +724,7 @@
       renderDateFilterBar();
       await loadData();
       selectActiveDesk(1);
-      setInterval(refreshDeskQueueView, 3000);
+      startQueuePolling();
     });
 
     // 현장 비치용 서약 QR 안내문 (A4) — 손님 서약 화면(consent.html) 주소를 QR 로 인쇄
@@ -845,7 +929,11 @@
     async function toggleCurrentDeskPause() {
       isDeskPaused = !isDeskPaused;
       if (window.BongplayQueue) {
-        await BongplayQueue.setDeskPauseStatus(currentDeskNo, isDeskPaused);
+        const res = await BongplayQueue.setDeskPauseStatus(currentDeskNo, isDeskPaused);
+        if (isUnauthorizedStaff(res)) {
+          handleStaffAuthFailure(res.message);
+          return;
+        }
       }
       updateDeskPauseButtonUI();
       if (!isDeskPaused) hideDeskNotice();
@@ -898,6 +986,10 @@
 
       try {
         const res = await BongplayQueue.callNext(currentDeskNo, 'desk_staff_' + currentDeskNo);
+        if (isUnauthorizedStaff(res)) {
+          handleStaffAuthFailure(res.message);
+          return;
+        }
         if (res && res.ok && res.item) {
           hideDeskNotice();
           currentCalledQueueEntry = res.item;
@@ -914,6 +1006,10 @@
           alert(errMsg);
         }
       } catch (e) {
+        if (isUnauthorizedStaff(e)) {
+          handleStaffAuthFailure(e && (e.message || String(e)));
+          return;
+        }
         console.warn('Call next error:', e);
         showDeskNotice('호출 처리 중 네트워크 오류가 발생했습니다.', 'warning');
         alert('호출 처리 중 오류가 발생했습니다.');
@@ -924,12 +1020,20 @@
       if (!currentCalledQueueEntry) return;
       try {
         const res = await BongplayQueue.recall(currentCalledQueueEntry.id, currentDeskNo);
+        if (isUnauthorizedStaff(res)) {
+          handleStaffAuthFailure(res.message);
+          return;
+        }
         if (res && res.ok && res.item) {
           currentCalledQueueEntry = res.item;
           await refreshDeskQueueView();
           alert(`🔔 ${currentCalledQueueEntry.formatted_number}번 고객님을 재호출했습니다.`);
         }
       } catch (e) {
+        if (isUnauthorizedStaff(e)) {
+          handleStaffAuthFailure(e && (e.message || String(e)));
+          return;
+        }
         console.warn('Recall error:', e);
       }
     }
@@ -938,11 +1042,19 @@
       if (!currentCalledQueueEntry) return;
       try {
         const res = await BongplayQueue.startProcessing(currentCalledQueueEntry.id, currentDeskNo);
+        if (isUnauthorizedStaff(res)) {
+          handleStaffAuthFailure(res.message);
+          return;
+        }
         if (res && res.ok && res.item) {
           currentCalledQueueEntry = res.item;
           await refreshDeskQueueView();
         }
       } catch (e) {
+        if (isUnauthorizedStaff(e)) {
+          handleStaffAuthFailure(e && (e.message || String(e)));
+          return;
+        }
         console.warn('Start processing error:', e);
       }
 
@@ -958,12 +1070,20 @@
 
       try {
         const res = await BongplayQueue.holdNoShow(currentCalledQueueEntry.id, reason);
+        if (isUnauthorizedStaff(res)) {
+          handleStaffAuthFailure(res.message);
+          return;
+        }
         if (res && res.ok) {
           currentCalledQueueEntry = null;
           await refreshDeskQueueView();
           alert('⏸️ 해당 팀을 [부재 보류]로 전환했습니다. 대기 순번에서 제외되었습니다.');
         }
       } catch (e) {
+        if (isUnauthorizedStaff(e)) {
+          handleStaffAuthFailure(e && (e.message || String(e)));
+          return;
+        }
         console.warn('Hold error:', e);
       }
     }
@@ -972,6 +1092,10 @@
       if (!confirm('부재 보류된 고객을 다시 대기열로 복귀시키겠습니까? (규칙에 따라 대기열 맨 뒤로 복귀합니다)')) return;
       try {
         const res = await BongplayQueue.restoreHeld(queueId, 'desk_staff_' + currentDeskNo, '고객 창구 방문 복귀');
+        if (isUnauthorizedStaff(res)) {
+          handleStaffAuthFailure(res.message);
+          return;
+        }
         if (res && res.ok) {
           await refreshDeskQueueView();
           alert('↩️ 대기열 맨 뒤로 정상 복귀되었습니다.');
@@ -979,6 +1103,10 @@
           alert('복귀 처리 실패: ' + (res?.message || '잠시 후 다시 시도해 주세요.'));
         }
       } catch (e) {
+        if (isUnauthorizedStaff(e)) {
+          handleStaffAuthFailure(e && (e.message || String(e)));
+          return;
+        }
         console.warn('Restore held error:', e);
       }
     }
@@ -990,6 +1118,10 @@
 
       try {
         const res = await BongplayQueue.cancelEntry(currentCalledQueueEntry.id, reason, 'desk_staff_' + currentDeskNo);
+        if (isUnauthorizedStaff(res)) {
+          handleStaffAuthFailure(res.message);
+          return;
+        }
         if (res && res.ok) {
           currentCalledQueueEntry = null;
           await refreshDeskQueueView();
@@ -998,12 +1130,17 @@
           alert('접수 취소 실패: ' + (res?.message || '발권 완료 건은 취소할 수 없습니다.'));
         }
       } catch (e) {
+        if (isUnauthorizedStaff(e)) {
+          handleStaffAuthFailure(e && (e.message || String(e)));
+          return;
+        }
         console.warn('Cancel queue error:', e);
       }
     }
 
     async function refreshDeskQueueView() {
       if (!window.BongplayQueue) return;
+      if (isStaffAuthFailed) return;
       let waitingCount = null;
       let heldList = null;
       let calledTeams = null;
@@ -1012,6 +1149,10 @@
       try {
         // [Fix 6] 서버 관제 목록 RPC 조회
         const staffListRes = await BongplayQueue.getStaffQueueList();
+        if (isUnauthorizedStaff(staffListRes)) {
+          handleStaffAuthFailure(staffListRes.message || '직원 인증 실패');
+          return;
+        }
         if (staffListRes && staffListRes.ok) {
           isSuccess = true;
           const data = staffListRes.data || staffListRes.item || staffListRes;
@@ -1042,6 +1183,10 @@
           lastStaffQueueSuccessTime = BongplayQueue.getKstTimeStr();
         }
       } catch (err) {
+        if (isUnauthorizedStaff(err)) {
+          handleStaffAuthFailure(err && (err.message || String(err)));
+          return;
+        }
         console.warn('Failed to query staff queue list:', err);
         isSuccess = false;
       }
@@ -1178,6 +1323,10 @@
           const staffCode = window.BongplayAuth ? BongplayAuth.getAccessCode() : null;
           if (BongplaySync.rpc && staffCode) {
             const rpcRes = await BongplaySync.rpc('get_today_consents_secure', { p_access_code: staffCode });
+            if (isUnauthorizedStaff(rpcRes)) {
+              handleStaffAuthFailure(rpcRes.error || rpcRes.message || 'UNAUTHORIZED_STAFF');
+              return;
+            }
             if (rpcRes.ok && Array.isArray(rpcRes.data)) res = rpcRes;
           }
           if (!res) {
@@ -1982,6 +2131,10 @@
       // 3) 대기열 발권 완료 확정 (ANT-006: 서버 발권 확정 후 대기열에서 제외)
       if (qEntry) {
         const qRes = await BongplayQueue.completeIssuance(qEntry.id, order.order_id, ticketIds);
+        if (isUnauthorizedStaff(qRes)) {
+          handleStaffAuthFailure(qRes.message || '직원 인증 실패');
+          return;
+        }
         if (!qRes || !qRes.ok) {
           alert('❌ 대기열 발권 확정 실패: ' + (qRes?.message || '대기열 완료 서버 응답에 실패했습니다. 대기열 및 서약서 미완료 상태를 유지합니다.'));
           return;
