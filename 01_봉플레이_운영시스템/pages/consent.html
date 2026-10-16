@@ -348,9 +348,9 @@
         <span id="btnVoucherSurveyLabel">다 놀고 나가실 때 만족도 남기기</span>
       </button>
 
-      <button type="button" onclick="resetForNewGuest()" class="w-full py-3.5 bg-slate-800 active:bg-slate-700 text-slate-200 font-bold text-sm rounded-2xl transition flex items-center justify-center gap-1.5">
-        <i data-lucide="user-plus" class="w-4 h-4"></i>
-        다른 일행 서약하기
+      <button type="button" id="btnNextGuest" onclick="resetForNewGuest()" class="w-full py-3.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-900 text-slate-100 font-bold text-sm rounded-2xl transition flex items-center justify-center gap-1.5 border border-slate-700 shadow-sm">
+        <i data-lucide="user-plus" class="w-4 h-4 text-brand-400"></i>
+        <span>다음 고객 접수 (새로 작성)</span>
       </button>
     </div>
 
@@ -413,6 +413,87 @@
     let sigCanvas, sigCtx, isDrawing = false, hasSignature = false;
     let currentVoucherCode = null;
     let selectedSurveyScore = 5;
+    const FORM_DRAFT_KEY = 'bongplay_consent_form_draft';
+
+    function saveFormDraftToSession() {
+      try {
+        const guardianName = document.getElementById('guardianName')?.value || '';
+        const guardianPhone = document.getElementById('guardianPhone')?.value || '';
+        const residenceType = document.querySelector('input[name="residenceType"]:checked')?.value || '수도권·기타';
+        const agreeMarketing = document.getElementById('agreeMarketing')?.checked || false;
+        const agreeRules = document.getElementById('agreeRules')?.checked || false;
+        const agreeGuardian = document.getElementById('agreeGuardian')?.checked || false;
+        const agreePrivacy = document.getElementById('agreePrivacy')?.checked || false;
+
+        const chRows = document.querySelectorAll('#childrenContainer .child-row');
+        const children = [];
+        chRows.forEach(row => {
+          children.push({
+            name: row.querySelector('input[name="childName[]"]')?.value || '',
+            birth: row.querySelector('input[name="childBirth[]"]')?.value || '',
+            height: row.querySelector('input[name="childHeight[]"]')?.value || '',
+            weight: row.querySelector('input[name="childWeight[]"]')?.value || ''
+          });
+        });
+
+        const hasContent = guardianName || guardianPhone || children.some(c => c.name || c.birth);
+        if (!hasContent) {
+          sessionStorage.removeItem(FORM_DRAFT_KEY);
+          return;
+        }
+
+        sessionStorage.setItem(FORM_DRAFT_KEY, JSON.stringify({
+          guardianName,
+          guardianPhone,
+          residenceType,
+          agreeMarketing,
+          agreeRules,
+          agreeGuardian,
+          agreePrivacy,
+          children,
+          updatedAt: Date.now()
+        }));
+      } catch (e) {}
+    }
+
+    function restoreFormDraftFromSession() {
+      try {
+        const raw = sessionStorage.getItem(FORM_DRAFT_KEY);
+        if (!raw) return;
+        const draft = JSON.parse(raw);
+        if (!draft) return;
+
+        if (draft.guardianName) document.getElementById('guardianName').value = draft.guardianName;
+        if (draft.guardianPhone) document.getElementById('guardianPhone').value = draft.guardianPhone;
+        if (draft.residenceType) {
+          const rad = document.querySelector(`input[name="residenceType"][value="${draft.residenceType}"]`);
+          if (rad) rad.checked = true;
+        }
+        if (draft.agreeRules) document.getElementById('agreeRules').checked = true;
+        if (draft.agreeGuardian) document.getElementById('agreeGuardian').checked = true;
+        if (draft.agreePrivacy) document.getElementById('agreePrivacy').checked = true;
+        if (draft.agreeMarketing) document.getElementById('agreeMarketing').checked = true;
+        syncAgreeAll();
+
+        if (Array.isArray(draft.children) && draft.children.length > 0) {
+          const container = document.getElementById('childrenContainer');
+          container.innerHTML = '';
+          draft.children.forEach(c => {
+            addChildRow();
+            const rows = container.querySelectorAll('.child-row');
+            const lastRow = rows[rows.length - 1];
+            if (lastRow) {
+              if (c.name) lastRow.querySelector('input[name="childName[]"]').value = c.name;
+              if (c.birth) lastRow.querySelector('input[name="childBirth[]"]').value = c.birth;
+              if (c.height) lastRow.querySelector('input[name="childHeight[]"]').value = c.height;
+              if (c.weight) lastRow.querySelector('input[name="childWeight[]"]').value = c.weight;
+            }
+          });
+        }
+      } catch (e) {
+        console.warn('Failed to restore form draft from session:', e);
+      }
+    }
 
     document.addEventListener('DOMContentLoaded', function () {
       addChildRow();
@@ -430,6 +511,16 @@
             startAutoEnqueueWithRetry(mine, false);
           }
         }
+      } else {
+        // 개인 고객의 폼 작성 중 새로고침 복구
+        restoreFormDraftFromSession();
+      }
+
+      // 폼 입력 시 자동 세션 저장
+      const formEl = document.getElementById('consentForm');
+      if (formEl) {
+        formEl.addEventListener('input', saveFormDraftToSession);
+        formEl.addEventListener('change', saveFormDraftToSession);
       }
 
       // 퇴장 게이트 QR 등으로 들어온 설문 (?survey=BP-xxx or ?pass=BP-xxx)
@@ -940,6 +1031,9 @@
         // 손님 본인 폰에만 당일 바우처를 보관
         try { localStorage.setItem(MY_VOUCHER_KEY, JSON.stringify(voucher)); } catch (e) {}
 
+        // 제출 완료 시 임시 작성 세션 초안 삭제
+        try { sessionStorage.removeItem(FORM_DRAFT_KEY); } catch (e) {}
+
         // 재방문 시 QR 발급 과정 내 빠른 자녀 정보 채움을 위한 가구 프로필 캐시
         try {
           const cleanDigits = guardianPhone.replace(/[^0-9]/g, '');
@@ -1053,6 +1147,18 @@
       document.getElementById('voucherCodeText').textContent = v.passCode;
       document.getElementById('voucherGuardianText').textContent = v.guardianName;
       document.getElementById('voucherPeopleCountText').textContent = v.peopleText;
+
+      const titleEl = document.getElementById('voucherTitleText');
+      const subTitleEl = document.getElementById('voucherSubTitleText');
+      if (titleEl && subTitleEl) {
+        if (!v.consentConfirmed) {
+          titleEl.textContent = '서약 접수 대기 중 (전송 대기)';
+          subTitleEl.textContent = '네트워크 연결 후 서버로 자동 전송됩니다.';
+        } else {
+          titleEl.textContent = '서약이 완료되었습니다';
+          subTitleEl.textContent = '매표소에서 이 화면을 보여주세요.';
+        }
+      }
 
       updateVoucherQueueView(v);
 
@@ -1348,26 +1454,58 @@
       }
     }
 
-    // 5. Reset for New Guest
+    // 5. Reset for New Guest (공용 태블릿 동선: 이전 고객 정보 전수 제거, 미전송 outbox는 보존)
     function resetForNewGuest() {
       try {
         localStorage.removeItem(MY_VOUCHER_KEY);
         localStorage.removeItem('bongplay_active_consent_draft');
+        localStorage.removeItem('bongplay_my_queue_id');
+        localStorage.removeItem('bongplay_my_queue_token');
+        sessionStorage.removeItem(FORM_DRAFT_KEY);
       } catch (e) {}
+
+      cancelAutoEnqueueRetry();
+      if (consentWatcherTimer) {
+        clearInterval(consentWatcherTimer);
+        consentWatcherTimer = null;
+      }
+
       currentVoucherCode = null;
       currentConsentDraftId = null;
       currentConsentVisitId = null;
       currentConsentPassCode = null;
       currentConsentIdempotencyKey = null;
-      document.getElementById('consentForm').reset();
+
+      const form = document.getElementById('consentForm');
+      if (form) form.reset();
+
+      const nameEl = document.getElementById('guardianName');
+      if (nameEl) nameEl.value = '';
+      const phoneEl = document.getElementById('guardianPhone');
+      if (phoneEl) phoneEl.value = '';
+
+      // 동의 체크박스 및 전체 동의 전수 해제
+      document.querySelectorAll('.term-check').forEach(cb => { cb.checked = false; });
+      const toggleAll = document.getElementById('agreeAllToggle');
+      if (toggleAll) toggleAll.checked = false;
+
+      // 거주지 기본값 복원
+      const defaultResidence = document.querySelector('input[name="residenceType"][value="수도권·기타"]');
+      if (defaultResidence) defaultResidence.checked = true;
+
       document.getElementById('formError').classList.add('hidden');
       clearSignature();
+
       const box = document.getElementById('repeatFamilyBox');
       if (box) { box.classList.add('hidden'); box.innerHTML = ''; }
       cachedFamily = null;
+
       const container = document.getElementById('childrenContainer');
-      container.innerHTML = '';
-      addChildRow();
+      if (container) {
+        container.innerHTML = '';
+        addChildRow();
+      }
+
       document.getElementById('voucherSection').classList.add('hidden');
       document.getElementById('formSection').classList.remove('hidden');
       window.scrollTo({ top: 0, behavior: 'smooth' });

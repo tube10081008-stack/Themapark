@@ -976,6 +976,7 @@
     let currentChecklist = {};
     let attachedPhotos = [];
     let signaturePad = null;
+    let isFormDirty = false;
 
     document.addEventListener('DOMContentLoaded', () => {
       renderScreenChecklistItems();
@@ -986,6 +987,24 @@
       loadLatestOrNew();
       updateHistoryBadge();
       updateDecisionUI();
+
+      // Hook input/change events to track unsaved form modifications
+      const formInputIds = [
+        'inspectorName', 'managerName', 'actionNotes', 'inspectDateTime', 'weatherSelect', 'temperature',
+        'meas_1_1_gap', 'meas_1_1_sag', 'meas_1_1_bolts', 'meas_1_2_noise', 'meas_1_2_play',
+        'meas_1_4_tension', 'meas_1_4_def', 'meas_1_5_depth', 'meas_4_1_battery', 'meas_4_1_pad',
+        'meas_4_2_pressure', 'meas_4_5_drop', 'meas_4_5_storage'
+      ];
+      formInputIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.addEventListener('input', () => { isFormDirty = true; });
+          el.addEventListener('change', () => { isFormDirty = true; });
+        }
+      });
+      document.querySelectorAll('input[name="finalDecision"]').forEach(r => {
+        r.addEventListener('change', () => { isFormDirty = true; });
+      });
 
       // Hook print event to always prepare official table
       window.onbeforeprint = prepareOfficialPrintReport;
@@ -1213,21 +1232,26 @@
       const ph = document.getElementById('signPlaceholder');
       if (!signaturePad) return;
       if (dataUrl) {
-        signaturePad.fromDataURL(dataUrl);
+        try { signaturePad.fromDataURL(dataUrl); } catch (e) {}
         if (ph) ph.classList.add('hidden');
       } else {
-        signaturePad.clear();
+        try { signaturePad.clear(); } catch (e) {}
         if (ph) ph.classList.remove('hidden');
       }
     }
 
     function initSignaturePad() {
       const canvas = document.getElementById('signaturePad');
+      if (!canvas) return;
+
       function resizeCanvas() {
         const ratio = Math.max(window.devicePixelRatio || 1, 1);
-        canvas.width = canvas.offsetWidth * ratio;
-        canvas.height = canvas.offsetHeight * ratio;
-        canvas.getContext('2d').scale(ratio, ratio);
+        const w = canvas.offsetWidth || 400;
+        const h = canvas.offsetHeight || 180;
+        canvas.width = w * ratio;
+        canvas.height = h * ratio;
+        const ctx = canvas.getContext('2d');
+        if (ctx) ctx.scale(ratio, ratio);
         // 크기 변경으로 지워진 서명을 원본에서 복원
         if (signaturePad && lastSignatureData) {
           try { signaturePad.fromDataURL(lastSignatureData); } catch (e) {}
@@ -1236,31 +1260,121 @@
       window.addEventListener('resize', resizeCanvas);
       resizeCanvas();
 
-      signaturePad = new SignaturePad(canvas, {
-        backgroundColor: 'rgba(255, 255, 255, 0)',
-        penColor: 'rgb(15, 23, 42)',
-        minWidth: 1.5,
-        maxWidth: 3
-      });
+      if (typeof SignaturePad === 'function') {
+        try {
+          signaturePad = new SignaturePad(canvas, {
+            backgroundColor: 'rgba(255, 255, 255, 0)',
+            penColor: 'rgb(15, 23, 42)',
+            minWidth: 1.5,
+            maxWidth: 3
+          });
 
-      signaturePad.addEventListener('beginStroke', () => {
-        document.getElementById('signPlaceholder').classList.add('hidden');
-      });
-      // 획이 끝날 때마다 원본 보관
-      signaturePad.addEventListener('endStroke', () => {
-        lastSignatureData = signaturePad.isEmpty() ? null : signaturePad.toDataURL();
-      });
+          signaturePad.addEventListener('beginStroke', () => {
+            const ph = document.getElementById('signPlaceholder');
+            if (ph) ph.classList.add('hidden');
+            isFormDirty = true;
+          });
+          signaturePad.addEventListener('endStroke', () => {
+            lastSignatureData = signaturePad.isEmpty() ? null : signaturePad.toDataURL();
+            isFormDirty = true;
+          });
+          return;
+        } catch (e) {
+          console.warn('SignaturePad initialization failed, using native canvas fallback:', e);
+        }
+      }
+
+      // Native Canvas Fallback (SignaturePad CDN failure or offline support)
+      let isDrawing = false;
+      let strokeDrawn = false;
+      const listeners = { beginStroke: [], endStroke: [] };
+      const ctx = canvas.getContext('2d');
+
+      signaturePad = {
+        isEmpty: () => !strokeDrawn && !lastSignatureData,
+        clear: () => {
+          if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+          strokeDrawn = false;
+          lastSignatureData = null;
+        },
+        toDataURL: () => {
+          return strokeDrawn ? canvas.toDataURL('image/png') : (lastSignatureData || null);
+        },
+        fromDataURL: (dataUrl) => {
+          if (!dataUrl) return;
+          const img = new Image();
+          img.onload = () => {
+            if (ctx) ctx.drawImage(img, 0, 0, canvas.offsetWidth || 400, canvas.offsetHeight || 180);
+            strokeDrawn = true;
+            lastSignatureData = dataUrl;
+          };
+          img.src = dataUrl;
+        },
+        addEventListener: (ev, fn) => {
+          if (listeners[ev]) listeners[ev].push(fn);
+        }
+      };
+
+      function getPos(e) {
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        return { x: clientX - rect.left, y: clientY - rect.top };
+      }
+
+      function startStroke(e) {
+        if (e.cancelable) e.preventDefault();
+        isDrawing = true;
+        strokeDrawn = true;
+        isFormDirty = true;
+        const ph = document.getElementById('signPlaceholder');
+        if (ph) ph.classList.add('hidden');
+        const pos = getPos(e);
+        if (ctx) {
+          ctx.beginPath();
+          ctx.moveTo(pos.x, pos.y);
+          ctx.strokeStyle = 'rgb(15, 23, 42)';
+          ctx.lineWidth = 2;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+        }
+        listeners.beginStroke.forEach(fn => { try { fn(); } catch(err){} });
+      }
+
+      function drawStroke(e) {
+        if (!isDrawing || !ctx) return;
+        if (e.cancelable) e.preventDefault();
+        const pos = getPos(e);
+        ctx.lineTo(pos.x, pos.y);
+        ctx.stroke();
+      }
+
+      function endStroke() {
+        if (!isDrawing) return;
+        isDrawing = false;
+        lastSignatureData = signaturePad.toDataURL();
+        listeners.endStroke.forEach(fn => { try { fn(); } catch(err){} });
+      }
+
+      canvas.addEventListener('mousedown', startStroke);
+      canvas.addEventListener('mousemove', drawStroke);
+      window.addEventListener('mouseup', endStroke);
+      canvas.addEventListener('touchstart', startStroke, { passive: false });
+      canvas.addEventListener('touchmove', drawStroke, { passive: false });
+      window.addEventListener('touchend', endStroke);
     }
 
     function clearSignature() {
       lastSignatureData = null;
       if (signaturePad) {
-        signaturePad.clear();
-        document.getElementById('signPlaceholder').classList.remove('hidden');
+        try { signaturePad.clear(); } catch (e) {}
+        const ph = document.getElementById('signPlaceholder');
+        if (ph) ph.classList.remove('hidden');
       }
     }
 
     function setItemStatus(id, status) {
+      isFormDirty = true;
       currentChecklist[id] = status;
       renderItemButtons(id, status);
       updateStats();
@@ -1286,6 +1400,7 @@
     }
 
     function markAllPass() {
+      isFormDirty = true;
       // 점검 일시는 덮어쓰지 않는다.
       // (09:30 에 점검하고 이 버튼을 누르면 시각이 현재로 바뀌어 기록부에 잘못 찍히던 문제)
       initDateTime(); // 비어 있을 때만 현재 시각으로 채움
@@ -1322,6 +1437,7 @@
 
     function resetCurrentForm() {
       if (!confirm('현재 작성 중인 점검표를 초기화하시겠습니까?')) return;
+      isFormDirty = false;
       currentChecklist = {};
       inspectionItems.forEach(item => {
         renderItemButtons(item.id, null);
@@ -1738,9 +1854,12 @@
       localStorage.setItem(CHECKLIST_STORAGE_KEY, JSON.stringify(logs));
 
       if (window.BongplaySync) {
+        const siteId = window.BongplaySite && typeof BongplaySite.siteId === 'function'
+          ? BongplaySite.siteId()
+          : (window.BongplaySite?.currentSiteId || 'bongplay_bonghwa');
         BongplaySync.upsert('safety_audits', {
           id: log.id,
-          site_id: 'bongplay_main',
+          site_id: siteId,
           staff_id: staffId,
           facility_id: 'all_facilities',
           audit_date: (log.date || '').slice(0, 10),
@@ -1761,6 +1880,7 @@
         }
       }
 
+      isFormDirty = false;
       updateHistoryBadge();
       renderTodayAuditBanner(log);
       showToast(`일일 안전점검표 및 실측치 ${recordedMeasurements.length}건이 저장되었습니다!`);
@@ -1840,6 +1960,7 @@
 
     function startFreshInspection() {
       if (!confirm('오늘의 점검표를 새로 작성하시겠습니까? 현재 화면의 내용이 빈 점검표로 초기화됩니다.')) return;
+      isFormDirty = false;
       currentChecklist = {};
       inspectionItems.forEach(item => renderItemButtons(item.id, null));
       ['meas_1_1_gap','meas_1_1_sag','meas_1_1_bolts','meas_1_2_noise','meas_1_2_play','meas_1_4_tension','meas_1_4_def','meas_1_5_depth','meas_4_1_battery','meas_4_1_pad','meas_4_2_pressure','meas_4_5_drop','meas_4_5_storage'].forEach(id => {
@@ -1969,6 +2090,8 @@
         renderTodayAuditBanner(target);
       }
 
+      isFormDirty = false;
+
       if (notify) {
         showToast(`${target.date ? target.date.replace('T', ' ') : '해당'} 일지를 불러왔습니다.`);
       }
@@ -2018,10 +2141,54 @@
       }
     }
 
-    function loadLatestOrNew() {
+    async function loadLatestOrNew(forceServer = false) {
       const now = new Date();
       now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
       const todayYmd = now.toISOString().slice(0, 10);
+
+      // 1. 서버 safety_audits 비동기 조회 (원격 일지 로컬 동기화)
+      if (window.BongplaySync && typeof BongplaySync.select === 'function') {
+        try {
+          const res = await BongplaySync.select('safety_audits', `?audit_date=eq.${todayYmd}&order=audit_at.desc&limit=10`);
+          if (res && res.ok && Array.isArray(res.data) && res.data.length > 0) {
+            let logs = JSON.parse(localStorage.getItem(CHECKLIST_STORAGE_KEY) || '[]');
+            res.data.forEach(serverAudit => {
+              const localLog = {
+                id: serverAudit.id,
+                site_id: serverAudit.site_id || 'bongplay_bonghwa',
+                staff_id: serverAudit.staff_id,
+                facility_id: serverAudit.facility_id,
+                date: serverAudit.audit_at ? serverAudit.audit_at.slice(0, 16) : (serverAudit.audit_date + 'T09:30'),
+                weather: serverAudit.weather || '맑음',
+                temperature: serverAudit.temperature || '',
+                inspector: serverAudit.inspector || '',
+                manager: serverAudit.manager || '',
+                checklist: serverAudit.items || {},
+                actionNotes: serverAudit.note || '',
+                signature: serverAudit.signature_data || null,
+                decision: serverAudit.decision || 'pass',
+                timestamp: serverAudit.created_at || new Date().toISOString()
+              };
+              const existIdx = logs.findIndex(l => l.id === localLog.id);
+              if (existIdx >= 0) {
+                logs[existIdx] = localLog;
+              } else {
+                logs.unshift(localLog);
+              }
+            });
+            if (logs.length > 60) logs = logs.slice(0, 60);
+            localStorage.setItem(CHECKLIST_STORAGE_KEY, JSON.stringify(logs));
+          }
+        } catch (err) {
+          console.warn('Server audit select failed:', err);
+        }
+      }
+
+      // 폼 수정 중이면 작성 중인 내용을 덮어쓰지 않고 배너/카운트만 갱신
+      if (isFormDirty && !forceServer) {
+        updateHistoryBadge();
+        return;
+      }
 
       const logs = JSON.parse(localStorage.getItem(CHECKLIST_STORAGE_KEY) || '[]');
       const todayLog = logs.find(l => (l.date || '').slice(0, 10) === todayYmd);
@@ -2033,6 +2200,7 @@
         // 오늘 이미 작성한 일지가 있으면 불러오기
         loadLog(todayLog.id, false);
         renderTodayAuditBanner(todayLog);
+        isFormDirty = false;
       } else {
         // 오늘 점검이 아직 없으면 0/22 빈 점검표로 초기화 (자동 전체양호 실행 방지)
         currentChecklist = {};
@@ -2049,6 +2217,7 @@
         updateStats();
         updateDecisionUI();
         renderTodayAuditBanner(null);
+        isFormDirty = false;
       }
     }
 

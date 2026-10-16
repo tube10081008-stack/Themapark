@@ -249,5 +249,48 @@ Playwright 브라우저 E2E 실측 및 PostgREST 네트워크 트레이싱을 �
 - `test_r3_e11.mjs` (E11 UNAUTHORIZED_STAFF 폴링 중단, 암호 삭제, 재인증 안내, 타이머 중복 방지, pending_order 보존): **4 / 4 PASS (100%)**
 - **모든 테스트 통과 합계: 73건 전수 PASS**
 
+---
+
+## 10. 벤 R4-ANT 보완 지시 조치 내역 (2026-10-17)
+
+### 10.1 3대 핵심 과업 및 원인 분석
+1. **과업 ①: 안전점검 화면(`safety-check.html`) 멈춤 원인 수정 및 화면 저장·재조회 검증**
+   - **멈춤 원인**: 오프라인 또는 CDN 차단 환경에서 `SignaturePad` 라이브러리가 로드되지 않을 때, `new SignaturePad(...)`가 `ReferenceError/TypeError`를 발생시켜 `DOMContentLoaded` 이벤트 핸들러가 도중에 크래시되어 화면이 먹통(freeze) 상태가 됨.
+   - **조치**:
+     - `typeof SignaturePad === 'function'` 안전 가드 추가.
+     - 라이브러리가 부재할 때도 네이티브 2D Canvas 마우스/터치 드로잉 이벤트 리스너를 바인딩하여 서명이 가능하도록 Fallback SignaturePad 인터페이스(`isEmpty`, `clear`, `toDataURL`, `fromDataURL`, `addEventListener`) 구현.
+     - `loadLatestOrNew()`에서 로컬스토리지뿐 아니라 서버 `safety_audits` 테이블에서 당일 기록을 비동기 조회하여 로컬에 병합 복원.
+     - `isFormDirty` 가드를 추가하여 사용자가 체크박스/필드를 작성 중일 때 백그라운드 동기화로 폼이 리셋되는 현상 원천 차단.
+     - `saveChecklist()` 시 `site_id`를 `BongplaySite.siteId()`와 일치되도록 보정.
+2. **과업 ②: 공용 서약 화면(`consent.html`) 잔류 고객 정보 초기화 및 '다음 고객 접수' 동선 보완**
+   - **원인 및 요구**: 공용 태블릿 환경에서 이전 고객이 제출 후 다음 고객 접수 시 성명, 연락처, 자녀 목록, 동의 체크박스, 서명 잔류 위험이 있음. 반면 개인 고객이 모바일 폰으로 작성 중 실수로 새로고침했을 때의 복구와 오프라인 미전송 outbox는 반드시 보존되어야 함.
+   - **조치**:
+     - 바우처 화면의 하단 버튼을 `[다음 고객 접수 (새로 작성)]`으로 명확화.
+     - `resetForNewGuest()` 실행 시: `MY_VOUCHER_KEY`, `bongplay_active_consent_draft`, `bongplay_my_queue_id`, `bongplay_my_queue_token`, `FORM_DRAFT_KEY` 삭제. 보호자 성명/연락처 빈값 리셋, 동의 체크박스 전수 uncheck, 거주지 라디오 기본값 복원, 아동 입력 컨테이너 비우고 깨끗한 1개 행 생성, 서명 캔버스 완전 클리어, 대기열 재시도 타이머 취소.
+     - 미전송 데이터(`bongplay_sync_outbox`)는 일체 삭제하지 않고 보존하여 네트워크 복구 시 서버 업로드 보장.
+     - 개인 고객의 작성 중 새로고침 복구: 입력 중 `sessionStorage`에 실시간 보관(`saveFormDraftToSession`), 페이지 새로고침 시 바우처가 없을 때 폼을 자동 복원(`restoreFormDraftFromSession`). 제출 완료 또는 다음 고객 접수 시에만 삭제.
+3. **과업 ③: 발권 후 과도한 반복 조회, 창구 정지 표시·오류 안내, 전송 전 완료 제목 수정**
+   - **원인 및 조치 (`consent-desk.html`)**:
+     - 발권 완료 시 `completeIssuance` -> `BongplaySync.upsert` -> `DATA_CHANGED` 이벤트 버스 -> `loadData` 및 3초 주기 `refreshDeskQueueView`가 동시 다발적으로 겹쳐 서버 RPC를 2~3회 연속 쏘던 과도한 반복 조회 발생.
+     - `refreshDeskQueueView`에 인플라이트(in-flight) 가드(`isRefreshingDeskQueue`, `pendingDeskQueueRefresh`) 적용 및 `try-finally`로 락 관리.
+     - `loadData`에 `isLoadingConsents` 가드 및 300ms 디바운스(`requestLoadData`) 적용.
+     - 창구 정지(`isDeskPaused === true`) 상태 시 상단 버튼 라벨뿐 아니라 `queueDeskActiveBadge` 텍스트/스타일을 `[N번 창구 (일시 중지)]`로 동기화.
+     - `selectActiveDesk`를 비동기화하여 서버 `ticket_queue_desks`의 상태 조회를 확실하게 대기한 후 UI 갱신.
+     - 정지 상태에서 호출 시 `showDeskNotice` 및 alert를 통해 정지 안내 명확화.
+   - **원인 및 조치 (`consent.html`)**:
+     - 서약서가 아직 서버에 확정 전송되지 않은 오프라인/전송 대기 상태(`!v.consentConfirmed`)에서 바우처 제목이 `서약이 완료되었습니다`로 노출되어 고객이 발권 완료로 오인하는 문제.
+     - `showVoucher` 및 `updateVoucherQueueView`에서 전송 대기 상태 시 제목을 `서약 접수 대기 중 (전송 대기)` 및 `⚠️ 서약서 전송 대기 중 (오프라인)`으로 표출하고, 서버 전송 확정 후에만 `서약이 완료되었습니다`로 표출되도록 수정.
+
+### 10.2 검증 결과
+- 신규 R4 검증 테스트 `scratch/test_r4_ant.mjs`: **8 / 8 PASS (100%)**
+- `ticket_queue.test.js`: **26 / 26 PASS (100%)**
+- `operations_integrity.test.js`: **29 / 29 PASS (100%)**
+- `save-retry-contract.test.mjs`: **10 / 10 PASS (100%)**
+- `test_r1_supplementary_contract.mjs`: **5 / 5 PASS (100%)**
+- `test_r2_e1_e10.mjs`: **4 / 4 PASS (100%)**
+- `test_r3_e11.mjs`: **4 / 4 PASS (100%)**
+- **전체 테스트 통과 합계: 86건 전수 PASS (실패 0건)**
+
+
 
 

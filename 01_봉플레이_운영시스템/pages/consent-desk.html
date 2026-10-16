@@ -715,15 +715,15 @@
       window.lucide && window.lucide.createIcons();
       BongplaySync.renderBadge('syncStatusBadge');
       
-      // Realtime bus listener
+      // Realtime bus listener: 디바운스로 발권 후 과도한 연속 중복 조회 방지
       BongplaySync.onDataChange(function (detail) {
-        loadData();
+        requestLoadData();
       });
 
       await checkSafetyInterlock();
       renderDateFilterBar();
       await loadData();
-      selectActiveDesk(1);
+      await selectActiveDesk(1);
       startQueuePolling();
     });
 
@@ -901,7 +901,7 @@
       }
     }
 
-    function selectActiveDesk(deskNo) {
+    async function selectActiveDesk(deskNo) {
       currentDeskNo = Number(deskNo) || 1;
       document.getElementById('btnDeskSelect1').className = (currentDeskNo === 1)
         ? 'px-2.5 py-1 rounded-lg bg-brand-600 text-white shadow'
@@ -909,10 +909,6 @@
       document.getElementById('btnDeskSelect2').className = (currentDeskNo === 2)
         ? 'px-2.5 py-1 rounded-lg bg-sky-600 text-white shadow'
         : 'px-2.5 py-1 rounded-lg text-slate-400 hover:text-white';
-      document.getElementById('queueDeskActiveBadge').textContent = `${currentDeskNo}번 창구 배정`;
-      document.getElementById('queueDeskActiveBadge').className = (currentDeskNo === 1)
-        ? 'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800'
-        : 'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-sky-950 text-sky-400 border border-sky-800';
 
       if (window.BongplayQueue && BongplayQueue.store && BongplayQueue.store.desks && BongplayQueue.store.desks[currentDeskNo]) {
         const qId = BongplayQueue.store.desks[currentDeskNo].current_queue_id;
@@ -922,8 +918,8 @@
         isDeskPaused = false;
       }
       updateDeskPauseButtonUI();
-      syncDeskStatusFromServer(currentDeskNo);
-      refreshDeskQueueView();
+      await syncDeskStatusFromServer(currentDeskNo);
+      await refreshDeskQueueView();
     }
 
     async function toggleCurrentDeskPause() {
@@ -943,13 +939,24 @@
     function updateDeskPauseButtonUI() {
       const btn = document.getElementById('btnToggleDeskPause');
       const label = document.getElementById('deskPauseLabel');
+      const activeBadge = document.getElementById('queueDeskActiveBadge');
       if (!btn || !label) return;
       if (isDeskPaused) {
         btn.className = 'px-3 py-1.5 rounded-xl bg-rose-950 text-rose-300 font-bold border border-rose-800 flex items-center gap-1.5 transition shadow-sm';
         label.textContent = '창구 일시 중지 중 (클릭 시 운영 재개)';
+        if (activeBadge) {
+          activeBadge.textContent = `${currentDeskNo}번 창구 (일시 중지)`;
+          activeBadge.className = 'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-800 animate-pulse';
+        }
       } else {
         btn.className = 'px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold border border-slate-700 flex items-center gap-1.5 transition';
         label.textContent = '창구 정상 운영 (클릭 시 일시 중지)';
+        if (activeBadge) {
+          activeBadge.textContent = `${currentDeskNo}번 창구 배정`;
+          activeBadge.className = (currentDeskNo === 1)
+            ? 'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800'
+            : 'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-sky-950 text-sky-400 border border-sky-800';
+        }
       }
       window.lucide && window.lucide.createIcons();
     }
@@ -1138,17 +1145,27 @@
       }
     }
 
+    let isRefreshingDeskQueue = false;
+    let pendingDeskQueueRefresh = false;
+
     async function refreshDeskQueueView() {
       if (!window.BongplayQueue) return;
       if (isStaffAuthFailed) return;
-      let waitingCount = null;
-      let heldList = null;
-      let calledTeams = null;
-      let isSuccess = false;
+      if (isRefreshingDeskQueue) {
+        pendingDeskQueueRefresh = true;
+        return;
+      }
+      isRefreshingDeskQueue = true;
 
       try {
-        // [Fix 6] 서버 관제 목록 RPC 조회
-        const staffListRes = await BongplayQueue.getStaffQueueList();
+        let waitingCount = null;
+        let heldList = null;
+        let calledTeams = null;
+        let isSuccess = false;
+
+        try {
+          // [Fix 6] 서버 관제 목록 RPC 조회
+          const staffListRes = await BongplayQueue.getStaffQueueList();
         if (isUnauthorizedStaff(staffListRes)) {
           handleStaffAuthFailure(staffListRes.message || '직원 인증 실패');
           return;
@@ -1310,10 +1327,29 @@
       }
 
       if (window.lucide) lucide.createIcons();
+      } finally {
+        isRefreshingDeskQueue = false;
+        if (pendingDeskQueueRefresh) {
+          pendingDeskQueueRefresh = false;
+          setTimeout(refreshDeskQueueView, 250);
+        }
+      }
     }
 
     // 3. Load Consents
+    let isLoadingConsents = false;
+    let loadDataDebounceTimer = null;
+
+    function requestLoadData() {
+      if (loadDataDebounceTimer) clearTimeout(loadDataDebounceTimer);
+      loadDataDebounceTimer = setTimeout(() => {
+        loadData();
+      }, 300);
+    }
+
     async function loadData() {
+      if (isLoadingConsents) return;
+      isLoadingConsents = true;
       try {
         const raw = localStorage.getItem('bongplay_safety_consents');
         if (raw) {
@@ -1338,6 +1374,8 @@
         }
       } catch (e) {
         console.warn('Failed to load consents:', e);
+      } finally {
+        isLoadingConsents = false;
       }
 
       updateSummaryStats();
