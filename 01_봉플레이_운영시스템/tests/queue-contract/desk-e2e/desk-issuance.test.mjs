@@ -10,7 +10,7 @@
 //   bash …/desk_e2e_stack.sh stop
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { startProxy, openDesk, resetScenario, dbState, db, waitFor, sleep, skipReason, loadEnv, DEVICE_IP, hasCancelColumns } from './harness.mjs';
+import { startProxy, openDesk, resetScenario, dbState, db, waitFor, sleep, skipReason, loadEnv, DEVICE_IP, hasCancelColumns, stopApiServer, startApiServer } from './harness.mjs';
 
 const skip = skipReason();
 
@@ -386,3 +386,129 @@ test('E11 after the staff code changes on the server, the desk stops repeating s
     await c0.end();
   }
 });
+
+const setStaffCode = (c, code) => c.query(`update private.app_settings set value = extensions.crypt($1, extensions.gen_salt('bf')), updated_at = now() where key = 'access_code'`, [code]);
+
+/** 같은 팀 결제를 직원이 다시 확정: 결제 창이 열려 있으면 그대로 누르고, 닫혔으면 목록에서 같은 팀의 [발권] 으로 다시 연다 */
+async function retryPayment(ui, consentId) {
+  const open = await ui.page.evaluate(() => !!payCtx);
+  if (!open) {
+    await staffListReady(ui);
+    const re = await allocCash(ui, consentId);
+    assert.ok(re.opened, '복구: 처리 중인 같은 팀의 결제 창을 다시 열 수 있어야 함');
+  }
+  await confirmPay(ui);
+  return open ? '같은 결제 창' : '결제 창 다시 열기';
+}
+
+test('E12 ledger saved, then completion is refused because the staff code changed on the server: after re-authentication the SAME order completes (no second sale)', { skip }, async () => {
+  // 원장(주문·결제·티켓)이 서버에 저장된 직후, 완료 RPC 직전에 서버 암호가 바뀐다 → 완료는 UNAUTHORIZED_STAFF.
+  // 계약: 재인증 안내 → 새 암호로 재인증 → 직원이 같은 팀을 다시 확정하면 같은 order_id 로 완료, 주문·결제는 1건.
+  const env = loadEnv();
+  const newCode = 'SYN-ROTATED-E12-' + Date.now().toString(36);
+  const c0 = await db();
+  try {
+    await scenario({}, async ({ c, ui, consentId, queueId, proxy }) => {
+      const total = await toPayment(ui);
+      proxy.fault('rpc', 'complete_queue_issuance', 'hook', { times: 1, fn: () => setStaffCode(c, newCode) });
+      await confirmPay(ui);
+      await sleep(300);
+      const first = proxy.calls('rpc', 'complete_queue_issuance');
+      assert.equal(first.length, 1, '준비: 완료 요청 1회');
+      assert.match(first[0].response || '', /UNAUTHORIZED_STAFF/, `준비: 완료가 인증 실패여야 함 (${first[0].response})`);
+      const mid = await dbState(c, consentId, queueId);
+      assert.equal(orderIds(mid).length, 1, '준비: 원장 저장');
+      assert.equal(mid.queue.status, 'processing', '인증 실패인데 대기열 상태가 바뀜');
+      const firstOrder = orderIds(mid)[0];
+
+      assert.ok(await waitFor(() => ui.page.evaluate(() => !!document.getElementById('bongplay-auth-input')), { timeout: 10000 }), '재인증 창이 뜨지 않음');
+      await ui.page.fill('#bongplay-auth-input', newCode);
+      await ui.page.click('#bongplay-auth-submit');
+      const t1 = Date.now();
+      assert.ok(await waitFor(() => ui.page.evaluate(() => !document.getElementById('bongplay-auth-overlay') && !!BongplayAuth.getAccessCode()), { timeout: 10000 }), '재인증이 끝나지 않음');
+      assert.ok(await waitFor(() => proxy.state.log.some((e) => e.t >= t1 && e.name === 'get_staff_queue_list' && e.body && e.body.p_access_code === newCode && /"ok"\s*:\s*true/.test(e.response || '')), { timeout: 15000 }),
+        '재인증 뒤 직원 목록 조회가 재개되지 않음');
+
+      const path = await retryPayment(ui, consentId);
+      await sleep(300);
+      const s = await dbState(c, consentId, queueId);
+      const dones = proxy.calls('rpc', 'complete_queue_issuance');
+      console.log(`# E12 관찰: 1차 완료 ${first[0].response}, 재인증 후 ${path} → 완료 요청 ${dones.length}회 ` +
+        `(주문 id ${[...new Set(dones.map((e) => e.body.p_order_id))].join(',')}), 서버 주문 ${JSON.stringify(orderIds(s))}, 결제 ${paidSum(s)}/${total}, 대기열 ${s.queue.status}`);
+      assertSingleIssuance(s, total, 'E12');
+      assert.equal(s.queue.order_id, firstOrder, '재인증 뒤 처음 저장한 주문이 아닌 주문으로 완료');
+      assert.ok(dones.slice(1).every((e) => e.body.p_order_id === firstOrder && e.body.p_access_code === newCode), '재시도가 같은 주문·새 암호를 쓰지 않음');
+    });
+  } finally {
+    await setStaffCode(c0, env.E2E_STAFF_CODE);
+    await c0.query(`delete from private.auth_attempts`);
+    await c0.end();
+  }
+});
+
+test('E13a the device loses its network while saving the payment, comes back online and the staff retries: one order, one payment, queue issued', { skip }, async () => {
+  // 브라우저 자체를 오프라인으로 전환한다 (Chromium 네트워크 차단 — fetch 가 실제 네트워크 오류). 결제 저장 요청에서 끊고,
+  // 그 뒤의 원장 요청은 브라우저 밖으로 나가지 못한다. (끊은 요청은 브라우저가 곧바로 재전송할 수 있다 — 관찰로 기록)
+  await scenario({}, async ({ c, ui, consentId, queueId, proxy }) => {
+    const total = await toPayment(ui);
+    proxy.fault('rest', 'order_payments', 'hook', { times: 1, method: 'POST', fn: async () => { await ui.context.setOffline(true); return 'drop'; } });
+    await confirmPay(ui);
+    await sleep(500);
+    const mid = await dbState(c, consentId, queueId);
+    assert.equal(proxy.calls('rpc', 'complete_queue_issuance').length, 0, '원장이 끊겼는데 완료 요청');
+    await ui.context.setOffline(false);
+    const tOn = Date.now();
+    await sleep(1500);                       // 온라인 복귀 뒤 화면의 재전송(outbox)이 돌 시간
+    const path = await retryPayment(ui, consentId);
+    await sleep(300);
+    const s = await dbState(c, consentId, queueId);
+    const tl = ['order_payments', 'ticket_ledger'].flatMap((t) => proxy.calls('rest', t).filter((e) => e.method !== 'GET')
+      .map((e) => `${t === 'order_payments' ? 'pay' : 'tkt'}:${e.method}:${e.fault || e.status}${e.t > tOn ? '(복귀 후)' : ''}`));
+    console.log(`# E13a 관찰: 요청 ${tl.join(' ')} / 끊긴 시점 서버 주문 ${orderIds(mid).length}·결제 ${paidSum(mid)}·티켓 ${mid.tickets.length}, 복구 ${path} → 주문 ${JSON.stringify(orderIds(s))}, 결제 ${paidSum(s)}/${total}, 티켓 ${s.tickets.length}, 대기열 ${s.queue.status}`);
+    assertSingleIssuance(s, total, 'E13a');
+  });
+});
+
+test('E13b the API server goes down in the middle of a sale and comes back: the staff retries and there is still one order and one payment', { skip }, async () => {
+  // 실제 PostgREST 프로세스를 결제 저장 직전에 정지한다 (연결 거부). 복구는 같은 설정으로 재기동.
+  await scenario({}, async ({ c, ui, consentId, queueId, proxy }) => {
+    const total = await toPayment(ui);
+    let down = false;
+    proxy.fault('rest', 'order_payments', 'hook', { times: 1, method: 'POST', fn: async () => { await stopApiServer(); down = true; } });
+    try {
+      await confirmPay(ui);
+      await sleep(500);
+      assert.ok(down, '준비: 결제 저장 직전에 API 서버 정지');
+      const mid = await dbState(c, consentId, queueId);
+      assert.equal(proxy.calls('rpc', 'complete_queue_issuance').filter((e) => e.status === 200).length, 0, '서버가 내려가 있는데 완료됨');
+      await startApiServer();
+      down = false;
+      await sleep(1500);
+      const path = await retryPayment(ui, consentId);
+      await sleep(300);
+      const s = await dbState(c, consentId, queueId);
+      console.log(`# E13b 관찰: 정지 시점 서버 주문 ${orderIds(mid).length}·결제 ${paidSum(mid)}·티켓 ${mid.tickets.length}, 재기동 후 ${path} → 주문 ${JSON.stringify(orderIds(s))}, 결제 ${paidSum(s)}/${total}, 대기열 ${s.queue.status}`);
+      assertSingleIssuance(s, total, 'E13b');
+    } finally {
+      if (down) await startApiServer();
+    }
+  });
+});
+
+for (const [label, kind, name, method] of [['E13c', 'rpc', 'complete_queue_issuance', undefined], ['E13d', 'rest', 'order_items', 'POST']]) {
+  test(`${label} the connection drops after the server committed ${name} (TCP reset, no response): recovery leaves no duplicate`, { skip }, async () => {
+    // 서버는 처리·커밋했지만 응답 전에 연결이 끊긴다. 브라우저가 스스로 재전송할 수도 있다 (그 경우도 중복이 없어야 함).
+    await scenario({}, async ({ c, ui, consentId, queueId, proxy }) => {
+      const total = await toPayment(ui);
+      proxy.fault(kind, name, 'reset', { times: 1, method });
+      await confirmPay(ui);
+      await sleep(800);
+      let s = await dbState(c, consentId, queueId);
+      let path = '재시도 불필요';
+      if (s.queue.status !== 'issued' || !s.consent.is_issued) { path = await retryPayment(ui, consentId); await sleep(300); s = await dbState(c, consentId, queueId); }
+      const hits = proxy.calls(kind, name).filter((e) => !method || e.method === method);
+      console.log(`# ${label} 관찰: ${name} 요청 ${hits.length}회 (끊김 ${hits.filter((e) => e.fault === 'reset').length}), 복구 ${path} → 주문 ${JSON.stringify(orderIds(s))}, 품목 ${s.items.length}행, 결제 ${paidSum(s)}/${total}, 대기열 ${s.queue.status}`);
+      assertSingleIssuance(s, total, label);
+    });
+  });
+}

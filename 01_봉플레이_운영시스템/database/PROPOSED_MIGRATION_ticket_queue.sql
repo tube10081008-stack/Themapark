@@ -160,6 +160,154 @@ $$;
 REVOKE ALL ON FUNCTION private.lock_ticket_queue_day(TEXT, DATE) FROM PUBLIC;
 
 -- ============================================================================
+-- [CLAUDE-011 R4] 전날 미정리 팀·창구 점유 포인터 (계약: database/CONTRACT_ticket_queue_past_day.md)
+-- - 직원 변경 RPC 는 모두 시설 단위 잠금을 먼저 잡는다 (자정을 사이에 둔 두 요청도 직렬화). 잠금 순서: 시설 → 날짜.
+-- - 오늘 창구 점유의 진실은 ticket_queue 의 오늘 행이다. ticket_queue_desks.current_queue_id 는 변경 RPC 가 관리하는 캐시.
+-- - 과거 행은 창구를 점유하지 않고, 자동으로 취소·완료되지 않는다. 원장 표는 어떤 대기열 RPC 도 쓰지 않는다.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION private.lock_ticket_queue_site(p_site_id TEXT)
+RETURNS VOID
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    PERFORM pg_advisory_xact_lock(hashtextextended('ticket_queue_site:' || COALESCE(p_site_id, ''), 0));
+END;
+$$;
+REVOKE ALL ON FUNCTION private.lock_ticket_queue_site(TEXT) FROM PUBLIC;
+
+-- 서약서에 연결된 기록된 주문 (활성 품목·유효 결제·활성 티켓 중 하나라도 있는 주문). 읽기 전용.
+CREATE OR REPLACE FUNCTION private.ticket_queue_recorded_orders(p_consent_id TEXT)
+RETURNS JSONB
+LANGUAGE sql
+STABLE
+SET search_path = public, pg_temp
+AS $$
+    WITH ids AS (
+        SELECT order_id FROM public.order_items
+         WHERE consent_id = p_consent_id AND COALESCE(status, 'paid') <> 'cancelled' AND cancelled_at IS NULL
+        UNION
+        SELECT order_id FROM public.order_payments
+         WHERE consent_id = p_consent_id AND status = 'paid' AND cancelled_at IS NULL
+        UNION
+        SELECT order_id FROM public.ticket_ledger
+         WHERE consent_id = p_consent_id AND cancelled_at IS NULL AND COALESCE(status, 'active') <> 'cancelled'
+    )
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+        'order_id', ids.order_id,
+        'item_total', (SELECT COALESCE(SUM(CASE WHEN COALESCE(i.paid_amount, 0) > 0 THEN i.paid_amount ELSE COALESCE(i.total_price, 0) END), 0)
+                         FROM public.order_items i
+                        WHERE i.order_id = ids.order_id AND COALESCE(i.status, 'paid') <> 'cancelled' AND i.cancelled_at IS NULL),
+        'paid_total', (SELECT COALESCE(SUM(p.amount), 0) FROM public.order_payments p
+                        WHERE p.order_id = ids.order_id AND p.consent_id = p_consent_id AND p.status = 'paid' AND p.cancelled_at IS NULL),
+        'active_tickets', (SELECT COUNT(*) FROM public.ticket_ledger t
+                            WHERE t.order_id = ids.order_id AND t.cancelled_at IS NULL AND COALESCE(t.status, 'active') <> 'cancelled')
+    ) ORDER BY ids.order_id), '[]'::jsonb)
+    FROM ids
+    WHERE ids.order_id IS NOT NULL;
+$$;
+REVOKE ALL ON FUNCTION private.ticket_queue_recorded_orders(TEXT) FROM PUBLIC;
+
+-- 과거 미정리 팀에 직원이 할 수 있는 명시적 동작 (계약 §4 표)
+CREATE OR REPLACE FUNCTION private.ticket_queue_past_actions(p_status TEXT, p_recorded JSONB)
+RETURNS JSONB
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT CASE
+        WHEN jsonb_array_length(COALESCE(p_recorded, '[]'::jsonb)) = 0 THEN
+            CASE WHEN p_status IN ('waiting', 'called', 'processing', 'no_show') THEN '["cancel_queue_team"]'::jsonb ELSE '[]'::jsonb END
+        WHEN p_status = 'processing' THEN '["complete_queue_issuance"]'::jsonb
+        ELSE '[]'::jsonb
+    END;
+$$;
+REVOKE ALL ON FUNCTION private.ticket_queue_past_actions(TEXT, JSONB) FROM PUBLIC;
+
+-- 과거 행 변경 거부 응답 (PAST_QUEUE_DATE)
+CREATE OR REPLACE FUNCTION private.ticket_queue_past_rejection(p_queue_id TEXT)
+RETURNS JSONB
+LANGUAGE sql
+STABLE
+SET search_path = public, pg_temp
+AS $$
+    SELECT jsonb_build_object(
+        'ok', false,
+        'error', 'PAST_QUEUE_DATE',
+        'id', q.id,
+        'queue_date', q.queue_date,
+        'status', q.status,
+        'allowed_actions', private.ticket_queue_past_actions(q.status, private.ticket_queue_recorded_orders(q.consent_id)),
+        'message', '지난 영업일(' || q.queue_date || ')의 대기표입니다. 오늘 창구 동작에 쓸 수 없습니다. 직원 목록의 과거 미정리 팀에서 완료 또는 취소로 정리해 주세요.'
+    )
+    FROM public.ticket_queue q WHERE q.id = p_queue_id;
+$$;
+REVOKE ALL ON FUNCTION private.ticket_queue_past_rejection(TEXT) FROM PUBLIC;
+
+-- 창구 포인터 동기화 (변경 RPC 안에서만 쓴다)
+-- - p_desk_no 가 null 이면 이 대기 id 를 가리키는 모든 창구 포인터를 지운다 (창구가 옮겨진 팀의 옛 포인터 포함).
+-- - p_desk_no 가 있으면 다른 창구의 이 id 포인터를 지우고, 그 창구 포인터를 이 id 로 둔다 (이미 같으면 쓰지 않음).
+CREATE OR REPLACE FUNCTION private.ticket_queue_sync_pointer(p_site_id TEXT, p_queue_id TEXT, p_desk_no INTEGER, p_now TIMESTAMPTZ)
+RETURNS VOID
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    UPDATE public.ticket_queue_desks
+       SET current_queue_id = NULL, updated_at = p_now
+     WHERE site_id = p_site_id AND current_queue_id = p_queue_id
+       AND (p_desk_no IS NULL OR desk_no <> p_desk_no);
+    IF p_desk_no IS NOT NULL THEN
+        UPDATE public.ticket_queue_desks
+           SET current_queue_id = p_queue_id, updated_at = p_now
+         WHERE site_id = p_site_id AND desk_no = p_desk_no
+           AND current_queue_id IS DISTINCT FROM p_queue_id;
+    END IF;
+END;
+$$;
+REVOKE ALL ON FUNCTION private.ticket_queue_sync_pointer(TEXT, TEXT, INTEGER, TIMESTAMPTZ) FROM PUBLIC;
+
+-- 창구 오늘 점유 팀 (진실 = 오늘 행). 읽기 전용.
+CREATE OR REPLACE FUNCTION private.ticket_queue_desk_occupant(p_site_id TEXT, p_desk_no INTEGER, p_today DATE, p_except_id TEXT DEFAULT NULL)
+RETURNS JSONB
+LANGUAGE sql
+STABLE
+SET search_path = public, pg_temp
+AS $$
+    SELECT jsonb_build_object('id', q.id, 'formatted_number', q.formatted_number, 'status', q.status, 'consent_id', q.consent_id)
+      FROM public.ticket_queue q
+     WHERE q.site_id = p_site_id AND q.queue_date = p_today AND q.desk_no = p_desk_no
+       AND q.status IN ('called', 'processing')
+       AND (p_except_id IS NULL OR q.id <> p_except_id)
+     ORDER BY q.called_at NULLS LAST, q.id
+     LIMIT 1;
+$$;
+REVOKE ALL ON FUNCTION private.ticket_queue_desk_occupant(TEXT, INTEGER, DATE, TEXT) FROM PUBLIC;
+
+-- 저장된 포인터가 오늘 점유가 아닐 때 그 사유 (null = 문제 없음 또는 포인터 없음). 읽기 전용.
+CREATE OR REPLACE FUNCTION private.ticket_queue_pointer_stale(p_site_id TEXT, p_desk_no INTEGER, p_pointer TEXT, p_today DATE)
+RETURNS JSONB
+LANGUAGE sql
+STABLE
+SET search_path = public, pg_temp
+AS $$
+    SELECT CASE
+        WHEN p_pointer IS NULL THEN NULL
+        WHEN q.id IS NULL OR q.site_id <> p_site_id THEN
+            jsonb_build_object('queue_id', p_pointer, 'reason', 'not_found', 'queue_date', NULL, 'status', NULL)
+        WHEN q.queue_date < p_today THEN
+            jsonb_build_object('queue_id', q.id, 'reason', 'past_day', 'queue_date', q.queue_date, 'status', q.status)
+        WHEN q.queue_date > p_today OR q.status NOT IN ('called', 'processing') THEN
+            jsonb_build_object('queue_id', q.id, 'reason', 'inactive', 'queue_date', q.queue_date, 'status', q.status)
+        WHEN q.desk_no IS DISTINCT FROM p_desk_no THEN
+            jsonb_build_object('queue_id', q.id, 'reason', 'other_desk', 'queue_date', q.queue_date, 'status', q.status)
+        ELSE NULL
+    END
+    FROM (SELECT 1) one
+    LEFT JOIN public.ticket_queue q ON q.id = p_pointer;
+$$;
+REVOKE ALL ON FUNCTION private.ticket_queue_pointer_stale(TEXT, INTEGER, TEXT, DATE) FROM PUBLIC;
+
+-- ============================================================================
 -- RPC 함수군 정의 (고정 search_path 및 100% 일치 계약)
 -- ============================================================================
 
@@ -300,6 +448,7 @@ $$;
 -- - [R2 Fix 3] 서버 직원·시설 권한 검증
 -- - 단일 창구 다중 호출(이중 호출) 방지
 -- - order_key 오름차순 호출 (보류 복귀 팀은 맨 뒤)
+-- - [R4] 시설 잠금 안에서 창구 행을 다시 읽어 정지·점유 판정. 점유는 오늘 행 기준 (과거 미정리 팀은 막지 않고 바꾸지도 않음)
 CREATE OR REPLACE FUNCTION public.call_next_queue_team(
     p_access_code TEXT,
     p_desk_no INTEGER,
@@ -316,42 +465,50 @@ DECLARE
     v_now TIMESTAMPTZ := NOW();
     v_target RECORD;
     v_desk_rec RECORD;
+    v_desk_found BOOLEAN;
+    v_occupant JSONB;
+    v_replaced JSONB;
 BEGIN
     -- [R2 Fix 3] 서버 직원·시설 권한 검증
     IF NOT private.verify_staff_permission(p_access_code, p_site_id) THEN
         RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED_STAFF', 'message', '직원 인증에 실패했거나 시설 권한이 없습니다.');
     END IF;
 
-    -- 창구 정지 여부 확인
-    SELECT * INTO v_desk_rec FROM public.ticket_queue_desks 
-    WHERE site_id = p_site_id AND desk_no = p_desk_no;
+    -- [R4] 시설 잠금 (자정을 사이에 둔 요청·다른 직원 변경 RPC 와 직렬화)
+    PERFORM private.lock_ticket_queue_site(p_site_id);
 
-    IF FOUND AND v_desk_rec.is_paused THEN
+    -- [R4] 창구 정지 여부를 잠금 안에서 다시 읽는다 (정지와 호출이 겹치면 정지가 이긴다)
+    SELECT * INTO v_desk_rec FROM public.ticket_queue_desks
+    WHERE site_id = p_site_id AND desk_no = p_desk_no
+    FOR UPDATE;
+    v_desk_found := FOUND;
+
+    IF v_desk_found AND v_desk_rec.is_paused THEN
         RETURN jsonb_build_object('ok', false, 'error', 'DESK_PAUSED', 'message', p_desk_no || '번 창구는 발권 일시 중지 상태입니다.');
     END IF;
 
-    -- [CLAUDE-011 후속] 시설·영업일 잠금: 같은 창구 동시 호출이 점유 검사를 함께 통과하지 못하게 직렬화
-    PERFORM private.lock_ticket_queue_day(p_site_id, v_today);
-
-    -- [Fix 4] 창구당 활성 1팀 제약: 이미 호출/처리 중인 팀이 있는지 검사
-    IF EXISTS (
-        SELECT 1 FROM public.ticket_queue
-        WHERE site_id = p_site_id AND queue_date = v_today AND desk_no = p_desk_no AND status IN ('called', 'processing')
-    ) THEN
-        RETURN jsonb_build_object('ok', false, 'error', 'DESK_ALREADY_OCCUPIED', 'message', p_desk_no || '번 창구에 이미 진행 중인 팀이 있습니다.');
+    -- [Fix 4] 창구당 활성 1팀 제약: 오늘 이 창구에 호출/처리 중인 팀 (포인터가 아니라 오늘 행으로 판정)
+    v_occupant := private.ticket_queue_desk_occupant(p_site_id, p_desk_no, v_today);
+    IF v_occupant IS NOT NULL THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'DESK_ALREADY_OCCUPIED', 'occupant', v_occupant,
+            'message', p_desk_no || '번 창구에 이미 진행 중인 팀이 있습니다.');
     END IF;
 
-    -- [Fix 5] order_key 오름차순으로 대기 1순위 선택 (SKIP LOCKED)
+    -- [Fix 5] order_key 오름차순으로 대기 1순위 선택 (시설 잠금 안이라 순서를 건너뛰지 않는다)
     SELECT * INTO v_target
     FROM public.ticket_queue
     WHERE site_id = p_site_id AND queue_date = v_today AND status = 'waiting'
     ORDER BY order_key ASC
     LIMIT 1
-    FOR UPDATE SKIP LOCKED;
+    FOR UPDATE;
 
     IF NOT FOUND THEN
         RETURN jsonb_build_object('ok', false, 'error', 'empty_queue', 'message', '대기 중인 팀이 없습니다.');
     END IF;
+
+    -- [R4] 바꾸기 전 포인터가 오늘 점유가 아니면(전날 팀 등) 응답에 남긴다. 그 행 자체는 바꾸지 않는다
+    v_replaced := CASE WHEN v_desk_found
+        THEN private.ticket_queue_pointer_stale(p_site_id, p_desk_no, v_desk_rec.current_queue_id, v_today) END;
 
     UPDATE public.ticket_queue
     SET status = 'called',
@@ -362,10 +519,7 @@ BEGIN
         updated_at = v_now
     WHERE id = v_target.id;
 
-    UPDATE public.ticket_queue_desks
-    SET current_queue_id = v_target.id,
-        updated_at = v_now
-    WHERE site_id = p_site_id AND desk_no = p_desk_no;
+    PERFORM private.ticket_queue_sync_pointer(p_site_id, v_target.id, p_desk_no, v_now);
 
     RETURN jsonb_build_object(
         'ok', true,
@@ -377,12 +531,14 @@ BEGIN
         'guardian_name', v_target.guardian_name,
         'consent_id', v_target.consent_id,   -- [CLAUDE-011 후속] 직원 인증 뒤에만 반환: 매표 화면이 호출 팀의 서약서로 결제 창을 연다
         'party_size', v_target.party_size,
-        'called_at', v_now
+        'called_at', v_now,
+        'replaced_pointer', v_replaced
     );
 END;
 $$;
 
 -- 3. 재호출 (recall_queue_team) - 직원 전용
+-- - [R4] 지난 영업일 행 거부, 창구 이동 시 점유 검사·포인터 동기화
 CREATE OR REPLACE FUNCTION public.recall_queue_team(
     p_access_code TEXT,
     p_queue_id TEXT,
@@ -395,39 +551,65 @@ SECURITY DEFINER
 SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
+    v_today DATE := ((NOW() AT TIME ZONE 'Asia/Seoul')::DATE);
     v_now TIMESTAMPTZ := NOW();
     v_rec RECORD;
+    v_target_desk INTEGER;
+    v_occupant JSONB;
+    v_moved_from INTEGER := NULL;
 BEGIN
     -- [R2 Fix 3] 서버 직원·시설 권한 검증
     IF NOT private.verify_staff_permission(p_access_code, p_site_id) THEN
         RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED_STAFF', 'message', '직원 인증에 실패했거나 시설 권한이 없습니다.');
     END IF;
 
-    SELECT * INTO v_rec FROM public.ticket_queue WHERE id = p_queue_id FOR UPDATE;
+    -- [R4] 시설 잠금 → 대상 행 재조회 (다른 시설 행은 없는 것으로 본다)
+    PERFORM private.lock_ticket_queue_site(p_site_id);
+    SELECT * INTO v_rec FROM public.ticket_queue WHERE id = p_queue_id AND site_id = p_site_id FOR UPDATE;
     IF NOT FOUND THEN
         RETURN jsonb_build_object('ok', false, 'error', 'not_found', 'message', '대기 정보를 찾을 수 없습니다.');
+    END IF;
+
+    -- [R4] 지난 영업일 행은 오늘 창구 동작에 쓰지 않는다 (자동 정리도 하지 않음)
+    IF v_rec.queue_date < v_today THEN
+        RETURN private.ticket_queue_past_rejection(p_queue_id);
     END IF;
 
     IF v_rec.status NOT IN ('called', 'processing') THEN
         RETURN jsonb_build_object('ok', false, 'error', 'invalid_status', 'message', '호출 또는 처리 중인 팀만 재호출할 수 있습니다.');
     END IF;
 
+    -- [R4] 창구 이동: 대상 창구에 다른 오늘 활성 팀이 있으면 거부. 포인터는 잠금 안에서 동기화
+    v_target_desk := COALESCE(p_desk_no, v_rec.desk_no);
+    IF v_target_desk IS DISTINCT FROM v_rec.desk_no THEN
+        v_occupant := private.ticket_queue_desk_occupant(p_site_id, v_target_desk, v_today, p_queue_id);
+        IF v_occupant IS NOT NULL THEN
+            RETURN jsonb_build_object('ok', false, 'error', 'DESK_ALREADY_OCCUPIED', 'occupant', v_occupant,
+                'message', v_target_desk || '번 창구에 이미 진행 중인 팀이 있습니다.');
+        END IF;
+        v_moved_from := v_rec.desk_no;
+    END IF;
+
     UPDATE public.ticket_queue
     SET called_at = v_now,
-        desk_no = COALESCE(p_desk_no, desk_no),
+        desk_no = v_target_desk,
         version = version + 1,
         updated_at = v_now
     WHERE id = p_queue_id;
 
+    PERFORM private.ticket_queue_sync_pointer(p_site_id, p_queue_id, v_target_desk, v_now);
+
     -- [CLAUDE-011 후속] 화면이 응답으로 현재 팀 정보를 교체하므로 식별 필드를 함께 돌려준다
     RETURN jsonb_build_object('ok', true, 'id', p_queue_id, 'called_at', v_now, 'status', v_rec.status,
         'queue_number', v_rec.queue_number, 'formatted_number', v_rec.formatted_number,
-        'desk_no', COALESCE(p_desk_no, v_rec.desk_no), 'consent_id', v_rec.consent_id,
-        'guardian_name', v_rec.guardian_name, 'party_size', v_rec.party_size);
+        'desk_no', v_target_desk, 'consent_id', v_rec.consent_id,
+        'guardian_name', v_rec.guardian_name, 'party_size', v_rec.party_size,
+        'moved_from_desk', v_moved_from);
 END;
 $$;
 
 -- 4. 발권 처리 시작 (start_queue_processing) - 직원 전용
+-- - [R4] 지난 영업일 행 거부, 창구 이동 시 점유 검사·포인터 동기화
 CREATE OR REPLACE FUNCTION public.start_queue_processing(
     p_access_code TEXT,
     p_queue_id TEXT,
@@ -440,40 +622,66 @@ SECURITY DEFINER
 SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
+    v_today DATE := ((NOW() AT TIME ZONE 'Asia/Seoul')::DATE);
     v_now TIMESTAMPTZ := NOW();
     v_rec RECORD;
+    v_target_desk INTEGER;
+    v_occupant JSONB;
+    v_moved_from INTEGER := NULL;
 BEGIN
     -- [R2 Fix 3] 서버 직원·시설 권한 검증
     IF NOT private.verify_staff_permission(p_access_code, p_site_id) THEN
         RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED_STAFF', 'message', '직원 인증에 실패했거나 시설 권한이 없습니다.');
     END IF;
 
-    SELECT * INTO v_rec FROM public.ticket_queue WHERE id = p_queue_id FOR UPDATE;
+    -- [R4] 시설 잠금 → 대상 행 재조회 (다른 시설 행은 없는 것으로 본다)
+    PERFORM private.lock_ticket_queue_site(p_site_id);
+    SELECT * INTO v_rec FROM public.ticket_queue WHERE id = p_queue_id AND site_id = p_site_id FOR UPDATE;
     IF NOT FOUND THEN
         RETURN jsonb_build_object('ok', false, 'error', 'not_found', 'message', '대기 정보를 찾을 수 없습니다.');
+    END IF;
+
+    -- [R4] 지난 영업일 행은 오늘 창구 동작에 쓰지 않는다 (자동 정리도 하지 않음)
+    IF v_rec.queue_date < v_today THEN
+        RETURN private.ticket_queue_past_rejection(p_queue_id);
     END IF;
 
     IF v_rec.status <> 'called' THEN
         RETURN jsonb_build_object('ok', false, 'error', 'invalid_status', 'message', '호출(called) 상태인 팀만 발권 처리를 시작할 수 있습니다.');
     END IF;
 
+    -- [R4] 창구 이동: 대상 창구에 다른 오늘 활성 팀이 있으면 거부. 포인터는 잠금 안에서 동기화
+    v_target_desk := COALESCE(p_desk_no, v_rec.desk_no);
+    IF v_target_desk IS DISTINCT FROM v_rec.desk_no THEN
+        v_occupant := private.ticket_queue_desk_occupant(p_site_id, v_target_desk, v_today, p_queue_id);
+        IF v_occupant IS NOT NULL THEN
+            RETURN jsonb_build_object('ok', false, 'error', 'DESK_ALREADY_OCCUPIED', 'occupant', v_occupant,
+                'message', v_target_desk || '번 창구에 이미 진행 중인 팀이 있습니다.');
+        END IF;
+        v_moved_from := v_rec.desk_no;
+    END IF;
+
     UPDATE public.ticket_queue
     SET status = 'processing',
         processing_started_at = v_now,
-        desk_no = COALESCE(p_desk_no, desk_no),
+        desk_no = v_target_desk,
         version = version + 1,
         updated_at = v_now
     WHERE id = p_queue_id;
 
+    PERFORM private.ticket_queue_sync_pointer(p_site_id, p_queue_id, v_target_desk, v_now);
+
     -- [CLAUDE-011 후속] 화면이 응답으로 현재 팀 정보를 교체하므로 식별 필드를 함께 돌려준다
     RETURN jsonb_build_object('ok', true, 'id', p_queue_id, 'status', 'processing', 'processing_started_at', v_now,
         'queue_number', v_rec.queue_number, 'formatted_number', v_rec.formatted_number,
-        'desk_no', COALESCE(p_desk_no, v_rec.desk_no), 'consent_id', v_rec.consent_id,
-        'guardian_name', v_rec.guardian_name, 'party_size', v_rec.party_size, 'called_at', v_rec.called_at);
+        'desk_no', v_target_desk, 'consent_id', v_rec.consent_id,
+        'guardian_name', v_rec.guardian_name, 'party_size', v_rec.party_size, 'called_at', v_rec.called_at,
+        'moved_from_desk', v_moved_from);
 END;
 $$;
 
 -- 5. 부재 보류 (hold_queue_team) - 직원 전용
+-- - [R4] 지난 영업일 행 거부, 이 팀을 가리키는 모든 창구 포인터 해제
 CREATE OR REPLACE FUNCTION public.hold_queue_team(
     p_access_code TEXT,
     p_queue_id TEXT,
@@ -486,6 +694,7 @@ SECURITY DEFINER
 SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
+    v_today DATE := ((NOW() AT TIME ZONE 'Asia/Seoul')::DATE);
     v_now TIMESTAMPTZ := NOW();
     v_rec RECORD;
 BEGIN
@@ -494,9 +703,16 @@ BEGIN
         RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED_STAFF', 'message', '직원 인증에 실패했거나 시설 권한이 없습니다.');
     END IF;
 
-    SELECT * INTO v_rec FROM public.ticket_queue WHERE id = p_queue_id FOR UPDATE;
+    -- [R4] 시설 잠금 → 대상 행 재조회 (다른 시설 행은 없는 것으로 본다)
+    PERFORM private.lock_ticket_queue_site(p_site_id);
+    SELECT * INTO v_rec FROM public.ticket_queue WHERE id = p_queue_id AND site_id = p_site_id FOR UPDATE;
     IF NOT FOUND THEN
         RETURN jsonb_build_object('ok', false, 'error', 'not_found', 'message', '대기 정보를 찾을 수 없습니다.');
+    END IF;
+
+    -- [R4] 지난 영업일 행은 오늘 창구 동작에 쓰지 않는다 (자동 정리도 하지 않음)
+    IF v_rec.queue_date < v_today THEN
+        RETURN private.ticket_queue_past_rejection(p_queue_id);
     END IF;
 
     IF v_rec.status NOT IN ('called', 'processing') THEN
@@ -511,12 +727,7 @@ BEGIN
         updated_at = v_now
     WHERE id = p_queue_id;
 
-    IF v_rec.desk_no IS NOT NULL THEN
-        UPDATE public.ticket_queue_desks
-        SET current_queue_id = NULL,
-            updated_at = v_now
-        WHERE site_id = p_site_id AND desk_no = v_rec.desk_no AND current_queue_id = p_queue_id;
-    END IF;
+    PERFORM private.ticket_queue_sync_pointer(p_site_id, p_queue_id, NULL, v_now);
 
     RETURN jsonb_build_object('ok', true, 'id', p_queue_id, 'status', 'no_show', 'hold_at', v_now);
 END;
@@ -524,6 +735,7 @@ $$;
 
 -- 6. 보류 복귀 (restore_queue_team) - 직원 전용
 -- - [Fix 5] 복귀 시 order_key를 당일 최댓값 + 1로 재할당하여 맨 뒤로 배치 (새치기 원천 차단)
+-- - [R4] 지난 영업일 행 거부 (전날 날짜의 waiting 이 되어 다시는 호출되지 않는 일을 막음). 잠금 순서: 시설 → 날짜
 CREATE OR REPLACE FUNCTION public.restore_queue_team(
     p_access_code TEXT,
     p_queue_id TEXT,
@@ -537,6 +749,7 @@ SECURITY DEFINER
 SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
+    v_today DATE := ((NOW() AT TIME ZONE 'Asia/Seoul')::DATE);
     v_now TIMESTAMPTZ := NOW();
     v_rec RECORD;
     v_new_order_key BIGINT;
@@ -546,9 +759,16 @@ BEGIN
         RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED_STAFF', 'message', '직원 인증에 실패했거나 시설 권한이 없습니다.');
     END IF;
 
-    SELECT * INTO v_rec FROM public.ticket_queue WHERE id = p_queue_id FOR UPDATE;
+    -- [R4] 시설 잠금 → 대상 행 재조회 (다른 시설 행은 없는 것으로 본다)
+    PERFORM private.lock_ticket_queue_site(p_site_id);
+    SELECT * INTO v_rec FROM public.ticket_queue WHERE id = p_queue_id AND site_id = p_site_id FOR UPDATE;
     IF NOT FOUND THEN
         RETURN jsonb_build_object('ok', false, 'error', 'not_found', 'message', '대기 정보를 찾을 수 없습니다.');
+    END IF;
+
+    -- [R4] 지난 영업일 행은 오늘 창구 동작에 쓰지 않는다 (자동 정리도 하지 않음)
+    IF v_rec.queue_date < v_today THEN
+        RETURN private.ticket_queue_past_rejection(p_queue_id);
     END IF;
 
     IF v_rec.status <> 'no_show' THEN
@@ -574,6 +794,8 @@ BEGIN
         updated_at = v_now
     WHERE id = p_queue_id;
 
+    PERFORM private.ticket_queue_sync_pointer(p_site_id, p_queue_id, NULL, v_now);
+
     RETURN jsonb_build_object(
         'ok', true,
         'id', p_queue_id,
@@ -586,6 +808,7 @@ $$;
 
 -- 7. 접수 취소 (cancel_queue_team) - 직원 전용
 -- - [Fix 4] 이미 발권 완료(issued)된 건은 취소 불가 가드
+-- - [R4] 지난 영업일 행은 기록된 주문(활성 원장)이 있으면 ORDER_RECORDED 로 거부 (원장·order_id 보존, 같은 주문으로 완료해야 함)
 CREATE OR REPLACE FUNCTION public.cancel_queue_team(
     p_access_code TEXT,
     p_queue_id TEXT,
@@ -599,15 +822,19 @@ SECURITY DEFINER
 SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
+    v_today DATE := ((NOW() AT TIME ZONE 'Asia/Seoul')::DATE);
     v_now TIMESTAMPTZ := NOW();
     v_rec RECORD;
+    v_recorded JSONB;
 BEGIN
     -- [R2 Fix 3] 서버 직원·시설 권한 검증
     IF NOT private.verify_staff_permission(p_access_code, p_site_id) THEN
         RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED_STAFF', 'message', '직원 인증에 실패했거나 시설 권한이 없습니다.');
     END IF;
 
-    SELECT * INTO v_rec FROM public.ticket_queue WHERE id = p_queue_id FOR UPDATE;
+    -- [R4] 시설 잠금 → 대상 행 재조회 (다른 시설 행은 없는 것으로 본다)
+    PERFORM private.lock_ticket_queue_site(p_site_id);
+    SELECT * INTO v_rec FROM public.ticket_queue WHERE id = p_queue_id AND site_id = p_site_id FOR UPDATE;
     IF NOT FOUND THEN
         RETURN jsonb_build_object('ok', false, 'error', 'not_found', 'message', '대기 정보를 찾을 수 없습니다.');
     END IF;
@@ -615,6 +842,18 @@ BEGIN
     -- [Fix 4] 발권 완료 건은 대기열에서 취소 불가
     IF v_rec.status = 'issued' THEN
         RETURN jsonb_build_object('ok', false, 'error', 'CANNOT_CANCEL_ISSUED', 'message', '이미 발권 완료된 건은 대기열에서 취소할 수 없습니다.');
+    END IF;
+
+    -- [R4] 지난 영업일 미정리 팀: 기록된 주문이 있으면 취소 대신 같은 주문으로 완료해야 한다
+    IF v_rec.queue_date < v_today AND v_rec.status <> 'canceled' THEN
+        v_recorded := private.ticket_queue_recorded_orders(v_rec.consent_id);
+        IF jsonb_array_length(v_recorded) > 0 THEN
+            RETURN jsonb_build_object('ok', false, 'error', 'ORDER_RECORDED',
+                'id', p_queue_id, 'queue_date', v_rec.queue_date, 'status', v_rec.status,
+                'recorded_orders', v_recorded,
+                'allowed_actions', private.ticket_queue_past_actions(v_rec.status, v_recorded),
+                'message', '이 팀은 결제·티켓 원장이 저장되어 있어 대기열만 취소할 수 없습니다. 같은 주문번호로 발권 완료하거나 원장을 먼저 정리해 주세요.');
+        END IF;
     END IF;
 
     UPDATE public.ticket_queue
@@ -625,14 +864,10 @@ BEGIN
         updated_at = v_now
     WHERE id = p_queue_id;
 
-    IF v_rec.desk_no IS NOT NULL THEN
-        UPDATE public.ticket_queue_desks
-        SET current_queue_id = NULL,
-            updated_at = v_now
-        WHERE site_id = p_site_id AND desk_no = v_rec.desk_no AND current_queue_id = p_queue_id;
-    END IF;
+    PERFORM private.ticket_queue_sync_pointer(p_site_id, p_queue_id, NULL, v_now);
 
-    RETURN jsonb_build_object('ok', true, 'id', p_queue_id, 'status', 'canceled', 'canceled_at', v_now);
+    RETURN jsonb_build_object('ok', true, 'id', p_queue_id, 'status', 'canceled', 'canceled_at', v_now,
+        'queue_date', v_rec.queue_date, 'past_queue_date', v_rec.queue_date < v_today);
 END;
 $$;
 
@@ -640,6 +875,7 @@ $$;
 -- - [R2 Fix 3] 서버 직원·시설 권한 검증
 -- - [R2 Fix 4] 주문 결제 확정(order_payments), 서약서(safety_consents), 티켓(ticket_ledger) 전체 유효 상태 검증
 -- - [R2 Fix 4] 동일 order_id 재시도 시 멱등 성공 결과 반환
+-- - [R4] 지난 영업일 processing 팀도 직원이 같은 주문 id 로 명시적으로 완료할 수 있다 (원장을 새로 만들지 않음, 자동 완료 없음)
 CREATE OR REPLACE FUNCTION public.complete_queue_issuance(
     p_access_code TEXT,
     p_queue_id TEXT,
@@ -654,6 +890,7 @@ SECURITY DEFINER
 SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
+    v_today DATE := ((NOW() AT TIME ZONE 'Asia/Seoul')::DATE);
     v_now TIMESTAMPTZ := NOW();
     v_rec RECORD;
     v_duration INTEGER := 60;
@@ -682,7 +919,9 @@ BEGIN
         RETURN jsonb_build_object('ok', false, 'error', 'TICKETS_REQUIRED', 'message', '발권된 팔찌 티켓 목록이 필요합니다.');
     END IF;
 
-    SELECT * INTO v_rec FROM public.ticket_queue WHERE id = p_queue_id FOR UPDATE;
+    -- [R4] 시설 잠금 → 대상 행 재조회 (다른 시설 행은 없는 것으로 본다)
+    PERFORM private.lock_ticket_queue_site(p_site_id);
+    SELECT * INTO v_rec FROM public.ticket_queue WHERE id = p_queue_id AND site_id = p_site_id FOR UPDATE;
     IF NOT FOUND THEN
         RETURN jsonb_build_object('ok', false, 'error', 'not_found', 'message', '대기 정보를 찾을 수 없습니다.');
     END IF;
@@ -699,7 +938,9 @@ BEGIN
                 'order_id', v_rec.order_id,
                 'ticket_ids', v_rec.ticket_ids,
                 'duration_seconds', v_rec.duration_seconds,
-                'issued_at', v_rec.issued_at
+                'issued_at', v_rec.issued_at,
+                'queue_date', v_rec.queue_date,
+                'past_queue_date', v_rec.queue_date < v_today
             );
         ELSE
             RETURN jsonb_build_object('ok', false, 'error', 'ALREADY_ISSUED_OTHER_ORDER', 'message', '이미 다른 주문번호로 발권 완료된 대기표입니다.');
@@ -844,13 +1085,8 @@ BEGIN
         updated_at = v_now
     WHERE id = p_queue_id;
 
-    -- 15. 창구 슬롯 해제
-    IF v_rec.desk_no IS NOT NULL THEN
-        UPDATE public.ticket_queue_desks
-        SET current_queue_id = NULL,
-            updated_at = v_now
-        WHERE site_id = p_site_id AND desk_no = v_rec.desk_no AND current_queue_id = p_queue_id;
-    END IF;
+    -- 15. 창구 슬롯 해제 — [R4] 이 팀을 가리키는 포인터만 (오늘 다른 팀을 가리키는 포인터는 그대로)
+    PERFORM private.ticket_queue_sync_pointer(p_site_id, p_queue_id, NULL, v_now);
 
     RETURN jsonb_build_object(
         'ok', true,
@@ -861,7 +1097,9 @@ BEGIN
         'order_id', p_order_id,
         'ticket_ids', p_ticket_ids,
         'duration_seconds', v_duration,
-        'issued_at', v_now
+        'issued_at', v_now,
+        'queue_date', v_rec.queue_date,
+        'past_queue_date', v_rec.queue_date < v_today
     );
 END;
 $$;
@@ -1078,6 +1316,10 @@ DECLARE
     v_held JSONB;
     v_desks JSONB;
     v_waiting_count INTEGER := 0;
+    v_today DATE := ((NOW() AT TIME ZONE 'Asia/Seoul')::DATE);
+    v_past JSONB;
+    v_past_total INTEGER := 0;
+    v_past_open JSONB;
 BEGIN
     -- [R2 Fix 3] 서버 직원·시설 권한 검증
     IF NOT private.verify_staff_permission(p_access_code, p_site_id) THEN
@@ -1139,18 +1381,77 @@ BEGIN
     FROM public.ticket_queue
     WHERE site_id = p_site_id AND queue_date = p_date AND status = 'no_show';
 
-    -- 창구 상태
-    SELECT COALESCE(jsonb_agg(
-        jsonb_build_object(
-            'desk_no', desk_no,
-            'is_active', is_active,
-            'is_paused', is_paused,
-            'current_queue_id', current_queue_id
-        ) ORDER BY desk_no ASC
-    ), '[]'::jsonb)
+    -- 창구 상태 — [R4] 오늘 점유(오늘 행 기준)와 저장된 포인터를 구분해 보고한다. 포인터를 고치지 않는다 (조회 RPC 는 쓰지 않음)
+    SELECT COALESCE(jsonb_agg(d.obj ORDER BY d.desk_no), '[]'::jsonb)
     INTO v_desks
-    FROM public.ticket_queue_desks
-    WHERE site_id = p_site_id;
+    FROM (
+        SELECT k.desk_no, jsonb_build_object(
+            'desk_no', k.desk_no,
+            'is_active', k.is_active,
+            'is_paused', k.is_paused,
+            'current_queue_id', CASE WHEN k.current_queue_id IS NOT NULL AND st.stale IS NULL THEN k.current_queue_id ELSE o.occ->>'id' END,
+            'occupant', CASE WHEN k.current_queue_id IS NOT NULL AND st.stale IS NULL THEN pt.pobj ELSE o.occ END,
+            'occupancy_count', c.cnt,
+            'pointer_queue_id', k.current_queue_id,
+            'pointer_state', CASE
+                WHEN k.current_queue_id IS NULL AND o.occ IS NULL THEN 'empty'
+                WHEN k.current_queue_id IS NOT NULL AND st.stale IS NULL THEN 'ok'
+                WHEN o.occ IS NOT NULL THEN 'missing'
+                ELSE 'stale' END,
+            'pointer_stale', st.stale
+        ) AS obj
+        FROM public.ticket_queue_desks k
+        CROSS JOIN LATERAL (SELECT private.ticket_queue_desk_occupant(k.site_id, k.desk_no, v_today) AS occ) o
+        CROSS JOIN LATERAL (SELECT private.ticket_queue_pointer_stale(k.site_id, k.desk_no, k.current_queue_id, v_today) AS stale) st
+        LEFT JOIN LATERAL (
+            SELECT jsonb_build_object('id', q.id, 'formatted_number', q.formatted_number, 'status', q.status, 'consent_id', q.consent_id) AS pobj
+              FROM public.ticket_queue q WHERE q.id = k.current_queue_id
+        ) pt ON true
+        CROSS JOIN LATERAL (
+            SELECT COUNT(*)::INTEGER AS cnt FROM public.ticket_queue q
+             WHERE q.site_id = k.site_id AND q.queue_date = v_today AND q.desk_no = k.desk_no AND q.status IN ('called', 'processing')
+        ) c
+        WHERE k.site_id = p_site_id
+    ) d;
+
+    -- [R4] 과거 미정리 팀 (지난 영업일 called/processing). 기록된 주문과 직원이 할 수 있는 명시적 동작을 함께 돌려준다
+    SELECT COUNT(*) INTO v_past_total
+    FROM public.ticket_queue
+    WHERE site_id = p_site_id AND queue_date < v_today AND status IN ('called', 'processing');
+
+    SELECT COALESCE(jsonb_agg(x.obj ORDER BY x.queue_date, x.desk_no NULLS LAST, x.queue_number), '[]'::jsonb)
+    INTO v_past
+    FROM (
+        SELECT q.queue_date, q.desk_no, q.queue_number, jsonb_build_object(
+            'id', q.id,
+            'queue_date', q.queue_date,
+            'queue_number', q.queue_number,
+            'formatted_number', q.formatted_number,
+            'status', q.status,
+            'desk_no', q.desk_no,
+            'consent_id', q.consent_id,
+            'guardian_name', q.guardian_name,
+            'party_size', q.party_size,
+            'called_at', q.called_at,
+            'processing_started_at', q.processing_started_at,
+            'recorded_orders', r.rec,
+            'allowed_actions', private.ticket_queue_past_actions(q.status, r.rec),
+            'blocked_reason', CASE WHEN jsonb_array_length(private.ticket_queue_past_actions(q.status, r.rec)) = 0
+                                   THEN 'LEDGER_REVIEW_REQUIRED' END
+        ) AS obj
+        FROM public.ticket_queue q
+        CROSS JOIN LATERAL (SELECT private.ticket_queue_recorded_orders(q.consent_id) AS rec) r
+        WHERE q.site_id = p_site_id AND q.queue_date < v_today AND q.status IN ('called', 'processing')
+        ORDER BY q.queue_date, q.desk_no NULLS LAST, q.queue_number
+        LIMIT 100
+    ) x;
+
+    SELECT jsonb_build_object(
+        'waiting', COUNT(*) FILTER (WHERE status = 'waiting'),
+        'no_show', COUNT(*) FILTER (WHERE status = 'no_show'))
+    INTO v_past_open
+    FROM public.ticket_queue
+    WHERE site_id = p_site_id AND queue_date < v_today AND status IN ('waiting', 'no_show');
 
     RETURN jsonb_build_object(
         'ok', true,
@@ -1160,6 +1461,10 @@ BEGIN
         'called_teams', v_called,
         'held_teams', v_held,
         'desks', v_desks,
+        'queue_day', v_today,
+        'past_unresolved_total', v_past_total,
+        'past_unresolved_teams', v_past,
+        'past_open_counts', v_past_open,
         'server_time', NOW()
     );
 END;
@@ -1185,6 +1490,9 @@ BEGIN
     IF NOT private.verify_staff_permission(p_access_code, p_site_id) THEN
         RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED_STAFF', 'message', '직원 인증에 실패했거나 시설 권한이 없습니다.');
     END IF;
+
+    -- [R4] 시설 잠금 (호출과 정지가 겹칠 때 순서를 정한다)
+    PERFORM private.lock_ticket_queue_site(p_site_id);
 
     UPDATE public.ticket_queue_desks
     SET is_paused = p_is_paused,
@@ -1255,3 +1563,10 @@ REVOKE ALL ON TABLE public.ticket_queue, public.ticket_queue_desks, public.ticke
 --    내부 함수는 PostgreSQL 기본 PUBLIC 실행 권한까지 회수한다 (private 스키마 USAGE 회수와 이중 차단).
 REVOKE ALL ON FUNCTION private.verify_staff_permission(TEXT, TEXT) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION private.lock_ticket_queue_day(TEXT, DATE) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION private.lock_ticket_queue_site(TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION private.ticket_queue_recorded_orders(TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION private.ticket_queue_past_actions(TEXT, JSONB) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION private.ticket_queue_past_rejection(TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION private.ticket_queue_sync_pointer(TEXT, TEXT, INTEGER, TIMESTAMPTZ) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION private.ticket_queue_desk_occupant(TEXT, INTEGER, DATE, TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION private.ticket_queue_pointer_stale(TEXT, INTEGER, TEXT, DATE) FROM PUBLIC, anon, authenticated;

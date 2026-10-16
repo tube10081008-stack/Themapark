@@ -7,6 +7,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { spawn } from 'node:child_process';
 
 export const FRONT_ROOT = process.env.ANT006_ROOT || null;
 const ENV_FILE = process.env.E2E_ENV || null;
@@ -117,6 +118,12 @@ export async function startProxy() {
         try { entry.body = body.length ? JSON.parse(body.toString()) : null; } catch (e) { entry.body = null; }
         state.log.push(entry);
         const f = take(entry.kind, entry.name, req.method);
+        // hook: 전달 직전에 시험 동작 실행(예: 서버 암호 교체·API 서버 정지·단말 오프라인 전환) 후 그대로 전달.
+        //       fn 이 'drop' 을 돌려주면 이 요청은 서버에 보내지 않고 연결을 끊는다
+        let dropIt = f && f.mode === 'drop';
+        if (f && f.mode === 'hook') { entry.fault = 'hook'; if ((await f.fn(entry)) === 'drop') dropIt = true; }
+        // drop: 서버에 보내지 않고 연결을 끊는다 (응답 없음 — 브라우저에는 실제 연결 끊김)
+        if (dropIt) { entry.fault = 'drop'; entry.status = 0; return req.socket.destroy(); }
         if (f && f.mode === '503') { entry.fault = '503'; entry.status = 503; res.writeHead(503, { 'Content-Type': 'application/json' }); return res.end('{"message":"SYN injected 503"}'); }
         const headers = { 'X-Forwarded-For': DEVICE_IP };
         for (const h of ['apikey', 'authorization', 'content-type', 'prefer', 'accept', 'range']) if (req.headers[h]) headers[h] = req.headers[h];
@@ -125,6 +132,8 @@ export async function startProxy() {
           const text = await up.text();
           entry.status = up.status;
           entry.response = text.slice(0, 400);
+          // reset: 서버가 처리(커밋)한 뒤 응답 대신 연결을 끊는다 (실제 TCP 끊김 — 브라우저가 스스로 재전송할 수 있음)
+          if (f && f.mode === 'reset') { entry.fault = 'reset'; return req.socket.destroy(); }
           if (f && f.mode === 'lost') { entry.fault = 'lost'; res.writeHead(503, { 'Content-Type': 'application/json' }); return res.end('{"message":"SYN response lost after commit"}'); }
           const out = { 'Content-Type': up.headers.get('content-type') || 'application/json' };
           if (up.headers.get('content-range')) out['Content-Range'] = up.headers.get('content-range');
@@ -149,7 +158,7 @@ export async function startProxy() {
   return {
     base: `http://127.0.0.1:${server.address().port}`,
     state,
-    fault(kind, name, mode, { times = Infinity, method } = {}) { state.faults.push({ kind, name, mode, times, method }); },
+    fault(kind, name, mode, { times = Infinity, method, fn } = {}) { state.faults.push({ kind, name, mode, times, method, fn }); },
     clearFaults() { state.faults.length = 0; },
     calls(kind, name) { return state.log.filter((e) => e.kind === kind && e.name === name); },
     close: () => new Promise((r) => { server.closeAllConnections?.(); server.close(r); })
@@ -171,7 +180,9 @@ export async function openDesk(proxy, { localPassAudit = false } = {}) {
   const env = loadEnv();
   const pw = await playwright();
   const browser = await pw.chromium.launch({ headless: true });
-  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  // 현장 단말은 KST 시간대다. 화면은 오늘 날짜를 단말 시간대로 계산하므로(BongplaySync.toLocalDateStr) 시험 브라우저도 KST 로 맞춘다
+  // (컨테이너 기본 UTC 로 두면 KST 00:00~09:00 사이에 화면의 '오늘'이 전날이 되어 서버 PASS 점검을 찾지 못한다).
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, timezoneId: 'Asia/Seoul' });
   if (localPassAudit) {
     await context.addInitScript((today) => {
       try {
@@ -205,7 +216,26 @@ export async function openDesk(proxy, { localPassAudit = false } = {}) {
   // 로그인이 끝나고(암호 저장·인증 창 제거) 첫 동기화가 가라앉을 때까지 기다린다
   await page.waitForFunction(() => window.BongplayAuth && BongplayAuth.getAccessCode() && !document.getElementById('bongplay-auth-overlay'), null, { timeout: 15000 });
   await page.waitForLoadState('networkidle').catch(() => {});
-  return { page, dialogs, errors, navs, close: () => browser.close() };
+  return { page, context, dialogs, errors, navs, close: () => browser.close() };
+}
+
+/** 실제 API 서버(PostgREST) 정지·재기동 — 서버 쪽 통신 중단 재현 (desk_e2e_stack.sh 가 stack.env 에 경로를 남긴다) */
+export async function stopApiServer() {
+  const env = loadEnv();
+  const pid = Number(fs.readFileSync(env.E2E_PGRST_PID, 'utf8'));
+  try { process.kill(pid, 'SIGTERM'); } catch (e) { /* 이미 정지 */ }
+  await waitFor(async () => { try { await fetch(env.E2E_PGRST_URL + '/'); return false; } catch (e) { return true; } }, { timeout: 10000 });
+}
+export async function startApiServer() {
+  const env = loadEnv();
+  const out = fs.openSync(env.E2E_PGRST_CONF + '.restart.log', 'a');
+  const child = spawn(env.E2E_PGRST_BIN, [env.E2E_PGRST_CONF], { detached: true, stdio: ['ignore', out, out] });
+  child.unref();
+  fs.writeFileSync(env.E2E_PGRST_PID, String(child.pid));
+  const ok = await waitFor(async () => {
+    try { const r = await fetch(env.E2E_PGRST_URL + '/rpc/get_queue_public_display', { method: 'POST', headers: { apikey: env.E2E_ANON_KEY, Authorization: 'Bearer ' + env.E2E_ANON_KEY, 'Content-Type': 'application/json' }, body: '{}' }); return r.status === 200; } catch (e) { return false; }
+  }, { timeout: 20000, interval: 200 });
+  if (!ok) throw new Error('PostgREST 재기동 실패');
 }
 
 export async function waitFor(fn, { timeout = 8000, interval = 150 } = {}) {

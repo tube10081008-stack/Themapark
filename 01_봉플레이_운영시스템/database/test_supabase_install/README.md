@@ -35,6 +35,13 @@ SQL Editor 에서 파일 하나씩 전체를 붙여넣고 **Run** 한다. 각 �
 - 3열 없이 운영되던 DB(기존 행 포함)에 두 번 적용해도 같은 결과임을 로컬에서 확인했다 (§4 의 H 단계).
 - 실제 DB 적용은 벤이 맡는다.
 
+**3단계 대기열 SQL 의 전날 미정리 팀·창구 점유 (R4)**
+- 반환 계약: `database/CONTRACT_ticket_queue_past_day.md`.
+- 오늘 창구 점유는 오늘 행으로 판정한다. 전날 `called`·`processing` 팀은 오늘 호출을 막지 않는다.
+- 전날 팀은 직원 목록의 `past_unresolved_teams` 에 기록된 주문·허용 동작과 함께 나온다.
+- 자동 취소·자동 완료는 없다. 직원 변경 RPC 는 시설 잠금 뒤 대상 행을 다시 읽는다.
+- 함수 서명·표·열은 바뀌지 않는다. 기존 설치 DB 에는 이 파일만 다시 실행하면 된다.
+
 **3단계 대기열 SQL 의 권한 이중화**
 - Supabase 는 public 스키마에 새로 만든 표·함수에 `anon`·`authenticated` 권한을 기본으로 준다.
 - 대기열 SQL 끝의 5) 절이 대기열 표의 직접 권한과 내부 함수의 PUBLIC 실행 권한을 회수한다.
@@ -51,6 +58,7 @@ SQL Editor 에서 파일 하나씩 전체를 붙여넣고 **Run** 한다. 각 �
 - 결과 표에 `level = FAIL` 이면서 `ok = false` 인 행이 없어야 한다.
 - `WARN` 은 참고 항목이다 (pg_cron 없음, TRUNCATE 권한 — §3 참고).
 - `S02` 는 안전점검 수정 정책이 KST 날짜 기준인지 본다 (C2, FINAL 5-3).
+- `Q04`·`Q05` 는 전날 미정리 팀·창구 포인터 계약(R4, `database/CONTRACT_ticket_queue_past_day.md`)의 내부 함수가 있고 API 역할에 노출되지 않는지 본다.
 
 **순서 주의**
 - FINAL 은 실행할 때마다 public 스키마의 **모든 RLS 정책을 지우고 다시 만든다**.
@@ -85,7 +93,7 @@ SUPABASE_URL=https://<시험 프로젝트>.supabase.co SUPABASE_ANON_KEY=<시험
 
 | 파일 | 지우는 것 | 남기는 것 |
 |---|---|---|
-| `90_reset_queue.sql` | 대기열 표 3개와 RPC·내부 함수 | 기본 스키마·서약서·원장 |
+| `90_reset_queue.sql` | 대기열 표 3개와 RPC·내부 함수 (R4 내부 함수 포함) | 기본 스키마·서약서·원장 |
 | `91_reset_all_test.sql` | 묶음이 만든 표 33개, 함수, private 스키마(시험 암호·설치 표시 포함), pg_cron 작업 | Supabase 기본 역할·스키마·확장 |
 
 - 두 파일 모두 시험 설치 표시가 없으면 실행을 거부한다.

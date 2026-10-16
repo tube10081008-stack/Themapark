@@ -23,7 +23,10 @@ begin
              'call_next_queue_team', 'recall_queue_team', 'start_queue_processing', 'hold_queue_team',
              'restore_queue_team', 'cancel_queue_team', 'complete_queue_issuance', 'get_staff_queue_list',
              'set_desk_pause_status'))
-       or (n.nspname = 'private' and p.proname in ('verify_staff_permission', 'lock_ticket_queue_day'))
+       or (n.nspname = 'private' and p.proname in ('verify_staff_permission', 'lock_ticket_queue_day',
+             -- R4 (전날 미정리 팀·창구 포인터)
+             'lock_ticket_queue_site', 'ticket_queue_recorded_orders', 'ticket_queue_past_actions', 'ticket_queue_past_rejection',
+             'ticket_queue_sync_pointer', 'ticket_queue_desk_occupant', 'ticket_queue_pointer_stale'))
   loop
     execute format('drop function if exists %s', r.sig);
   end loop;

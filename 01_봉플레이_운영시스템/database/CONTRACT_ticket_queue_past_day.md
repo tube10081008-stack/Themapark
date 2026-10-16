@@ -75,7 +75,7 @@
     "occupancy_count": 1,                 // 오늘 이 창구의 활성 팀 수 (2 이상이면 정합성 위반)
     "pointer_queue_id": "q_…",            // 저장된 포인터 원값
     "pointer_state": "ok",                // 아래 표
-    "pointer_stale": null                 // pointer_state='stale' 일 때 { "queue_id", "reason", "queue_date", "status" }
+    "pointer_stale": null                 // 포인터가 오늘 점유가 아닌 행을 가리킬 때 { "queue_id", "reason", "queue_date", "status" } (stale, 또는 missing 이면서 다른 행을 가리킬 때)
   }],
   "past_unresolved_total": 1,
   "past_unresolved_teams": [{             // 과거 미정리 팀, queue_date·desk_no 순, 최대 100건
@@ -167,6 +167,8 @@
 - 시설 잠금 안에서 실행한다. 반환은 그대로다.
 
 ## 6. 바뀌지 않는 것
+
+- 창구 행(`ticket_queue_desks`)이 없는 창구 번호로 호출하면 지금처럼 팀은 호출되지만 포인터가 없다 (시드는 1·2번).
 
 - 함수 서명, 권한(GRANT/REVOKE), RLS, 표·열·제약.
 - `enqueue_consent_team`, `get_customer_queue_status`, `get_queue_public_display` 의 동작.

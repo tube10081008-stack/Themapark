@@ -3,7 +3,9 @@
 #   start: 클러스터 생성 → Supabase 플랫폼 모사 → 설치 묶음(ORDER 순서, 없으면 00 → FINAL → 대기열 SQL → 40 → 50) → PostgREST 기동
 #          → 접속 정보를 $WORK/stack.env 에 기록 (시험 암호·JWT 비밀은 실행마다 새로 만드는 합성 값)
 #   stop : PostgREST·클러스터 정지, 작업 폴더 삭제
-# 사용: PGRST_BIN=<postgrest> [DB_ROOT=<대상 database 폴더>] [EXTRA_SQL="<변경안 SQL> ..."] bash desk_e2e_stack.sh start|stop
+#   FAKETIME_AT: 지정하면 PostgreSQL 서버를 libfaketime 아래에서 그 시각(UTC, 예 '2026-10-16 14:59:40')부터 띄운다.
+#          시험은 stack.env 의 E2E_FAKETIME_FILE 에 '@<UTC 시각>' 을 써서 서버 시계를 옮긴다 (실제 자정 통과 시험용, 화면 E2E 에는 쓰지 않음)
+# 사용: PGRST_BIN=<postgrest> [DB_ROOT=<대상 database 폴더>] [EXTRA_SQL="<변경안 SQL> ..."] [FAKETIME_AT=<UTC>] bash desk_e2e_stack.sh start|stop
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OPS="$(cd "$HERE/../../.." && pwd)"
@@ -25,8 +27,15 @@ stop() {
 start() {
   : "${PGRST_BIN:?PGRST_BIN 필요}"
   stop
-  su postgres -s /bin/sh -c "mkdir -p $WORK && chmod 755 $WORK && $PG_BIN/initdb -D $WORK/data -A trust -U supabase_admin >/dev/null && \
-    $PG_BIN/pg_ctl -D $WORK/data -o '-p $PORT -k $WORK -c listen_addresses=127.0.0.1' -l $WORK/log start >/dev/null" || { echo "클러스터 기동 실패"; exit 2; }
+  su postgres -s /bin/sh -c "mkdir -p $WORK && chmod 755 $WORK && $PG_BIN/initdb -D $WORK/data -A trust -U supabase_admin >/dev/null" || { echo "클러스터 생성 실패"; exit 2; }
+  local preload=""
+  if [ -n "${FAKETIME_AT:-}" ]; then
+    local lib="${FAKETIME_LIB:-/usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1}"
+    [ -f "$lib" ] || { echo "libfaketime 없음: $lib"; exit 2; }
+    echo "@$FAKETIME_AT" > "$WORK/faketime"; chmod 644 "$WORK/faketime"
+    preload="TZ=UTC LD_PRELOAD=$lib FAKETIME_TIMESTAMP_FILE=$WORK/faketime FAKETIME_NO_CACHE=1 FAKETIME_DONT_FAKE_MONOTONIC=1"
+  fi
+  su postgres -s /bin/sh -c "$preload $PG_BIN/pg_ctl -D $WORK/data -o '-p $PORT -k $WORK -c listen_addresses=127.0.0.1' -l $WORK/log start >/dev/null" || { echo "클러스터 기동 실패"; exit 2; }
   local P="$PG_BIN/psql -X -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -p $PORT"
   $P -U supabase_admin -d postgres -c "create database $DB" || exit 2
   $P -U supabase_admin -d $DB -f "$EMU" >/dev/null || exit 2
@@ -75,6 +84,10 @@ E2E_ANON_KEY=$anon
 E2E_STAFF_CODE=$code
 E2E_DB_ROOT=$DB_ROOT
 E2E_EXTRA_SQL=${EXTRA_SQL:-}
+E2E_FAKETIME_FILE=$([ -n "${FAKETIME_AT:-}" ] && echo "$WORK/faketime")
+E2E_PGRST_BIN=$PGRST_BIN
+E2E_PGRST_CONF=$WORK/pgrst.conf
+E2E_PGRST_PID=$WORK/pgrst.pid
 EOF
   echo "$WORK/stack.env"
 }

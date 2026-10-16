@@ -121,6 +121,22 @@ checks(level, check_id, ok, detail) as (
   select 'FAIL', 'Q02 시설·영업일 잠금 함수 (CLAUDE-011 후속)',
          to_regprocedure('private.lock_ticket_queue_day(text,date)') is not null, ''
   union all
+  select 'FAIL', 'Q04 전날 미정리 팀·창구 포인터 계약 함수 (R4: 시설 잠금·점유·포인터·기록된 주문)',
+         to_regprocedure('private.lock_ticket_queue_site(text)') is not null
+         and to_regprocedure('private.ticket_queue_sync_pointer(text,text,integer,timestamptz)') is not null
+         and to_regprocedure('private.ticket_queue_desk_occupant(text,integer,date,text)') is not null
+         and to_regprocedure('private.ticket_queue_pointer_stale(text,integer,text,date)') is not null
+         and to_regprocedure('private.ticket_queue_recorded_orders(text)') is not null
+         and to_regprocedure('private.ticket_queue_past_actions(text,jsonb)') is not null
+         and to_regprocedure('private.ticket_queue_past_rejection(text)') is not null,
+         'database/CONTRACT_ticket_queue_past_day.md'
+  union all
+  select 'FAIL', 'Q05 R4 내부 함수가 anon·authenticated 에 실행 권한 없음',
+         coalesce(not bool_or(has_function_privilege(r.r, f.oid, 'EXECUTE')), true),
+         coalesce(string_agg(distinct f.proname, ', ') filter (where has_function_privilege(r.r, f.oid, 'EXECUTE')), '')
+  from fns f cross join api_roles r
+  where f.nspname = 'private' and (f.proname like 'ticket_queue\_%' or f.proname = 'lock_ticket_queue_site')
+  union all
   select 'FAIL', 'Q03 창구 시드 2개 이상',
          (select count(*) from public.ticket_queue_desks) >= 2, ''
   union all
