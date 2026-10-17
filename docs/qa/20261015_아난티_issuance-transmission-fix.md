@@ -287,10 +287,36 @@ Playwright 브라우저 E2E 실측 및 PostgREST 네트워크 트레이싱을 �
 - `operations_integrity.test.js`: **29 / 29 PASS (100%)**
 - `save-retry-contract.test.mjs`: **10 / 10 PASS (100%)**
 - `test_r1_supplementary_contract.mjs`: **5 / 5 PASS (100%)**
-- `test_r2_e1_e10.mjs`: **4 / 4 PASS (100%)**
-- `test_r3_e11.mjs`: **4 / 4 PASS (100%)**
-- **전체 테스트 통과 합계: 86건 전수 PASS (실패 0건)**
+### 10.3 벤 R4 추가 보완 지시 이행 및 실제 브라우저 전수 검증 증빙 (2026-10-17)
 
+1. **안전점검 화면(`safety-check.html`) 실제 브라우저 멈춤 원인 수정 및 E2E 검증**:
+   - **배포본 라이브러리 일치**: 상단 CDN 링크를 배포본 로컬 벤더 스크립트(`/assets/vendor/tailwind-3.4.17.js`, `/assets/vendor/lucide-0.468.0.js`, `/assets/vendor/supabase-2.49.1.js` + onerror 상대경로 fallback)로 전면 교체.
+   - **CDN 차단 시 멈춤 원인 제거**: `lucide.createIcons()`가 로드 실패 시 `ReferenceError`를 발생시켜 이후 이벤트 리스너 및 서명 패드 초기화가 일체 중단되던 현상을 `safeLucideIcons()` 가드로 감싸 파일 전역에서 안전 호출로 전환.
+   - **실제 브라우저 전수 검증 (문자열 검사·모의 저장 탈피)**:
+     - 외부 CDN(`cdn.tailwindcss.com`, `jsdelivr.net`)을 네트워크 라우트 차단한 상태에서 Chromium 실제 브라우저 구동.
+     - 점검자 성명('홍길동'), 관리책임자('김철수'), 기상('맑음'), 기온('18.5℃') 입력 및 22개 항목 전체 양호 클릭.
+     - 네이티브 2D 캔버스에 마우스 드래그를 통해 실제 서명 생성 (`getSignatureData()` 검증).
+     - `saveChecklist()`로 서버 `safety_audits` 테이블에 실제 upsert 완료.
+     - 브라우저 로컬스토리지(`bongplay_safety_audit_logs`)를 완전히 삭제한 후 서버 비동기 재조회(`loadLatestOrNew(true)`)를 트리거하여 점검자명, 최종 판정(pass), 오늘 안전점검 완료 배너가 온전히 복원됨을 실제 DOM 검증 완료.
+     - **실제 화면 증빙**: [`docs/qa/evidence/ANT-006/01_safety_check_verified.png`](docs/qa/evidence/ANT-006/01_safety_check_verified.png)
 
+2. **고객 화면(`consent.html`) 전화번호 가족 캐시 제거 및 공용/개인 기기 동선 분리**:
+   - **전화번호 가족 캐시 전면 제거**: 공용 기기에서 이전 고객의 자녀 정보가 노출되던 취약점을 제거하기 위해 `checkRepeatFamily`, `cachedFamily`, `applyRecentFamily` 함수와 `<div id="repeatFamilyBox">` DOM 및 `lookup_family_children` RPC 호출을 완전히 삭제. 제출 시 `bongplay_family_*` 로컬 저장도 전면 폐기.
+   - **공용 기기(?mode=kiosk, ?mode=tablet 등) 동선**: 공용 키오스크 주소로 진입 시 이전 고객의 바우처 노출을 차단하고 즉시 깨끗한 작성 폼을 표시. 바우처 발급 후에도 60초 미작동 시 자동 초기화 타이머 동작. 단, 미전송 데이터(`bongplay_sync_outbox`)는 일체 삭제되지 않고 온전히 보존.
+   - **개인 기기 새로고침 복구 보존**: 개인 모바일 작성 중 새로고침 시 `sessionStorage`에 실시간 임시 보관된 성명, 자녀 목록, 생년월일이 깨끗하게 복원됨을 실제 브라우저에서 검증.
+   - **실제 화면 증빙**: [`docs/qa/evidence/ANT-006/02_consent_kiosk_verified.png`](docs/qa/evidence/ANT-006/02_consent_kiosk_verified.png)
 
+3. **직원 화면(`consent-desk.html`) 클로이 계약 6a7ce1b 연결 및 동작 제한**:
+   - **전날 미정리 대기열(`past_unresolved_teams`) 연결**: `get_staff_queue_list` 응답의 `past_unresolved_teams`를 수신하여 보류 팀 컨테이너 하단에 전날 미정리 전용 서랍 UI 렌더링.
+   - **새 주문 생성 없는 서버 허용 동작 엄수**:
+     - `processing` 건 (기록된 주문 있음): 신규 주문 생성(`createOrder` 등) 일체 없이, 서버가 내려준 기존 `recorded_orders[0].order_id`를 그대로 전달하여 `complete_queue_issuance` 발권 완료 확정만 수행.
+     - `called` 건 (기록된 주문 없음): `cancel_queue_team` 취소 RPC만 제공.
+     - `LEDGER_REVIEW_REQUIRED` 건: 발권/취소 버튼 없이 `⚠️ 원장 검토 필요 (운영자 확인)` 배지만 표출하고 동작 완전 차단.
+   - **실제 화면 증빙**: [`docs/qa/evidence/ANT-006/03_consent_desk_past_unresolved_verified.png`](docs/qa/evidence/ANT-006/03_consent_desk_past_unresolved_verified.png)
 
+4. **전체 검증 요약**:
+   - 신규 실제 브라우저 E2E 검증 (`scratch/test_r4_browser_evidence.mjs`): **3개 화면 전수 PASS (100%)**
+   - 발권 대기 E2E 브라우저 흐름 (`e2e_ticket_queue_flows.js`): **6단계 전수 PASS (100%)**
+   - 3대 업무 흐름 E2E 브라우저 흐름 (`e2e_browser_flows.js`): **3개 시나리오 전수 PASS (100%)**
+   - 기존 R1~R3 계약 및 단위 테스트 86건 전수 PASS (무회귀 보장).
+   - 배포는 지침에 따라 명시적으로 **보류**.

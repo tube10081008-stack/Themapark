@@ -340,6 +340,18 @@
         <div id="heldTeamsList" class="flex flex-wrap gap-2"></div>
       </div>
 
+      <!-- Past Unresolved Teams Drawer (클로이 계약 6a7ce1b) -->
+      <div id="pastUnresolvedContainer" class="hidden pt-2 border-t border-rose-900/40 mt-2">
+        <div class="flex items-center justify-between text-xs mb-2">
+          <span class="font-bold text-rose-400 flex items-center gap-1.5">
+            <i data-lucide="history" class="w-3.5 h-3.5"></i>
+            <span>전날 미정리 대기열 (<span id="pastUnresolvedCount">0</span>건)</span>
+          </span>
+          <span class="text-[11px] text-slate-400">서버가 허용한 동작만 실행 가능하며 새 주문은 생성되지 않습니다.</span>
+        </div>
+        <div id="pastUnresolvedList" class="flex flex-col gap-2"></div>
+      </div>
+
     </div>
 
     <!-- 2. Weekly Day Tabs Navigation -->
@@ -1145,6 +1157,56 @@
       }
     }
 
+    // 클로이 계약 6a7ce1b: 전날 미정리 대기열 조치 핸들러
+    async function handleCompletePastUnresolvedTeam(queueId, orderId, deskNo) {
+      if (!confirm(`전날 미정리 대기열 [${queueId}]을 기존 주문 [${orderId}]로 발권 확정하시겠습니까?\n(새 주문은 생성되지 않으며 기존 원장에 대기열이 연결됩니다)`)) return;
+      try {
+        const res = await BongplayQueue.completeIssuance(queueId, orderId, [], {
+          staffId: 'desk_staff_' + (deskNo || currentDeskNo)
+        });
+        if (isUnauthorizedStaff(res)) {
+          handleStaffAuthFailure(res.message);
+          return;
+        }
+        if (res && res.ok) {
+          alert('✅ 전날 미정리 건의 발권 확정이 완료되었습니다.');
+          await refreshDeskQueueView();
+        } else {
+          alert('발권 확정 실패: ' + (res?.message || res?.error || '알 수 없는 오류'));
+        }
+      } catch (e) {
+        if (isUnauthorizedStaff(e)) {
+          handleStaffAuthFailure(e && (e.message || String(e)));
+          return;
+        }
+        alert('발권 확정 통신 오류: ' + (e.message || String(e)));
+      }
+    }
+
+    async function handleCancelPastUnresolvedTeam(queueId) {
+      const reason = (prompt('전날 미정리 건의 취소 사유를 입력하세요 (예: 전날 미방문 고객)', '전날 미방문 취소') || '').trim();
+      if (!reason) return;
+      try {
+        const res = await BongplayQueue.cancelEntry(queueId, reason, 'desk_staff_' + currentDeskNo);
+        if (isUnauthorizedStaff(res)) {
+          handleStaffAuthFailure(res.message);
+          return;
+        }
+        if (res && res.ok) {
+          alert('❌ 전날 미정리 대기열이 정상 취소되었습니다.');
+          await refreshDeskQueueView();
+        } else {
+          alert('대기열 취소 실패: ' + (res?.message || res?.error || '알 수 없는 오류'));
+        }
+      } catch (e) {
+        if (isUnauthorizedStaff(e)) {
+          handleStaffAuthFailure(e && (e.message || String(e)));
+          return;
+        }
+        alert('대기열 취소 통신 오류: ' + (e.message || String(e)));
+      }
+    }
+
     let isRefreshingDeskQueue = false;
     let pendingDeskQueueRefresh = false;
 
@@ -1161,6 +1223,7 @@
         let waitingCount = null;
         let heldList = null;
         let calledTeams = null;
+        let pastUnresolvedList = null;
         let isSuccess = false;
 
         try {
@@ -1179,6 +1242,7 @@
           waitingCount = (data.waiting_count !== undefined) ? data.waiting_count : 0;
           heldList = data.held_teams || [];
           calledTeams = data.called_teams || [];
+          pastUnresolvedList = data.past_unresolved_teams || [];
         } else if (staffListRes && staffListRes.ok === false) {
           // 서버에서 명시적으로 오류(권한 부족, 네트워크 실패 등)를 반환한 경우 fallback 하지 않고 실패 확정
           isSuccess = false;
@@ -1187,14 +1251,30 @@
           const todayStr = BongplayQueue.getKstDateStr();
           let storeWaiting = 0;
           let storeHeld = [];
+          let storePastUnresolved = [];
           BongplayQueue.store.entries.forEach(it => {
             if (it.queue_date === todayStr) {
               if (it.status === BongplayQueue.STATUS.WAITING) storeWaiting++;
               if (it.status === BongplayQueue.STATUS.NO_SHOW) storeHeld.push(it);
+            } else if (it.queue_date < todayStr && (it.status === BongplayQueue.STATUS.CALLED || it.status === BongplayQueue.STATUS.PROCESSING)) {
+              storePastUnresolved.push({
+                id: it.id,
+                queue_date: it.queue_date,
+                queue_number: it.queue_number,
+                formatted_number: it.formatted_number || ('#' + it.queue_number),
+                status: it.status,
+                desk_no: it.desk_no,
+                guardian_name: it.guardian_name,
+                party_size: it.party_size,
+                recorded_orders: it.recorded_orders || [],
+                allowed_actions: it.allowed_actions || (it.status === BongplayQueue.STATUS.PROCESSING && it.recorded_orders?.length ? ['complete_queue_issuance'] : ['cancel_queue_team']),
+                blocked_reason: it.blocked_reason || null
+              });
             }
           });
           waitingCount = storeWaiting;
           heldList = storeHeld;
+          pastUnresolvedList = storePastUnresolved;
           calledTeams = BongplayQueue.store.entries.filter(it => it.queue_date === todayStr && (it.status === BongplayQueue.STATUS.CALLED || it.status === BongplayQueue.STATUS.PROCESSING));
           isSuccess = true;
           lastStaffQueueSuccessTime = BongplayQueue.getKstTimeStr();
@@ -1230,6 +1310,7 @@
           }
           heldList = lastKnownStaffQueueData.held_teams || [];
           calledTeams = lastKnownStaffQueueData.called_teams || [];
+          pastUnresolvedList = lastKnownStaffQueueData.past_unresolved_teams || [];
         } else {
           waitingCount = null;
         }
@@ -1323,6 +1404,75 @@
           `).join('');
         } else if (isSuccess) {
           heldDrawer.classList.add('hidden');
+        }
+      }
+
+      // Render Past Unresolved Teams Drawer (클로이 계약 6a7ce1b)
+      const pastDrawer = document.getElementById('pastUnresolvedContainer');
+      const pastCountEl = document.getElementById('pastUnresolvedCount');
+      const pastListEl = document.getElementById('pastUnresolvedList');
+      if (pastDrawer && pastCountEl && pastListEl) {
+        if (Array.isArray(pastUnresolvedList) && pastUnresolvedList.length > 0) {
+          pastDrawer.classList.remove('hidden');
+          pastCountEl.textContent = pastUnresolvedList.length;
+          pastListEl.innerHTML = pastUnresolvedList.map(team => {
+            const hasOrder = team.recorded_orders && team.recorded_orders.length > 0;
+            const primaryOrder = hasOrder ? team.recorded_orders[0] : null;
+            const orderDesc = primaryOrder
+              ? `기록 주문: <span class="font-mono text-emerald-400 font-bold">${escapeHtml(primaryOrder.order_id)}</span> (${Number(primaryOrder.paid_total || 0).toLocaleString()}원 / 활성티켓 ${primaryOrder.active_tickets || 0}매)`
+              : `<span class="text-slate-500">기록된 주문 없음</span>`;
+            
+            const actions = team.allowed_actions || [];
+            let actionHtml = '';
+
+            if (actions.includes('complete_queue_issuance') && primaryOrder) {
+              actionHtml += `
+                <button type="button" onclick="handleCompletePastUnresolvedTeam('${team.id}', '${primaryOrder.order_id}', ${team.desk_no || currentDeskNo})" class="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 active:scale-95 text-white font-black rounded-lg text-[11px] shadow transition flex items-center gap-1">
+                  <i data-lucide="check-circle" class="w-3 h-3"></i>
+                  <span>발권 완료 확정</span>
+                </button>
+              `;
+            }
+            if (actions.includes('cancel_queue_team')) {
+              actionHtml += `
+                <button type="button" onclick="handleCancelPastUnresolvedTeam('${team.id}')" class="px-2.5 py-1 bg-rose-900/80 hover:bg-rose-800 text-rose-200 border border-rose-700 font-bold rounded-lg text-[11px] transition flex items-center gap-1">
+                  <i data-lucide="x-circle" class="w-3 h-3"></i>
+                  <span>대기열 취소 ❌</span>
+                </button>
+              `;
+            }
+            if (team.blocked_reason) {
+              const reasonText = team.blocked_reason === 'LEDGER_REVIEW_REQUIRED' ? '원장 검토 필요' : team.blocked_reason;
+              actionHtml += `
+                <span class="px-2 py-0.5 rounded bg-rose-950/80 text-rose-300 border border-rose-800 text-[10px] font-bold flex items-center gap-1">
+                  <i data-lucide="shield-alert" class="w-3 h-3 text-rose-400"></i>
+                  <span>${reasonText}</span>
+                </span>
+              `;
+            }
+
+            return `
+              <div class="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div class="space-y-0.5">
+                  <div class="flex items-center gap-2">
+                    <span class="font-extrabold text-rose-400">${escapeHtml(team.formatted_number || ('#' + team.queue_number))}</span>
+                    <span class="px-1.5 py-0.2 rounded text-[10px] font-bold bg-slate-800 text-slate-300">${escapeHtml(team.queue_date || '전날')}</span>
+                    <span class="px-1.5 py-0.2 rounded text-[10px] font-bold ${team.status === 'processing' ? 'bg-blue-950 text-blue-300 border border-blue-800' : 'bg-amber-950 text-amber-300 border border-amber-800'}">${team.status === 'processing' ? '처리 중' : '호출됨'}</span>
+                    <span class="text-white font-bold">${escapeHtml(team.guardian_name || '고객')} (${team.party_size || 1}명)</span>
+                    <span class="text-slate-500 text-[11px]">${team.desk_no ? team.desk_no + '번 창구' : ''}</span>
+                  </div>
+                  <div class="text-[11px] text-slate-400 flex items-center gap-1.5">
+                    ${orderDesc}
+                  </div>
+                </div>
+                <div class="flex items-center gap-1.5 shrink-0">
+                  ${actionHtml}
+                </div>
+              </div>
+            `;
+          }).join('');
+        } else if (isSuccess) {
+          pastDrawer.classList.add('hidden');
         }
       }
 
