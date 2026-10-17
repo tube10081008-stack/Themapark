@@ -4,5 +4,6 @@ test_supabase_install/00_preflight.sql
 FINAL_SUPABASE_SETUP.sql
 PROPOSED_MIGRATION_safety_consents_cancellation.sql
 PROPOSED_MIGRATION_ticket_queue.sql
+PROPOSED_MIGRATION_lookup_family_children_revoke.sql
 test_supabase_install/40_test_staff_code.sql
 test_supabase_install/50_synthetic_seed.sql

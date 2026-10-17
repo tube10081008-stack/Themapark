@@ -196,6 +196,10 @@
 
 - 직원 변경 RPC 는 `p_site_id` 와 대기 행의 `site_id` 가 다르면 `not_found` 다. 아무것도 바꾸지 않는다.
 - 호출·직원 목록·창구 포인터는 `p_site_id` 범위 안에서만 동작한다.
+- 접수(`enqueue_consent_team`): 서약서의 `site_id` 가 있고 `p_site_id` 와 다르면 `CONSENT_SITE_MISMATCH` (재시도 불가)로 거부한다.
+  - 화면은 서약서의 `site_id` 를 그대로 `p_site_id` 로 보내므로, 정상 흐름에는 영향이 없다.
+  - 같은 서약서가 이미 그 시설에 접수돼 있으면 지금처럼 그 접수를 돌려준다 (중복 검사가 먼저).
+- 고객 조회(`get_customer_queue_status`)는 지금처럼 `p_site_id` 가 다르면 `INVALID_TOKEN` 이다.
 - 참고: 직원 인증(`private.verify_staff_permission`)은 운영자 암호 하나로 허용 시설 두 곳(`bongplay_bonghwa`, `gijang-main`)을 모두 통과시킨다.
   - 즉 시설 구분은 요청의 `p_site_id` 로만 한다. 직원별 시설 권한은 없다.
   - 이번 범위에서는 바꾸지 않는다 (보고서 결정 요청).

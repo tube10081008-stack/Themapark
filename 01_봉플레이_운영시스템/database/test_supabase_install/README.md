@@ -16,6 +16,7 @@ SQL Editor 에서 파일 하나씩 전체를 붙여넣고 **Run** 한다. 각 �
 | 2 | `FINAL_SUPABASE_SETUP.sql` (저장소 `database/`) | 기본 스키마 30개 표 전체 | ✅ |
 | 2b | `PROPOSED_MIGRATION_safety_consents_cancellation.sql` (저장소 `database/`) | 서약서 취소 3열(`status` 기본 `active`, `cancelled_at`, `cancel_reason`) + 부분 인덱스. 매표 화면이 서약서 저장에 이 열을 포함한다 (없으면 400 → 발권 상태 미전송) | ✅ (2026-10-15 벤 결정 R1) |
 | 3 | `PROPOSED_MIGRATION_ticket_queue.sql` (저장소 `database/`) | 대기열 표 3개, RPC 12개, 잠금·권한 이중화 | ✅ |
+| 3b | `PROPOSED_MIGRATION_lookup_family_children_revoke.sql` (저장소 `database/`) | `lookup_family_children`(전화번호만으로 보호자·자녀 정보 반환)의 PUBLIC·anon·authenticated 실행 권한 회수 (모든 오버로드) | ✅ (R4 보완) |
 | 4 | `test_supabase_install/40_test_staff_code.sql` | 시험 전용 운영자 암호 등록 | ✅ |
 | 5 | `test_supabase_install/50_synthetic_seed.sql` | 오늘(KST) 안전점검 PASS 1건, 합성 서약서 3건 | ✅ (시험하는 날마다) |
 | 6 | `test_supabase_install/60_verify.sql` | 구조·권한 점검 (읽기 전용) | ✅ |
@@ -42,6 +43,12 @@ SQL Editor 에서 파일 하나씩 전체를 붙여넣고 **Run** 한다. 각 �
 - 자동 취소·자동 완료는 없다. 직원 변경 RPC 는 시설 잠금 뒤 대상 행을 다시 읽는다.
 - 함수 서명·표·열은 바뀌지 않는다. 기존 설치 DB 에는 이 파일만 다시 실행하면 된다.
 
+**3b단계 lookup_family_children 차단 (R4 보완)**
+- FINAL 의 이 함수는 SECURITY DEFINER 다. 실행 권한을 회수하지 않아 익명 API 로 전화번호만 넣으면 보호자 이름·거주지·자녀(이름·생년월일·키·몸무게)가 돌아온다.
+- 3b 는 권한만 회수한다. 함수 본문·서명은 그대로이고, service_role·소유자는 계속 실행할 수 있다.
+- 영향: 손님 서약 화면의 "이전 방문 자녀 기록 불러오기" 서버 조회가 거부된다. 화면은 같은 단말 캐시만 쓴다.
+- FINAL 재실행(CREATE OR REPLACE)은 권한을 유지한다. 함수를 지우고 다시 만들었으면 3b 를 다시 실행한다.
+
 **3단계 대기열 SQL 의 권한 이중화**
 - Supabase 는 public 스키마에 새로 만든 표·함수에 `anon`·`authenticated` 권한을 기본으로 준다.
 - 대기열 SQL 끝의 5) 절이 대기열 표의 직접 권한과 내부 함수의 PUBLIC 실행 권한을 회수한다.
@@ -58,6 +65,7 @@ SQL Editor 에서 파일 하나씩 전체를 붙여넣고 **Run** 한다. 각 �
 - 결과 표에 `level = FAIL` 이면서 `ok = false` 인 행이 없어야 한다.
 - `WARN` 은 참고 항목이다 (pg_cron 없음, TRUNCATE 권한 — §3 참고).
 - `S02` 는 안전점검 수정 정책이 KST 날짜 기준인지 본다 (C2, FINAL 5-3).
+- `L01` 은 `lookup_family_children` 의 모든 오버로드가 PUBLIC·anon·authenticated 에 실행 권한이 없는지 본다 (3b).
 - `Q04`·`Q05` 는 전날 미정리 팀·창구 포인터 계약(R4, `database/CONTRACT_ticket_queue_past_day.md`)의 내부 함수가 있고 API 역할에 노출되지 않는지 본다.
 
 **순서 주의**
@@ -116,6 +124,8 @@ SUPABASE_URL=https://<시험 프로젝트>.supabase.co SUPABASE_ANON_KEY=<시험
 4. 재설치
 5. 90·91 초기화와 재설치
 6. 운영 보호
+7. 서약서 취소 3열 호환 (H)
+8. 운영 중 DB 에 lookup_family_children 차단 적용 (I: 적용 전 노출 재현 → 2회 적용 → FINAL 재실행 후 유지)
 
 시험 하네스(`ant006-conformance`)의 느슨한 설정은 쓰지 않는다. 설치 실행자는 Supabase 와 같이 비슈퍼유저 `postgres` 다.
 

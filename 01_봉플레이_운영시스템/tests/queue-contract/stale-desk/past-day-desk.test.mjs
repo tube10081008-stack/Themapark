@@ -23,6 +23,7 @@ const skip = !env ? 'E2E_ENV 미지정 — desk_e2e_stack.sh start 후 stack.env
   : !['127.0.0.1', 'localhost'].includes(new URL(env.E2E_PG_URL).hostname) ? '로컬이 아닌 DB 는 거부' : false;
 const faketimeFile = env && env.E2E_FAKETIME_FILE ? env.E2E_FAKETIME_FILE : null;
 const SITE = 'bongplay_bonghwa';
+const SITE_B = 'gijang-main';   // verify_staff_permission 이 허용하는 두 번째 시설 (합성 시험용)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** 프로미스가 ms 안에 끝나지 않으면 true (= 잠금을 기다리는 중) */
@@ -44,7 +45,8 @@ async function api(ip = '203.0.113.20') {
         [JSON.stringify({ role: 'anon' }), JSON.stringify({ 'x-forwarded-for': ip })]);
     },
     async call(fn, args = {}) {
-      if (fn !== 'enqueue_consent_team' && !('p_access_code' in args)) args = { p_access_code: env.E2E_STAFF_CODE, ...args };
+      const isPublic = ['enqueue_consent_team', 'get_customer_queue_status', 'get_queue_public_display'].includes(fn);
+      if (!isPublic && !('p_access_code' in args)) args = { p_access_code: env.E2E_STAFF_CODE, ...args };
       const keys = Object.keys(args);
       const sql = `select public.${fn}(${keys.map((k, i) => `${k} => $${i + 1}`).join(', ')}) as r`;
       const vals = keys.map((k) => (args[k] !== null && typeof args[k] === 'object' ? JSON.stringify(args[k]) : args[k]));
@@ -64,11 +66,15 @@ async function api(ip = '203.0.113.20') {
 }
 
 /** 관리자 연결로 시나리오 초기화: 대기열·원장·서약서 비움, 창구 포인터·정지 해제, 오늘(서버 KST) PASS 점검 */
-async function reset(c, { desks = [1, 2] } = {}) {
+async function reset(c, { desks = [1, 2], otherSiteDesks = [] } = {}) {
   await c.query(`truncate public.ticket_queue, public.ticket_queue_rate_limits, public.order_items, public.order_payments, public.ticket_ledger, public.safety_consents, public.safety_audits`);
-  await c.query(`delete from public.ticket_queue_desks where site_id = $1 and desk_no <> all($2::int[])`, [SITE, desks]);
+  await c.query(`delete from public.ticket_queue_desks where (site_id = $1 and desk_no <> all($2::int[])) or (site_id = $3 and desk_no <> all($4::int[])) or site_id not in ($1, $3)`,
+    [SITE, desks, SITE_B, otherSiteDesks]);
   for (const d of desks) {
     await c.query(`insert into public.ticket_queue_desks (site_id, desk_no) values ($1, $2) on conflict (site_id, desk_no) do nothing`, [SITE, d]);
+  }
+  for (const d of otherSiteDesks) {
+    await c.query(`insert into public.ticket_queue_desks (site_id, desk_no) values ($1, $2) on conflict (site_id, desk_no) do nothing`, [SITE_B, d]);
   }
   await c.query(`update public.ticket_queue_desks set current_queue_id = null, is_paused = false`);
   await c.query(`delete from private.auth_attempts`);
@@ -81,29 +87,29 @@ async function passAudit(c) {
     on conflict (id) do nothing`, [SITE]);
 }
 let seq = 0;
-async function consent(c, label) {
+async function consent(c, label, site = SITE) {
   const id = `SYN-CST-R4-${Date.now().toString(36)}-${++seq}-${label}`;
   await c.query(`insert into public.safety_consents (id, site_id, visit_id, pass_code, arrival_at, created_date, guardian_name, guardian_phone,
       residence, children, party_size, child_count, adult_count, is_issued)
     values ($1, $2, $3, 'SYN-PASS', now(), (now() at time zone 'Asia/Seoul')::date, $4, '010-0000-0000', '관외',
-      '[{"name":"SYN 아동","birth":"2019-05-12","height":115,"weight":21}]'::jsonb, 2, 1, 1, false)`, [id, SITE, 'SYN-VST-' + id, 'SYN 보호자 ' + label]);
+      '[{"name":"SYN 아동","birth":"2019-05-12","height":115,"weight":21}]'::jsonb, 2, 1, 1, false)`, [id, site, 'SYN-VST-' + id, 'SYN 보호자 ' + label]);
   return id;
 }
-async function enqueue(s, cid) {
-  const r = await s.rpc('enqueue_consent_team', { p_consent_id: cid, p_idempotency_key: 'SYN-KEY-' + cid, p_party_size: 2, p_guardian_name: 'SYN', p_guardian_phone: '010-0000-0000', p_site_id: SITE });
+async function enqueue(s, cid, site = SITE) {
+  const r = await s.rpc('enqueue_consent_team', { p_consent_id: cid, p_idempotency_key: 'SYN-KEY-' + cid, p_party_size: 2, p_guardian_name: 'SYN', p_guardian_phone: '010-0000-0000', p_site_id: site });
   assert.equal(r.ok, true, '준비 접수 실패 ' + JSON.stringify(r));
   return r.id;
 }
 /** 결제·티켓 원장 (화면 createOrder 와 같은 소속·수량 구조). 관리자 연결로 직접 쓴다 */
-async function ledger(c, cid, orderId, { qty = 2, price = 15000 } = {}) {
-  await c.query(`insert into public.order_items (item_id, order_id, product_id, product_name, product_category, unit_price, quantity, list_price, paid_amount, consent_id, status, site_id, purchased_at)
+async function ledger(c, cid, orderId, { qty = 2, price = 15000, items = true, pay = true, tickets: withTickets = true } = {}) {
+  if (items) await c.query(`insert into public.order_items (item_id, order_id, product_id, product_name, product_category, unit_price, quantity, list_price, paid_amount, consent_id, status, site_id, purchased_at)
     values ($1, $2, 'tkt_basic', 'SYN 기본권', 'ticket', $3::bigint, $4::int, $3::bigint * $4::int, $3::bigint * $4::int, $5, 'paid', $6, now())`, [orderId + '-I1', orderId, price, qty, cid, SITE]);
-  await c.query(`insert into public.order_payments (id, order_id, site_id, consent_id, method, amount, status) values ($1, $2, $3, $4, 'cash', $5, 'paid')`,
+  if (pay) await c.query(`insert into public.order_payments (id, order_id, site_id, consent_id, method, amount, status) values ($1, $2, $3, $4, 'cash', $5, 'paid')`,
     [orderId + '-P1', orderId, SITE, cid, price * qty]);
   const tickets = [];
   for (let i = 1; i <= qty; i++) {
     tickets.push(`${orderId}-T${i}`);
-    await c.query(`insert into public.ticket_ledger (ticket_id, site_id, order_id, consent_id, status, product_id, price_paid) values ($1, $2, $3, $4, 'active', 'tkt_basic', $5)`,
+    if (withTickets) await c.query(`insert into public.ticket_ledger (ticket_id, site_id, order_id, consent_id, status, product_id, price_paid) values ($1, $2, $3, $4, 'active', 'tkt_basic', $5)`,
       [`${orderId}-T${i}`, SITE, orderId, cid, price]);
   }
   return tickets;
@@ -475,7 +481,9 @@ test('S1 stress: 8 connections × 40 rounds of mixed staff actions (call, move, 
       const cid = await consent(c, 'S' + i);
       const qid = await enqueue(s, cid);
       const order = `SYN-ORD-R4-S${i}-${Date.now().toString(36)}`;
-      teams.push({ cid, qid, order, tickets: await ledger(c, cid, order) });
+      // 절반만 원장을 둔다: 원장 있는 팀은 완료 대상, 없는 팀은 취소 대상 (R4 보완: 원장 있는 팀은 취소가 ORDER_RECORDED)
+      const withLedger = i % 2 === 0;
+      teams.push({ cid, qid, order, withLedger, tickets: withLedger ? await ledger(c, cid, order) : [] });
     }
     const pastBefore = await row(c, qa);
     const ledgerBefore = ledgerOnly(await snapshot(c));
@@ -500,8 +508,9 @@ test('S1 stress: 8 connections × 40 rounds of mixed staff actions (call, move, 
           () => ['recall_queue_team', { p_queue_id: pick(active), p_desk_no: desk }],
           () => ['hold_queue_team', { p_queue_id: pick(active) }],
           () => ['restore_queue_team', { p_queue_id: pick(by('no_show')) }],
-          () => ['cancel_queue_team', { p_queue_id: pick(by('waiting', 'called', 'no_show')) }],
-          () => { const t = teams.find((x) => x.qid === pick(by('processing'))) || teams[0]; return ['complete_queue_issuance', { p_queue_id: t.qid, p_order_id: t.order, p_ticket_ids: t.tickets }]; },
+          () => ['cancel_queue_team', { p_queue_id: pick(rand(4) ? by('waiting', 'called', 'no_show').filter((id) => !teams.find((x) => x.qid === id)?.withLedger) : by('processing')) }],
+          () => { const ids = by('processing').filter((id) => teams.find((x) => x.qid === id)?.withLedger);
+            const t = teams.find((x) => x.qid === pick(ids)) || teams[0]; return ['complete_queue_issuance', { p_queue_id: t.qid, p_order_id: t.order, p_ticket_ids: t.tickets }]; },
           () => ['get_staff_queue_list', {}]
         ][k]();
         return conn.rpc(op[0], op[1]).then((r) => {
@@ -518,6 +527,10 @@ test('S1 stress: 8 connections × 40 rounds of mixed staff actions (call, move, 
       }
     }
     console.log(`# S1 관찰: ${JSON.stringify(counts)}`);
+    // 원장 있는 팀이 취소된 적이 없어야 한다 (ORDER_RECORDED)
+    const cancelledWithLedger = (await c.query(`select id from public.ticket_queue where status = 'canceled' and id = any($1::text[])`,
+      [teams.filter((t) => t.withLedger).map((t) => t.qid)])).rows;
+    assert.deepEqual(cancelledWithLedger, [], '원장이 있는 팀이 대기열만 취소됨');
     const missing = ['call_next_queue_team', 'start_queue_processing', 'recall_queue_team', 'hold_queue_team', 'restore_queue_team', 'cancel_queue_team', 'complete_queue_issuance']
       .filter((f) => !counts[f + ':ok']);
     assert.deepEqual(missing, [], '경합 시험이 이 동작을 한 번도 성공시키지 못함 (시험 장치 점검 필요)');
@@ -559,4 +572,165 @@ test('M1 real midnight (server clock under libfaketime): a team left processing 
     assert.deepEqual(await pointers(c), { 1: qb, 2: null });
     console.log(`# M1 관찰: 서버 KST ${k0.t} → ${k1.t}, 전날 팀 ${qa} 과거 미정리로 표시 → 새날 첫 호출 ${called.formatted_number} 성공 → 전날 팀 같은 주문 ${oid} 로 완료`);
   });
+});
+
+/** 원장 환불(취소): 품목·결제·티켓을 모두 취소 상태로 (화면 환불 흐름과 같은 결과) */
+async function refund(c, orderId) {
+  await c.query(`update public.order_items set status = 'cancelled', cancelled_at = now() where order_id = $1`, [orderId]);
+  await c.query(`update public.order_payments set status = 'cancelled', cancelled_at = now() where order_id = $1`, [orderId]);
+  await c.query(`update public.ticket_ledger set status = 'cancelled', cancelled_at = now() where order_id = $1`, [orderId]);
+}
+
+/** 오늘 처리 중 팀 하나 (원장은 opts 대로) */
+async function todayProcessing({ c, open }, label, ledgerOpts) {
+  const s = await open();
+  const cid = await consent(c, label);
+  const qid = await enqueue(s, cid);
+  const called = await s.rpc('call_next_queue_team', { p_desk_no: 1 });
+  assert.equal(called.id, qid, '준비: 호출 ' + JSON.stringify(called));
+  assert.equal((await s.rpc('start_queue_processing', { p_queue_id: qid })).ok, true);
+  const order = `SYN-ORD-R4B-${label}-${Date.now().toString(36)}`;
+  const tickets = ledgerOpts ? await ledger(c, cid, order, ledgerOpts) : [];
+  return { s, cid, qid, order, tickets };
+}
+
+const PARTIAL = [
+  ['full', { items: true, pay: true, tickets: true }],
+  ['items-only', { items: true, pay: false, tickets: false }],
+  ['payment-only', { items: false, pay: true, tickets: false }],
+  ['tickets-only', { items: false, pay: false, tickets: true }],
+  ['items+payment, no tickets', { items: true, pay: true, tickets: false }]
+];
+
+test('P6c TODAY: a team with a recorded order (full or partial ledger) cannot be cancelled alone — ORDER_RECORDED; completion refuses a partial ledger; nothing changes', { skip }, async () => {
+  const seen = [];
+  for (const [label, opts] of PARTIAL) {
+    await withScenario(async (ctx) => {
+      const { c } = ctx;
+      const { s, qid, order, tickets } = await todayProcessing(ctx, label.replace(/\W+/g, ''), opts);
+      const before = await snapshot(c);
+      const cancel = await s.rpc('cancel_queue_team', { p_queue_id: qid, p_reason: 'SYN 오늘 취소 시도' });
+      assert.equal(cancel.ok, false, `${label}: 원장이 있는 오늘 팀이 대기열만 취소됨 ${JSON.stringify(cancel)}`);
+      assert.equal(cancel.error, 'ORDER_RECORDED', `${label}: ${JSON.stringify(cancel)}`);
+      assert.deepEqual(cancel.recorded_orders.map((o) => o.order_id), [order], label);
+      const done = await s.rpc('complete_queue_issuance', { p_queue_id: qid, p_order_id: order, p_ticket_ids: tickets });
+      if (label === 'full') assert.equal(done.ok, true, `${label}: ${JSON.stringify(done)}`);
+      else {
+        assert.equal(done.ok, false, `${label}: 일부 원장으로 완료됨 ${JSON.stringify(done)}`);
+        assert.deepEqual(await snapshot(c), before, `${label}: 거부했는데 표가 바뀜`);
+      }
+      seen.push(`${label}: 취소 ${cancel.error}, 완료 ${done.ok ? 'ok' : done.error}, 기록 ${JSON.stringify(cancel.recorded_orders[0]).replace(/"order_id":"[^"]+",/, '')}`);
+    });
+  }
+  console.log(`# P6c 관찰: ${seen.join(' | ')}`);
+});
+
+test('P6d PAST: partial ledgers are listed as recorded orders, block cancel (ORDER_RECORDED) and block completion; after a full refund the team can be cancelled', { skip }, async () => {
+  const seen = [];
+  for (const [label, opts] of PARTIAL.slice(1)) {
+    await withScenario(async (ctx) => {
+      const { c } = ctx;
+      const { s, qid, order, tickets } = await todayProcessing(ctx, label.replace(/\W+/g, ''), opts);
+      await toYesterday(c, [qid]);
+      const list = await s.rpc('get_staff_queue_list', {});
+      const p = list.past_unresolved_teams.find((t) => t.id === qid);
+      assert.ok(p, `${label}: 과거 미정리 목록에 없음`);
+      assert.deepEqual(p.recorded_orders.map((o) => o.order_id), [order], `${label}: 일부 원장이 기록된 주문으로 보고되지 않음`);
+      assert.deepEqual(p.allowed_actions, ['complete_queue_issuance'], label);
+      const cancel = await s.rpc('cancel_queue_team', { p_queue_id: qid });
+      assert.equal(cancel.error, 'ORDER_RECORDED', `${label}: ${JSON.stringify(cancel)}`);
+      const done = await s.rpc('complete_queue_issuance', { p_queue_id: qid, p_order_id: order, p_ticket_ids: tickets });
+      assert.equal(done.ok, false, `${label}: 일부 원장으로 완료됨 ${JSON.stringify(done)}`);
+      await refund(c, order);
+      const after = (await s.rpc('get_staff_queue_list', {})).past_unresolved_teams.find((t) => t.id === qid);
+      assert.deepEqual([after.recorded_orders, after.allowed_actions], [[], ['cancel_queue_team']], `${label}: 환불 뒤 상태`);
+      const cancel2 = await s.rpc('cancel_queue_team', { p_queue_id: qid, p_reason: 'SYN 환불 뒤 정리' });
+      assert.equal(cancel2.ok, true, `${label}: 환불 뒤 취소 ${JSON.stringify(cancel2)}`);
+      seen.push(`${label}: 목록 ${JSON.stringify(p.recorded_orders[0]).replace(/"order_id":"[^"]+",/, '')}, 완료 ${done.error}, 환불 뒤 취소 ok`);
+    });
+  }
+  console.log(`# P6d 관찰: ${seen.join(' | ')}`);
+});
+
+test('P6e TODAY: after the order is fully refunded the team can be cancelled (no recorded order left)', { skip }, async () => {
+  await withScenario(async (ctx) => {
+    const { c } = ctx;
+    const { s, qid, order } = await todayProcessing(ctx, 'REFUND', { items: true, pay: true, tickets: true });
+    assert.equal((await s.rpc('cancel_queue_team', { p_queue_id: qid })).error, 'ORDER_RECORDED');
+    await refund(c, order);
+    const r = await s.rpc('cancel_queue_team', { p_queue_id: qid, p_reason: 'SYN 환불 뒤 취소' });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.past_queue_date, false);
+    assert.deepEqual(await invariants(c), []);
+  });
+});
+
+test('X1 another site cannot touch this site\'s queue: every staff RPC with the other p_site_id is not_found / empty and changes nothing; desks and lists are per site', { skip }, async () => {
+  await withScenario(async ({ c, open }) => {
+    const s = await open();
+    const ca = await consent(c, 'SITEA');
+    const qa = await enqueue(s, ca);
+    const cb = await consent(c, 'SITEA2');
+    const qb = await enqueue(s, cb);
+    assert.equal((await s.rpc('call_next_queue_team', { p_desk_no: 1 })).id, qa);
+    assert.equal((await s.rpc('start_queue_processing', { p_queue_id: qa })).ok, true);
+    const order = 'SYN-ORD-R4B-SITE-' + Date.now().toString(36);
+    const tickets = await ledger(c, ca, order);
+    const before = await snapshot(c);
+    const B = { p_site_id: SITE_B };
+    const res = {
+      call_next: await s.rpc('call_next_queue_team', { p_desk_no: 1, ...B }),
+      recall: await s.rpc('recall_queue_team', { p_queue_id: qa, p_desk_no: 1, ...B }),
+      start: await s.rpc('start_queue_processing', { p_queue_id: qb, ...B }),
+      hold: await s.rpc('hold_queue_team', { p_queue_id: qa, ...B }),
+      restore: await s.rpc('restore_queue_team', { p_queue_id: qa, ...B }),
+      cancel: await s.rpc('cancel_queue_team', { p_queue_id: qb, ...B }),
+      complete: await s.rpc('complete_queue_issuance', { p_queue_id: qa, p_order_id: order, p_ticket_ids: tickets, ...B }),
+      pause: await s.rpc('set_desk_pause_status', { p_desk_no: 1, p_is_paused: true, ...B })
+    };
+    const expect = { call_next: 'empty_queue', recall: 'not_found', start: 'not_found', hold: 'not_found', restore: 'not_found', cancel: 'not_found', complete: 'not_found' };
+    for (const [k, e] of Object.entries(expect)) assert.equal(res[k].error, e, `${k}: 다른 시설 요청이 이 시설 행에 닿음 ${JSON.stringify(res[k])}`);
+    const list = await s.rpc('get_staff_queue_list', B);
+    assert.equal(list.ok, true);
+    const ids = JSON.stringify([list.waiting_teams, list.called_teams, list.held_teams, list.past_unresolved_teams]);
+    assert.ok(!ids.includes(qa) && !ids.includes(qb), `다른 시설 목록에 이 시설 팀이 보임 ${ids}`);
+    assert.deepEqual(list.desks.map((d) => d.desk_no), [1, 2], '다른 시설 창구 목록');
+    // 다른 시설 창구 1번 정지는 다른 시설 창구에만 적용 (이 시설 1번 창구는 그대로)
+    assert.equal(res.pause.ok, true);
+    const after = await snapshot(c);
+    assert.deepEqual(
+      { q: after.ticket_queue, l: ledgerOnly(after) },
+      { q: before.ticket_queue, l: ledgerOnly(before) }, '다른 시설 요청이 이 시설 대기열·원장을 바꿈');
+    const deskA = (await c.query(`select is_paused, current_queue_id from public.ticket_queue_desks where site_id = $1 and desk_no = 1`, [SITE])).rows[0];
+    assert.deepEqual(deskA, { is_paused: false, current_queue_id: qa }, '이 시설 1번 창구가 바뀜');
+    // 같은 순간 두 시설 1번 창구는 각자 호출된다
+    const cB = await consent(c, 'SITEB', SITE_B);
+    const qB = await enqueue(s, cB, SITE_B);
+    await s.rpc('set_desk_pause_status', { p_desk_no: 1, p_is_paused: false, ...B });
+    const callB = await s.rpc('call_next_queue_team', { p_desk_no: 1, ...B });
+    assert.equal(callB.id, qB, JSON.stringify(callB));
+    assert.deepEqual(await invariants(c), []);
+    // 고객 조회도 시설 범위
+    const tok = (await c.query(`select customer_token from public.ticket_queue where id = $1`, [qa])).rows[0].customer_token;
+    const cust = await s.rpc('get_customer_queue_status', { p_customer_token: tok, ...B });
+    assert.equal(cust.error, 'INVALID_TOKEN', JSON.stringify(cust));
+    // 허용 목록 밖 시설은 직원 인증부터 거부
+    const unk = await s.rpc('get_staff_queue_list', { p_site_id: 'SYN-UNKNOWN-SITE' });
+    assert.equal(unk.error, 'UNAUTHORIZED_STAFF');
+    console.log(`# X1 관찰: 다른 시설 요청 ${Object.entries(res).map(([k, r]) => k + '=' + (r.ok ? 'ok' : r.error)).join(', ')}; 고객 조회 ${cust.error}; 미등록 시설 ${unk.error}`);
+  }, { otherSiteDesks: [1, 2] });
+});
+
+test('X2 a consent of one site cannot be enqueued into another site\'s queue (CONSENT_SITE_MISMATCH); the same consent at its own site still works', { skip }, async () => {
+  await withScenario(async ({ c, open }) => {
+    const s = await open();
+    const cid = await consent(c, 'XSITE');
+    const r = await s.rpc('enqueue_consent_team', { p_consent_id: cid, p_idempotency_key: 'SYN-KEY-X-' + cid, p_party_size: 2, p_guardian_name: 'SYN', p_guardian_phone: '010-0000-0000', p_site_id: SITE_B });
+    assert.equal(r.ok, false, `다른 시설 서약서로 접수됨 ${JSON.stringify(r)}`);
+    assert.equal(r.error, 'CONSENT_SITE_MISMATCH');
+    assert.equal(r.retryable, false);
+    assert.equal((await c.query(`select count(*)::int n from public.ticket_queue`)).rows[0].n, 0);
+    const ok = await enqueue(s, cid);
+    assert.ok(ok);
+  }, { otherSiteDesks: [1] });
 });

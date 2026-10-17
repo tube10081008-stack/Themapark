@@ -18,7 +18,7 @@ HTTP 시험(H01~H07)이 통과해도 화면 발권이 정상이라는 뜻은 아
 |---|---|
 | `desk_e2e_stack.sh` | 일회용 PostgreSQL → Supabase 플랫폼 모사 → 설치 묶음 → PostgREST. `EXTRA_SQL` 로 변경안 SQL 을 덧붙여 효과를 비교할 수 있다 (설치 묶음 자체는 바꾸지 않음) |
 | `harness.mjs` | 정적 파일 + `config.template.js`(접속값만 치환) + `/rest/v1` → PostgREST 전달 프록시 (장애 주입·요청 기록), 관리자 DB 연결로 결과 확인 |
-| `desk-issuance.test.mjs` | E0~E13 (아래 표) |
+| `desk-issuance.test.mjs` | E0~E14, K1~K3 (아래 표) |
 
 | 시험 | 확인 내용 |
 |---|---|
@@ -40,6 +40,10 @@ HTTP 시험(H01~H07)이 통과해도 화면 발권이 정상이라는 뜻은 아
 | E13b | 판매 중 실제 API 서버(PostgREST 프로세스) 정지 → 재기동 뒤 재시도: 주문 1·결제 1 |
 | E13c | 완료 RPC 를 서버가 커밋한 뒤 TCP 연결 끊김(응답 없음): 중복 없이 복구 (브라우저 자동 재전송 포함) |
 | E13d | 주문 품목 저장을 서버가 커밋한 뒤 TCP 연결 끊김: 중복 행 없이 복구 |
+| E14 | **비KST 단말**(지금 날짜가 KST 와 다른 시간대)의 매표 화면: 서버에 KST 오늘 PASS 가 있으면 호출·발권이 1건 완료되어야 함 |
+| K1 | 안전점검 화면(`safety-check.html`) 저장 → 서버 행(KST 날짜·판정·항목·서명) → **새 단말** 재조회(판정·점검자·항목·서명·점검 일시) → 다른 단말 매표가 그 점검으로 발권 |
+| K2 | 비KST 단말에서 안전점검 저장: 서버 점검일이 KST 영업일이어야 하고, KST 매표 단말이 그 점검으로 판매할 수 있어야 함 |
+| K3 | 서버에 오늘 PASS(08:00 KST 점검)가 있을 때 새 KST 단말의 안전점검 화면이 오늘 점검으로 불러와야 함 |
 
 목록에서 고르는 경우(E5·E8·E9·E9b)는 직원이 누르는 [발권] 버튼과 같은 `toggleTicketIssue(id, true)` 로 결제 창을 연다.
 
@@ -50,7 +54,7 @@ HTTP 시험(H01~H07)이 통과해도 화면 발권이 정상이라는 뜻은 아
 - `drop`: 서버에 보내지 않고 연결을 끊는다 (응답 없음).
 - `reset`: 서버가 처리(커밋)한 뒤 응답 대신 연결을 끊는다 (실제 TCP 끊김).
 
-**단말 시간대**: 화면은 오늘 날짜를 단말 시간대로 계산한다(`BongplaySync.toLocalDateStr`). 현장 단말과 같게 시험 브라우저를 `Asia/Seoul` 로 둔다. 컨테이너 기본 UTC 로 두면 KST 00:00~09:00 에 화면의 '오늘'이 전날이 되어 서버 PASS 점검을 찾지 못한다.
+**단말 시간대**: 화면은 오늘 날짜를 단말 시간대로 계산한다(`BongplaySync.toLocalDateStr`). 기본 시험은 현장 단말과 같게 `Asia/Seoul` 로 둔다. E14·K2 는 `nonKstZoneWithOtherDate()` 로 지금 KST 와 날짜가 다른 시간대(UTC-11 또는 UTC+14)를 골라 비KST 단말을 시험한다.
 
 **실제 자정 통과**: `FAKETIME_AT='<UTC 시각>'` 을 붙여 start 하면 PostgreSQL 서버 시계가 libfaketime 을 따른다. `stale-desk/` 의 M1 이 이 스택을 쓴다 (화면 E2E 에는 쓰지 않음).
 

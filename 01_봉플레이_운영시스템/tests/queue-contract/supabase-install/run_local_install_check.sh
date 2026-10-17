@@ -12,6 +12,7 @@
 #   G. 운영 보호: 합성 아닌 서약서가 있는 DB 에서 00 거부, 설치 표시 없는 DB 에서 40·50·90·91 거부
 #   H. 서약서 취소 3열(C1): 3열 없이 운영되던 DB(기존 행 포함)에 두 번 적용 → 기존 열 값 불변·기본값·인덱스 1개·
 #      기존 보안 RPC 반환·anon 당일 취소 기록과 null 해제 허용·과거 행 수정 거부 (cancel_columns_compat.sql)
+#   I. lookup_family_children 익명 실행 차단(R4 보완): H 의 운영 중 DB 모사에서 적용 전 노출 확인 → 2회 적용 → FINAL 재실행 후 유지 → 60_verify
 #
 # 필요: root(클러스터를 postgres OS 사용자로 띄움), PostgreSQL 16 바이너리, PostgREST 바이너리, node 22
 # 사용: PGRST_BIN=<postgrest 경로> [PG_BIN=/usr/lib/postgresql/16/bin] [WORK=/var/lib/postgresql/c011-install] \
@@ -157,7 +158,22 @@ if psql_as postgres bp_compat -v code="$TEST_CODE" -v cancel_sql="$CANCEL_SQL" -
 else
   bad "취소 3열 호환 점검 실패"; tail -8 "$TMP/h.txt" | sed 's/^/      /'
 fi
-DB_SAVE="$DB"; DB=bp_compat; verify "호환 점검 DB"; DB="$DB_SAVE"
+
+step "I. lookup_family_children 익명 실행 차단 (R4 보완): 운영 중 DB 에 적용 전 노출 → 2회 적용 → FINAL 재실행 후 유지"
+LOOKUP_SQL="$DB_DIR/PROPOSED_MIGRATION_lookup_family_children_revoke.sql"
+lookup_open() {   # PUBLIC·anon·authenticated 중 하나라도 실행 가능하면 t
+  psql_as postgres bp_compat -Atc "select coalesce(bool_or(has_function_privilege('anon', p.oid, 'EXECUTE') or has_function_privilege('authenticated', p.oid, 'EXECUTE')
+    or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where a.grantee = 0 and a.privilege_type = 'EXECUTE')), false)
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'lookup_family_children'"
+}
+[ "$(lookup_open)" = "t" ] && ok "적용 전(운영 중 DB 모사): 익명 실행 가능 — 노출 재현" || bad "적용 전 노출이 재현되지 않음 (시험 전제 점검)"
+for i in 1 2; do
+  psql_as postgres bp_compat -f "$LOOKUP_SQL" > "$TMP/i.log" 2>&1 || { bad "차단 마이그레이션 적용 실패 ($i 회)"; tail -3 "$TMP/i.log"; }
+done
+[ "$(lookup_open)" = "f" ] && ok "2회 적용 후 PUBLIC·anon·authenticated 실행 권한 없음" || bad "적용 후에도 익명 실행 가능"
+psql_as postgres bp_compat -f "$DB_DIR/FINAL_SUPABASE_SETUP.sql" > "$TMP/i2.log" 2>&1 || bad "FINAL 재실행 실패"
+[ "$(lookup_open)" = "f" ] && ok "FINAL 재실행(CREATE OR REPLACE) 뒤에도 차단 유지" || bad "FINAL 재실행 뒤 익명 실행 권한이 되살아남"
+DB_SAVE="$DB"; DB=bp_compat; verify "호환 점검 DB (차단 적용 후)"; DB="$DB_SAVE"
 
 step "결과"
 if [ "$FAILS" -eq 0 ]; then echo "전체 통과"; else echo "실패 ${FAILS}건"; fi

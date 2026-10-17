@@ -173,16 +173,17 @@ const CDN_STUBS = [
 ];
 
 /**
- * 매표 화면을 연다. 직원 로그인은 config.js 의 실제 인증 창에 시험 암호를 입력해 서버(verify_staff_access)로 검증받는다.
+ * 운영 화면 하나를 새 단말(새 브라우저 컨텍스트, 빈 localStorage)로 연다.
+ * 직원 로그인은 config.js 의 실제 인증 창에 시험 암호를 넣어 서버(verify_staff_access)로 검증받는다.
+ * timezoneId: 단말 시간대 (기본 Asia/Seoul — 현장 단말). 화면은 오늘 날짜를 단말 시간대로 계산한다(BongplaySync.toLocalDateStr).
+ *   컨테이너 기본 UTC 로 두면 KST 00:00~09:00 에 화면의 '오늘'이 전날이 되므로, 기본 시험은 KST 로 맞추고 비KST 단말은 따로 시험한다.
  * localPassAudit: 이 단말 localStorage 에만 오늘 PASS 점검 기록이 있는 상태를 만든다 (서버와 무관).
  */
-export async function openDesk(proxy, { localPassAudit = false } = {}) {
+export async function openPage(proxy, pagePath, { localPassAudit = false, timezoneId = 'Asia/Seoul', waitReady } = {}) {
   const env = loadEnv();
   const pw = await playwright();
   const browser = await pw.chromium.launch({ headless: true });
-  // 현장 단말은 KST 시간대다. 화면은 오늘 날짜를 단말 시간대로 계산하므로(BongplaySync.toLocalDateStr) 시험 브라우저도 KST 로 맞춘다
-  // (컨테이너 기본 UTC 로 두면 KST 00:00~09:00 사이에 화면의 '오늘'이 전날이 되어 서버 PASS 점검을 찾지 못한다).
-  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, timezoneId: 'Asia/Seoul' });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, timezoneId });
   if (localPassAudit) {
     await context.addInitScript((today) => {
       try {
@@ -208,7 +209,7 @@ export async function openDesk(proxy, { localPassAudit = false } = {}) {
   page.on('pageerror', (e) => errors.push(String(e)));
   const navs = [];
   page.on('framenavigated', (f) => { if (f === page.mainFrame()) navs.push({ t: Date.now(), url: f.url() }); });
-  await page.goto(proxy.base + '/pages/consent-desk.html', { waitUntil: 'load' });
+  await page.goto(proxy.base + pagePath, { waitUntil: 'load' });
   if (await page.locator('#bongplay-auth-input').count()) {
     await page.fill('#bongplay-auth-input', env.E2E_STAFF_CODE);
     await page.click('#bongplay-auth-submit');
@@ -216,7 +217,24 @@ export async function openDesk(proxy, { localPassAudit = false } = {}) {
   // 로그인이 끝나고(암호 저장·인증 창 제거) 첫 동기화가 가라앉을 때까지 기다린다
   await page.waitForFunction(() => window.BongplayAuth && BongplayAuth.getAccessCode() && !document.getElementById('bongplay-auth-overlay'), null, { timeout: 15000 });
   await page.waitForLoadState('networkidle').catch(() => {});
-  return { page, context, dialogs, errors, navs, close: () => browser.close() };
+  if (waitReady) await page.waitForFunction(waitReady, null, { timeout: 15000 });
+  return { page, context, dialogs, errors, navs, timezoneId, close: () => browser.close() };
+}
+
+/** 매표 화면 (consent-desk.html) */
+export const openDesk = (proxy, opts = {}) => openPage(proxy, '/pages/consent-desk.html', opts);
+
+/**
+ * 지금 이 순간 단말 날짜가 KST 날짜와 다른 시간대 하나를 고른다 (비KST 단말 시험용).
+ * UTC-11 과 UTC+14 중 하나는 언제나 KST(UTC+9)와 날짜가 다르다.
+ */
+export function nonKstZoneWithOtherDate(now = new Date()) {
+  const fmt = (tz) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  const kst = fmt('Asia/Seoul');
+  for (const tz of ['Pacific/Pago_Pago', 'Pacific/Kiritimati', 'America/Los_Angeles', 'UTC']) {
+    if (fmt(tz) !== kst) return { timezoneId: tz, deviceDate: fmt(tz), kstDate: kst };
+  }
+  throw new Error('KST 와 날짜가 다른 시간대를 찾지 못함');
 }
 
 /** 실제 API 서버(PostgREST) 정지·재기동 — 서버 쪽 통신 중단 재현 (desk_e2e_stack.sh 가 stack.env 에 경로를 남긴다) */

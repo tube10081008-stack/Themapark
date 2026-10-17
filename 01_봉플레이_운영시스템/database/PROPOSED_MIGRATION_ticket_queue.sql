@@ -398,6 +398,16 @@ BEGIN
         );
     END IF;
 
+    -- 3-2. [R4 보완] 다른 시설 서약서로 이 시설 대기열에 접수하지 않는다 (서약서 site_id 가 있으면 요청 시설과 같아야 함)
+    IF EXISTS (SELECT 1 FROM public.safety_consents WHERE id = p_consent_id AND site_id IS NOT NULL AND site_id <> p_site_id) THEN
+        RETURN jsonb_build_object(
+            'ok', false,
+            'error', 'CONSENT_SITE_MISMATCH',
+            'retryable', false,
+            'message', '다른 시설의 서약서로는 이 시설 대기열에 접수할 수 없습니다.'
+        );
+    END IF;
+
     -- 4. 당일 최대 대기번호 및 order_key 조회 (1단계 잠금 안에서 실행되므로 동시 접수와 겹치지 않음)
     SELECT COALESCE(MAX(queue_number), 0) + 1,
            COALESCE(MAX(order_key), 0) + 1
@@ -808,7 +818,8 @@ $$;
 
 -- 7. 접수 취소 (cancel_queue_team) - 직원 전용
 -- - [Fix 4] 이미 발권 완료(issued)된 건은 취소 불가 가드
--- - [R4] 지난 영업일 행은 기록된 주문(활성 원장)이 있으면 ORDER_RECORDED 로 거부 (원장·order_id 보존, 같은 주문으로 완료해야 함)
+-- - [R4 보완] 날짜와 무관하게 기록된 주문(활성 원장, 일부만 저장된 경우 포함)이 있으면 ORDER_RECORDED 로 거부
+--   (원장·order_id 보존: 같은 주문으로 완료하거나 원장을 환불·취소한 뒤 대기열을 취소한다)
 CREATE OR REPLACE FUNCTION public.cancel_queue_team(
     p_access_code TEXT,
     p_queue_id TEXT,
@@ -844,8 +855,8 @@ BEGIN
         RETURN jsonb_build_object('ok', false, 'error', 'CANNOT_CANCEL_ISSUED', 'message', '이미 발권 완료된 건은 대기열에서 취소할 수 없습니다.');
     END IF;
 
-    -- [R4] 지난 영업일 미정리 팀: 기록된 주문이 있으면 취소 대신 같은 주문으로 완료해야 한다
-    IF v_rec.queue_date < v_today AND v_rec.status <> 'canceled' THEN
+    -- [R4 보완] 기록된 주문이 있으면(오늘·지난 영업일 모두) 대기열만 취소하지 않는다
+    IF v_rec.status <> 'canceled' THEN
         v_recorded := private.ticket_queue_recorded_orders(v_rec.consent_id);
         IF jsonb_array_length(v_recorded) > 0 THEN
             RETURN jsonb_build_object('ok', false, 'error', 'ORDER_RECORDED',

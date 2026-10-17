@@ -23,7 +23,8 @@ req_cols(t, c) as (values
   ('ticket_ledger', 'status'), ('ticket_ledger', 'cancelled_at')),
 api_roles(r) as (values ('anon'), ('authenticated')),
 privs(p) as (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')),
--- anon 이 실행해도 되는 public 함수 (대기열 RPC 12개 + FINAL 의 공개 RPC 4개). 나머지는 노출되면 안 된다.
+-- anon 이 실행해도 되는 public 함수 (대기열 RPC 12개 + FINAL 의 공개 RPC 3개). 나머지는 노출되면 안 된다.
+-- (lookup_family_children 은 R4 보완에서 제외 — 전화번호만으로 아동 정보 반환)
 queue_rpcs(f) as (values
   ('enqueue_consent_team'), ('get_customer_queue_status'), ('get_queue_public_display'),
   ('call_next_queue_team'), ('recall_queue_team'), ('start_queue_processing'), ('hold_queue_team'),
@@ -31,7 +32,7 @@ queue_rpcs(f) as (values
   ('set_desk_pause_status')),
 anon_rpc_allow(f) as (
   select f from queue_rpcs
-  union all values ('verify_staff_access'), ('get_today_consents_secure'), ('mask_expired_consents_secure'), ('lookup_family_children')),
+  union all values ('verify_staff_access'), ('get_today_consents_secure'), ('mask_expired_consents_secure')),
 fns as (
   select p.oid, n.nspname, p.proname, p.prosecdef, p.proconfig
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
@@ -136,6 +137,16 @@ checks(level, check_id, ok, detail) as (
          coalesce(string_agg(distinct f.proname, ', ') filter (where has_function_privilege(r.r, f.oid, 'EXECUTE')), '')
   from fns f cross join api_roles r
   where f.nspname = 'private' and (f.proname like 'ticket_queue\_%' or f.proname = 'lock_ticket_queue_site')
+  union all
+  select 'FAIL', 'L01 lookup_family_children (전화번호만으로 아동 정보 반환) 이 PUBLIC·anon·authenticated 에 실행 권한 없음 (모든 오버로드)',
+         coalesce(not bool_or(has_function_privilege(r.r, f.oid, 'EXECUTE')
+                              or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                                          where a.grantee = 0 and a.privilege_type = 'EXECUTE')), true),
+         coalesce(string_agg(distinct f.oid::regprocedure::text, ', ') filter (where has_function_privilege(r.r, f.oid, 'EXECUTE')
+                              or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                                          where a.grantee = 0 and a.privilege_type = 'EXECUTE')), '')
+  from fns f join pg_proc p on p.oid = f.oid cross join api_roles r
+  where f.nspname = 'public' and f.proname = 'lookup_family_children'
   union all
   select 'FAIL', 'Q03 창구 시드 2개 이상',
          (select count(*) from public.ticket_queue_desks) >= 2, ''

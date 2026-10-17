@@ -10,7 +10,7 @@
 //   bash …/desk_e2e_stack.sh stop
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { startProxy, openDesk, resetScenario, dbState, db, waitFor, sleep, skipReason, loadEnv, DEVICE_IP, hasCancelColumns, stopApiServer, startApiServer } from './harness.mjs';
+import { startProxy, openDesk, openPage, resetScenario, dbState, db, waitFor, sleep, skipReason, loadEnv, DEVICE_IP, hasCancelColumns, stopApiServer, startApiServer, nonKstZoneWithOtherDate, kstToday } from './harness.mjs';
 
 const skip = skipReason();
 
@@ -512,3 +512,148 @@ for (const [label, kind, name, method] of [['E13c', 'rpc', 'complete_queue_issua
     });
   });
 }
+
+// ---------------------------------------------------------------------------
+// 안전점검 화면 저장·재조회 교차 검증 (R4 보완) 과 비KST 단말
+// ---------------------------------------------------------------------------
+const SIG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+/** 안전점검 화면에서 전 항목 양호·점검자·서명·적합(PASS) 판정으로 저장 (직원이 누르는 버튼과 같은 함수) */
+async function saveSafetyPass(ui, inspector) {
+  await ui.page.waitForFunction(() => typeof saveChecklist === 'function' && typeof markAllPass === 'function', null, { timeout: 15000 });
+  await sleep(800);                                         // 첫 서버 조회(loadLatestOrNew)가 끝날 시간
+  return pageAsync(ui, ({ inspector, sig }) => {
+    markAllPass();
+    document.getElementById('inspectorName').value = inspector;
+    setSignatureData(sig);
+    saveChecklist();
+    return { items: Object.keys(currentChecklist).length, inspectAt: document.getElementById('inspectDateTime').value };
+  }, { inspector, sig: SIG });
+}
+const auditRows = async (c) => (await c.query(`select id, site_id, audit_date::text, decision, inspector, (select count(*)::int from jsonb_object_keys(items)) as items,
+  length(signature_data) as sig, audit_at from public.safety_audits order by audit_at`)).rows;
+async function waitAudit(c, inspector) {
+  let row = null;
+  await waitFor(async () => { row = (await auditRows(c)).find((r) => r.inspector === inspector); return !!row; }, { timeout: 10000 });
+  return row;
+}
+/** 새 단말에서 안전점검 화면이 서버의 오늘 점검을 다시 불러왔는가 */
+async function reloadedForm(ui) {
+  await waitFor(() => ui.page.evaluate(() => !!document.querySelector('input[name="finalDecision"]:checked')), { timeout: 8000 });
+  return ui.page.evaluate(() => ({
+    decision: document.querySelector('input[name="finalDecision"]:checked')?.value || null,
+    inspector: document.getElementById('inspectorName').value,
+    items: Object.keys(currentChecklist || {}).length,
+    signature: !!getSignatureData(),
+    inspectAt: document.getElementById('inspectDateTime').value,
+    banner: (document.getElementById('todayAuditBanner')?.innerText || '').replace(/\s+/g, ' ').slice(0, 80)
+  }));
+}
+
+test('K1 safety-check screen: a PASS saved on one device reaches the server with the KST date, a fresh device re-reads it from the server, and a third device sells with it', { skip }, async () => {
+  const c = await db();
+  const proxy = await startProxy();
+  const opened = [];
+  try {
+    const { consentId, queueId } = await resetScenario(c, { passAudit: false });
+    const inspector = 'SYN K1 점검자';
+    const a = await openPage(proxy, '/pages/safety-check.html'); opened.push(a);
+    const saved = await saveSafetyPass(a, inspector);
+    const row = await waitAudit(c, inspector);
+    assert.ok(row, '안전점검 저장이 서버에 닿지 않음');
+    assert.equal(row.audit_date, kstToday(), `서버 점검일 ${row.audit_date} ≠ KST 오늘 ${kstToday()}`);
+    assert.equal(row.decision, 'pass');
+    assert.equal(row.items, saved.items, '점검 항목 수가 서버에 다르게 저장됨');
+    assert.ok(row.sig > 0, '서명이 서버에 저장되지 않음');
+    const b = await openPage(proxy, '/pages/safety-check.html'); opened.push(b);   // 새 단말 (localStorage 비어 있음)
+    const form = await reloadedForm(b);
+    assert.deepEqual([form.decision, form.inspector, form.items, form.signature], ['pass', inspector, saved.items, true], `새 단말 재조회 ${JSON.stringify(form)}`);
+    const desk = await openDesk(proxy); opened.push(desk);                       // 세 번째 단말: 이 점검으로 판매
+    const total = await toPayment(desk);
+    await confirmPay(desk);
+    await sleep(300);
+    assertSingleIssuance(await dbState(c, consentId, queueId), total, 'K1');
+    console.log(`# K1 관찰: 저장 ${row.id} audit_date=${row.audit_date} 점검 일시(화면) ${saved.inspectAt} 서버 audit_at ${row.audit_at.toISOString()} 항목 ${row.items} 서명 ${row.sig}자 → ` +
+      `새 단말 재조회 ${JSON.stringify(form)} → 다른 단말 발권 완료`);
+    // 재조회한 점검 일시가 저장한 점검 일시(KST 단말 현지 시각)와 같아야 한다 (기록부 시각)
+    assert.equal(form.inspectAt, saved.inspectAt, `재조회한 점검 일시 ${form.inspectAt} ≠ 저장한 점검 일시 ${saved.inspectAt} (서버 audit_at 을 UTC 그대로 표시)`);
+  } finally {
+    for (const u of opened) await u.close();
+    await proxy.close();
+    await c.end();
+  }
+});
+
+test('K2 safety-check screen on a device whose time zone is not KST (its date differs from KST): the saved check must count for the KST business day', { skip }, async () => {
+  const zone = nonKstZoneWithOtherDate();
+  const c = await db();
+  const proxy = await startProxy();
+  const opened = [];
+  try {
+    const { consentId, queueId } = await resetScenario(c, { passAudit: false });
+    const inspector = 'SYN K2 점검자';
+    const a = await openPage(proxy, '/pages/safety-check.html', { timezoneId: zone.timezoneId }); opened.push(a);
+    await saveSafetyPass(a, inspector);
+    const row = await waitAudit(c, inspector);
+    const b = await openPage(proxy, '/pages/safety-check.html'); opened.push(b);   // KST 단말에서 재조회
+    const form = await reloadedForm(b).catch(() => null);
+    const desk = await openDesk(proxy); opened.push(desk);                       // KST 매표 단말
+    let sale = 'not tried';
+    try { const total = await toPayment(desk); await confirmPay(desk); await sleep(300); assertSingleIssuance(await dbState(c, consentId, queueId), total, 'K2'); sale = 'issued'; }
+    catch (e) { sale = 'blocked: ' + e.message.split('\n')[0].slice(0, 120); }
+    console.log(`# K2 관찰: 단말 ${zone.timezoneId} (단말 날짜 ${zone.deviceDate}, KST ${zone.kstDate}) 저장 → 서버 audit_date=${row && row.audit_date}, ` +
+      `KST 단말 재조회 ${JSON.stringify(form)}, KST 매표 ${sale}, 안내 ${desk.dialogs.map((d) => d.message.split('\n')[0]).join(' / ')}`);
+    assert.ok(row, '저장이 서버에 닿지 않음');
+    assert.equal(row.audit_date, zone.kstDate, `비KST 단말 저장이 단말 날짜(${row.audit_date})로 기록됨 — KST 영업일(${zone.kstDate}) 점검으로 인정되지 않음`);
+    assert.equal(sale, 'issued', `KST 매표 단말이 이 점검으로 판매하지 못함 (${sale})`);
+  } finally {
+    for (const u of opened) await u.close();
+    await proxy.close();
+    await c.end();
+  }
+});
+
+test('E14 desk on a device whose time zone is not KST: with the server PASS for the KST day, the team is called and issued exactly once', { skip }, async () => {
+  const zone = nonKstZoneWithOtherDate();
+  await scenario({ timezoneId: zone.timezoneId }, async ({ c, ui, consentId, queueId, proxy }) => {
+    let step = 'start';
+    let total = null;
+    try { total = await toPayment(ui); step = 'payment'; await confirmPay(ui); step = 'confirmed'; } catch (e) { step += ' 실패: ' + e.message.split('\n')[0].slice(0, 120); }
+    await sleep(300);
+    const s = await dbState(c, consentId, queueId);
+    const audits = proxy.state.log.filter((e) => e.name === 'safety_audits' && e.method === 'GET').map((e) => e.query.match(/audit_date=eq\.([0-9-]+)/)?.[1]).filter(Boolean);
+    console.log(`# E14 관찰: 단말 ${zone.timezoneId} (단말 날짜 ${zone.deviceDate}, KST ${zone.kstDate}) 단계 ${step}, 화면이 조회한 점검일 ${[...new Set(audits)].join(',')}, ` +
+      `서버 주문 ${orderIds(s).length}, 대기열 ${s.queue.status}, 안내 ${ui.dialogs.map((d) => d.message.split('\n')[0]).join(' / ')}`);
+    assert.ok(total !== null, `비KST 단말에서 판매 시작 불가 (${step})`);
+    assertSingleIssuance(s, total, 'E14');
+  });
+});
+
+test('K3 safety-check screen: a PASS the server holds for today, inspected at 08:00 KST (before 09:00), is re-read on a fresh KST device as today\'s check', { skip }, async () => {
+  // 서버 audit_at 은 UTC 로 돌아온다 (08:00 KST = 전날 23:00Z). 화면이 그 문자열의 앞 16자를 현지 시각으로 쓰면 전날 기록이 된다.
+  const c = await db();
+  const proxy = await startProxy();
+  let ui;
+  try {
+    await resetScenario(c, { passAudit: false });
+    const today = kstToday();
+    await c.query(`insert into public.safety_audits (id, site_id, audit_date, audit_at, inspector, decision, is_safe, note, items, signature_data)
+      values ('SYN-AUDIT-K3', 'bongplay_bonghwa', $1::date, ($1 || ' 08:00:00+09')::timestamptz, 'SYN K3 점검자', 'pass', true, '합성 08시 점검', '{"1_1":"양호"}'::jsonb, $2)`, [today, SIG]);
+    ui = await openPage(proxy, '/pages/safety-check.html');
+    await sleep(1500);
+    const form = await ui.page.evaluate(() => ({
+      decision: document.querySelector('input[name="finalDecision"]:checked')?.value || null,
+      inspector: document.getElementById('inspectorName').value,
+      inspectAt: document.getElementById('inspectDateTime').value,
+      banner: (document.getElementById('todayAuditBanner')?.innerText || '').replace(/\s+/g, ' ').slice(0, 80),
+      localDates: JSON.parse(localStorage.getItem('bongplay_safety_audit_logs') || '[]').map((l) => l.date)
+    }));
+    console.log(`# K3 관찰: 서버 audit_date=${today} audit_at=${today} 08:00 KST → 새 KST 단말 ${JSON.stringify(form)}`);
+    assert.equal(form.inspector, 'SYN K3 점검자', `서버에 오늘 PASS 가 있는데 화면이 오늘 점검으로 불러오지 않음 (로컬 기록 날짜 ${form.localDates.join(',')})`);
+    assert.equal(form.inspectAt, `${today}T08:00`);
+  } finally {
+    if (ui) await ui.close();
+    await proxy.close();
+    await c.end();
+  }
+});
