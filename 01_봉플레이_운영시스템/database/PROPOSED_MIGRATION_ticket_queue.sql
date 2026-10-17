@@ -399,7 +399,11 @@ BEGIN
     END IF;
 
     -- 3-2. [R4 보완] 다른 시설 서약서로 이 시설 대기열에 접수하지 않는다 (서약서 site_id 가 있으면 요청 시설과 같아야 함)
-    IF EXISTS (SELECT 1 FROM public.safety_consents WHERE id = p_consent_id AND site_id IS NOT NULL AND site_id <> p_site_id) THEN
+    --      site_id 열이 없는 옛 스키마에서도 오류 없이 지나가도록 행을 jsonb 로 읽는다 (FINAL 에는 열이 있다)
+    IF EXISTS (SELECT 1 FROM public.safety_consents c
+               WHERE c.id = p_consent_id
+                 AND (to_jsonb(c) ->> 'site_id') IS NOT NULL
+                 AND (to_jsonb(c) ->> 'site_id') <> p_site_id) THEN
         RETURN jsonb_build_object(
             'ok', false,
             'error', 'CONSENT_SITE_MISMATCH',
