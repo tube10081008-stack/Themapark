@@ -147,3 +147,6 @@ COORD-007 / Ben / ben/COORD-007-live-targets / 기준 ed5a2ce / 운영 대상 �
 
 ## BEN-014 고객 홈페이지 편입
 벤 / ben/BEN-014-customer-homepage / 기준 c826316 / 06_봉플레이_고객홈페이지 및 배포 문서 / 원본 보존 복사·정적 검증·Netlify ZIP 준비 / 진행 중
+
+## CLAUDE-012 기본 공문 양식 서식 편입 요청 (2026-11-02)
+CLAUDE-012 | 클로이 | `claude/sleepy-hamilton-dlqr9s` (도구 지정 이름) | 기준 `892a061` | `docs/tasks/CLAUDE-012_기본공문양식_서식편입.md`, `docs/tasks/CLAUDE-012_자료/`, 본 행 | 대표 요청 공문 양식의 구조·자료·편입 제안·결정 요청(D1~D7) 보고 (코드 수정 없음) | 벤 검토·구현 담당 배정 대기
