@@ -6,6 +6,8 @@ BEN-004 결정 1 / BEN PR-009 R1·R2:
 - 고지는 CSS 클래스가 아니라 구조로 읽는다. 요금 영역 안에서 품목 카드로 분류되지 않은
   금액·할인율이 있으면 실패다 (새 디자인의 카드가 조용히 빠지는 것을 막는다).
 - profile 값을 자동으로 고치거나 confirmed 로 올리지 않는다. 읽고 판정만 한다.
+- retired(폐지) 품목은 카탈로그에서 deprecated: true 가 아니거나, 고객 고지 페이지 어디에든
+  폐지 표기(notice_terms)가 남아 있으면 실패다 (PRICE-20261102 조조권 폐지).
 
 대조 대상 (저장소 루트 기준, 읽기 전용):
 - 카탈로그: 01_봉플레이_운영시스템/assets/bongplay-id.js 의 PRODUCT_CATALOG, DISCOUNT_RULES
@@ -33,9 +35,10 @@ SPEC_KEYS = {
     "catalog_id", "discount_rule", "notice_title", "notice_field",
     "notice_list_matches_catalog", "notice_label", "notice_allowed_text",
 }
+RETIRED_SPEC_KEYS = {"retired", "catalog_id", "notice_terms"}
 
-__all__ = ["ExtractError", "CheckResult", "catalog_prices", "discount_rates", "read_notice",
-           "notice_items", "run_checks", "main"]
+__all__ = ["ExtractError", "CheckResult", "catalog_prices", "catalog_deprecated", "discount_rates",
+           "read_notice", "notice_items", "page_text", "run_checks", "main"]
 
 
 @dataclass(frozen=True)
@@ -70,6 +73,20 @@ def catalog_prices(js: str) -> dict[str, int]:
 
 def discount_rates(js: str) -> dict[str, float]:
     return {k: float(v) for k, v in _keyed(js, "DISCOUNT_RULES", "rate", (int, float)).items()}
+
+
+def catalog_deprecated(js: str) -> dict[str, bool]:
+    """PRODUCT_CATALOG id → deprecated 여부. deprecated 가 있는데 불리언이 아니면 추출 실패."""
+    out: dict[str, bool] = {}
+    for n, obj in enumerate(read_const_array(js, "PRODUCT_CATALOG")):
+        oid = obj.get("id")
+        if not isinstance(oid, str) or not oid:
+            raise ExtractError(f"PRODUCT_CATALOG[{n}]: 문자열 id 가 없음")
+        flag = obj.get("deprecated", False)
+        if not isinstance(flag, bool):
+            raise ExtractError(f"PRODUCT_CATALOG.{oid}.deprecated: 불리언이 아님 {flag!r}")
+        out[oid] = flag
+    return out
 
 
 # ── 고지 (HTML, 구조 기반) ─────────────────────────────────────────
@@ -216,6 +233,20 @@ def notice_items(html: str) -> dict[str, dict]:
     return read_notice(html)[0]
 
 
+def page_text(html: str) -> str:
+    """고지 페이지 전체(요금 영역 밖 포함)의 보이는 텍스트와 title·alt·aria-label 속성."""
+    tree = _Tree()
+    tree.feed(html)
+    parts = [tree.root.text()]
+    for n in tree.root.walk():
+        if n.tag in ("script", "style"):
+            continue
+        for attr in ("title", "alt", "aria-label", "content"):
+            if n.attrs.get(attr):
+                parts.append(n.attrs[attr])
+    return " ".join(parts)
+
+
 def _notice_percent(loose_pct: list[str], label: str) -> float:
     found = [int(m.group(1)) for t in loose_pct if label in t for m in _PCT.finditer(t)]
     if len(found) != 1:
@@ -224,6 +255,28 @@ def _notice_percent(loose_pct: list[str], label: str) -> float:
 
 
 # ── 대조 ───────────────────────────────────────────────────────────
+
+def _check_retired(spec, deprecated, text) -> str | None:
+    """폐지 품목: 카탈로그 판매 차단과 고지 표기 제거를 확인한다. 실패 사유 또는 None."""
+    unknown = set(spec) - RETIRED_SPEC_KEYS
+    if unknown:
+        return f"price_check 에 알 수 없는 항목 {sorted(unknown)}"
+    if spec.get("retired") is not True:
+        return "retired 품목은 price_check.retired 가 true 여야 함"
+    cid = spec.get("catalog_id")
+    if not isinstance(cid, str) or not cid:
+        return "retired 품목은 catalog_id 가 필요함"
+    terms = spec.get("notice_terms")
+    if not isinstance(terms, list) or not terms or not all(isinstance(x, str) and x for x in terms):
+        return "notice_terms 는 비어 있지 않은 문자열 목록이어야 함"
+    reasons = []
+    if cid in deprecated and not deprecated[cid]:
+        reasons.append(f"폐지 품목 {cid!r} 이 카탈로그에서 판매 가능 (deprecated: true 아님)")
+    for t in terms:
+        if t in text:
+            reasons.append(f"고객 고지에 폐지 품목 표기 {t!r} 가 남아 있음")
+    return "; ".join(reasons) or None
+
 
 def _check_field(value, spec, prices, rates, notices, loose_pct) -> str | None:
     """실패 사유 문자열, 통과면 None."""
@@ -275,12 +328,18 @@ def run_checks(profile: Profile, js: str, html: str) -> list[CheckResult]:
     try:
         prices = catalog_prices(js)
         rates = discount_rates(js)
+        deprecated = catalog_deprecated(js)
         notices, loose_pct = read_notice(html)
+        text = page_text(html)
     except ExtractError as e:
         return [CheckResult("(추출)", False, f"추출 실패: {e}")]
 
     pricing_fields = [profile.field(k) for k in profile.keys() if k.startswith(("price.", "discount."))]
     for f in pricing_fields:
+        if f.status == "retired":
+            reason = _check_retired(f.price_check or {}, deprecated, text)
+            results.append(CheckResult(f.key, reason is None, reason or "폐지 — 판매 차단·고지 제거 확인"))
+            continue
         if f.status != "confirmed":
             continue
         try:
@@ -290,7 +349,8 @@ def run_checks(profile: Profile, js: str, html: str) -> list[CheckResult]:
         results.append(CheckResult(f.key, reason is None, reason or "고지·카탈로그 일치"))
 
     # 고지에 새 품목·할인이 생겼는데 계약에 없으면 실패 — 조용히 빠지는 것을 막는다.
-    mapped = " ".join(f.source.get("item") or "" for f in pricing_fields)
+    # 폐지(retired) 품목의 출처 문구는 고지 품목을 인정하는 근거가 되지 않는다.
+    mapped = " ".join(f.source.get("item") or "" for f in pricing_fields if f.status != "retired")
     for title in notices:
         if f"'{title}'" not in mapped:
             results.append(CheckResult("(고지 품목)", False, f"계약에 없는 고지 품목: {title!r}"))

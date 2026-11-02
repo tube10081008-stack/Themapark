@@ -6,11 +6,13 @@
     system_default  운영시스템 코드·DB 기본값. 현장 확정 여부 미확인
     unverified      미정이거나 출처 불명확
     unresolved      출처끼리 서로 달라 결정이 필요한 값
+    retired         대표 결정으로 폐지된 품목·할인. 값은 쓰지 않고, 판매·고지가 남아 있으면
+                    price_check 가 실패시킨다
 
 사용 규칙 (BEN-004):
 - 고객에게 나가는 글에는 confirmed 만 쓴다. 나머지는 "확정 후 안내".
 - 내부 분석에는 confirmed·system_default 를 쓰되 system_default 는 표시한다.
-- unverified·unresolved 는 어디에도 쓰지 않는다.
+- unverified·unresolved·retired 는 어디에도 쓰지 않는다.
 
 이 모듈은 파일을 읽기만 한다. 쓰기·디렉터리 생성·네트워크 호출이 없다.
 """
@@ -26,7 +28,7 @@ from pathlib import Path
 SCHEMA_VERSION = 1
 DEFAULT_PATH = Path(__file__).resolve().parent.parent / "site_profile.json"
 
-STATUSES = ("confirmed", "system_default", "unverified", "unresolved")
+STATUSES = ("confirmed", "system_default", "unverified", "unresolved", "retired")
 FIELD_KEYS = {
     "value", "unit", "scope", "status", "source",
     "confirmed_by", "confirmed_at", "effective_from", "note", "price_check",
@@ -85,15 +87,23 @@ def _validate_field(key: str, raw: object) -> Field:
     value = raw["value"]
     if status in ("confirmed", "system_default") and value is None:
         raise ProfileError(f"{key}: {status} 인데 value 가 null 입니다")
-    if status == "confirmed":
+    if status in ("confirmed", "retired"):
         for req in ("confirmed_by", "confirmed_at"):
             if not raw.get(req):
-                raise ProfileError(f"{key}: confirmed 는 {req} 가 필요합니다")
+                raise ProfileError(f"{key}: {status} 는 {req} 가 필요합니다")
         if not src.get("revision"):
-            raise ProfileError(f"{key}: confirmed 는 source.revision(커밋 SHA 또는 문서 판본)이 필요합니다")
+            raise ProfileError(f"{key}: {status} 는 source.revision(커밋 SHA 또는 문서 판본)이 필요합니다")
         _iso_date(raw["confirmed_at"], f"{key}.confirmed_at")
         if key.startswith(("price.", "discount.")) and not raw.get("price_check"):
-            raise ProfileError(f"{key}: confirmed 요금·할인은 price_check 대조 규칙이 필요합니다")
+            raise ProfileError(f"{key}: {status} 요금·할인은 price_check 대조 규칙이 필요합니다")
+    pc = raw.get("price_check")
+    if pc is not None and not isinstance(pc, dict):
+        raise ProfileError(f"{key}: price_check 는 객체여야 합니다")
+    if status == "retired" and key.startswith(("price.", "discount.")):
+        if (raw.get("price_check") or {}).get("retired") is not True:
+            raise ProfileError(f"{key}: retired 요금·할인은 price_check.retired 가 true 여야 합니다")
+    elif (raw.get("price_check") or {}).get("retired") is not None:
+        raise ProfileError(f"{key}: price_check.retired 는 status retired 에서만 씁니다")
     if raw.get("effective_from") is not None:
         _iso_date(raw["effective_from"], f"{key}.effective_from")
 

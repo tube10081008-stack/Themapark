@@ -147,3 +147,6 @@ COORD-007 / Ben / ben/COORD-007-live-targets / 기준 ed5a2ce / 운영 대상 �
 
 ## BEN-014 고객 홈페이지 편입
 벤 / ben/BEN-014-customer-homepage / 기준 c826316 / 06_봉플레이_고객홈페이지 및 배포 문서 / 원본 보존 복사·정적 검증·Netlify ZIP 준비 / 진행 중
+
+## PRICE-20261102 가격 계약·회귀 검증 (2026-11-02)
+PRICE-20261102 | 클로이 | `claude/PRICE-20261102-site-profile` | 기준 `892a061` | `05_봉플레이_AI에이전트/` 계약·검사·테스트·README, `docs/migration/PRICE-20261102_대표확정요금.md`, `docs/qa/PRICE-20261102_가격계약_회귀검증.md`, 본 행 | 대표 확정 요금 계약 반영, 폐지(retired) 검사 추가, 원격 고지 불일치 보고 (01·06 코드 수정 없음) | 벤 검토·최신 준비본 통합 대기

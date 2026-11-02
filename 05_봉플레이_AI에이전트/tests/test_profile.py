@@ -39,8 +39,19 @@ class RealProfile(unittest.TestCase):
         self.assertEqual(self.p.customer_text("hours.open"), PENDING_TEXT)
 
     def test_system_default_not_for_customers(self):
-        self.assertIsNone(self.p.customer_value("price.tkt_allday"))
-        self.assertEqual(self.p.internal_value("price.tkt_allday"), (21000, "system_default"))
+        # PRICE-20261102 로 실제 계약의 system_default 요금이 없어져 변형 계약으로 규칙을 확인한다
+        p = load_variant(lambda d: d["fields"]["price.tkt_allday"].update(status="system_default"))
+        self.assertIsNone(p.customer_value("price.tkt_allday"))
+        self.assertEqual(p.internal_value("price.tkt_allday"), (24000, "system_default"))
+
+    def test_retired_not_used_anywhere(self):
+        retired = self.p.with_status("retired")
+        self.assertEqual([f.key for f in retired], ["price.tkt_morning"])
+        for f in retired:
+            with self.subTest(key=f.key):
+                self.assertIsNone(self.p.customer_value(f.key))
+                self.assertIsNone(self.p.internal_value(f.key))
+                self.assertEqual(self.p.customer_text(f.key), PENDING_TEXT)
 
     def test_unresolved_not_used_anywhere(self):
         for f in self.p.with_status("unresolved"):
@@ -51,11 +62,10 @@ class RealProfile(unittest.TestCase):
     def test_owner_decisions_20260929(self):
         # 대외 시설명 확정
         self.assertEqual(self.p.customer_value("facility.name"), "리틀포레스트 봉플레이")
-        # 기본권 15,000원 결정은 기록하되, 고객 고지 정정 전까지 어디에도 쓰지 않는다
+        # 기본권 15,000원(2026-09-29) 결정은 PRICE-20261102 의 18,000원으로 대체됐다
         f = self.p.field("price.tkt_basic")
-        self.assertEqual((f.value, f.status), (15000, "unresolved"))
-        self.assertIsNone(self.p.customer_value("price.tkt_basic"))
-        self.assertIsNone(self.p.internal_value("price.tkt_basic"))
+        self.assertEqual((f.value, f.status, f.confirmed_at), (18000, "confirmed", "2026-11-02"))
+        self.assertIn("15,000원", f.note)
         # 폐지 결정 3건
         for k in ("price.daycare_group_voucher", "price.teen_adult_activity", "discount.merit_disability"):
             self.assertIn("폐지", self.p.field(k).note)
@@ -137,6 +147,22 @@ class Validation(unittest.TestCase):
 
     def test_confirmed_price_needs_check(self):
         self.assertRejects(lambda d: d["fields"]["price.tkt_guardian"].pop("price_check"), "price_check")
+
+    def test_retired_needs_confirmer_and_revision(self):
+        self.assertRejects(lambda d: d["fields"]["price.tkt_morning"].pop("confirmed_at"), "confirmed_at")
+        self.assertRejects(lambda d: d["fields"]["price.tkt_morning"]["source"].pop("revision"), "revision")
+
+    def test_retired_price_needs_retired_check(self):
+        self.assertRejects(lambda d: d["fields"]["price.tkt_morning"].pop("price_check"), "price_check")
+        self.assertRejects(lambda d: d["fields"]["price.tkt_morning"]["price_check"].update(retired=False),
+                           "retired")
+
+    def test_retired_flag_only_on_retired_status(self):
+        self.assertRejects(lambda d: d["fields"]["price.tkt_basic"]["price_check"].update(retired=True),
+                           "retired")
+
+    def test_price_check_must_be_object(self):
+        self.assertRejects(lambda d: d["fields"]["price.tkt_basic"].update(price_check=["retired"]), "객체")
 
     def test_source_required(self):
         self.assertRejects(lambda d: d["fields"]["address.road"]["source"].update(path=""), "source")

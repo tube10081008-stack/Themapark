@@ -95,39 +95,76 @@
       "confirmed_at": "2026-09-29",
       "note": "높이·길이·운영조건은 확인되지 않아 넣지 않는다."
     },
-    "price.tkt_guardian": {
-      "value": 5000,
+    "price.tkt_basic": {
+      "value": 18000,
       "unit": "원",
-      "scope": "보호자 입장권 1인",
+      "scope": "어린이 기본이용권 1인 (2시간)",
       "status": "confirmed",
       "source": {
-        "path": "01_봉플레이_운영시스템/pages/booking.html",
-        "item": "이용 요금 — '보호자 입장권' 판매가",
-        "revision": "d7ac76c"
+        "path": "docs/migration/PRICE-20261102_대표확정요금.md",
+        "item": "기본 18,000원 — 고지 품목 '어린이 기본이용권 (2시간)'",
+        "revision": "v1 (2026-11-02)"
       },
-      "confirmed_by": "대표 (2026-09-29 '웹 고지 요금 그대로') + 클로이 품목 대조",
-      "confirmed_at": "2026-09-29",
+      "confirmed_by": "대표 (2026-11-02 확정 요금, 벤 지시 경유)",
+      "confirmed_at": "2026-11-02",
+      "note": "2026-09-29 결정(15,000원)을 대체한다.",
       "price_check": {
-        "catalog_id": "tkt_guardian",
-        "notice_title": "보호자 입장권",
-        "notice_field": "sale",
-        "notice_allowed_text": [
-          "음료 포함 실질 0원"
-        ]
+        "catalog_id": "tkt_basic",
+        "notice_title": "어린이 기본이용권 (2시간)",
+        "notice_field": "sale"
+      }
+    },
+    "price.tkt_allday": {
+      "value": 24000,
+      "unit": "원",
+      "scope": "어린이 종합이용권 1인 (개인, 짚코스터 1회 포함)",
+      "status": "confirmed",
+      "source": {
+        "path": "docs/migration/PRICE-20261102_대표확정요금.md",
+        "item": "종합 24,000원 — 고지 품목 '어린이 종합이용권'",
+        "revision": "v1 (2026-11-02)"
+      },
+      "confirmed_by": "대표 (2026-11-02 확정 요금, 벤 지시 경유)",
+      "confirmed_at": "2026-11-02",
+      "price_check": {
+        "catalog_id": "tkt_allday",
+        "notice_title": "어린이 종합이용권",
+        "notice_field": "sale"
+      }
+    },
+    "price.group_basic": {
+      "value": 14400,
+      "unit": "원",
+      "scope": "단체 기본이용권 1인 (20인 이상)",
+      "status": "confirmed",
+      "source": {
+        "path": "docs/migration/PRICE-20261102_대표확정요금.md",
+        "item": "20인 이상 단체 기본 14,400원 — 고지 품목 '단체 기본이용권 (20인 이상)'",
+        "revision": "v1 (2026-11-02)"
+      },
+      "confirmed_by": "대표 (2026-11-02 확정 요금, 벤 지시 경유)",
+      "confirmed_at": "2026-11-02",
+      "note": "기본 18,000원에 단체 20% 할인(group20)을 적용한 값.",
+      "price_check": {
+        "catalog_id": "tkt_basic",
+        "discount_rule": "group20",
+        "notice_title": "단체 기본이용권 (20인 이상)",
+        "notice_field": "sale"
       }
     },
     "price.group_allday": {
-      "value": 16800,
+      "value": 19200,
       "unit": "원",
       "scope": "단체 종합이용권 1인 (20인 이상, 짚코스터 1회 포함)",
       "status": "confirmed",
       "source": {
-        "path": "01_봉플레이_운영시스템/pages/booking.html",
-        "item": "이용 요금 — '단체 종합이용권 (20인 이상)' 판매가",
-        "revision": "d7ac76c"
+        "path": "docs/migration/PRICE-20261102_대표확정요금.md",
+        "item": "20인 이상 단체 종합 19,200원 — 고지 품목 '단체 종합이용권 (20인 이상)'",
+        "revision": "v1 (2026-11-02)"
       },
-      "confirmed_by": "대표 (2026-09-29 '웹 고지 요금 그대로') + 클로이 품목 대조",
-      "confirmed_at": "2026-09-29",
+      "confirmed_by": "대표 (2026-11-02 확정 요금, 벤 지시 경유)",
+      "confirmed_at": "2026-11-02",
+      "note": "종합 24,000원에 단체 20% 할인(group20)을 적용한 값. 이전 확정값 16,800원(2026-09-29)을 대체한다.",
       "price_check": {
         "catalog_id": "tkt_allday",
         "discount_rule": "group20",
@@ -136,57 +173,116 @@
         "notice_list_matches_catalog": true
       }
     },
+    "price.tkt_guardian": {
+      "value": 5000,
+      "unit": "원",
+      "scope": "보호자 입장권 1인 (음료 제외)",
+      "status": "confirmed",
+      "source": {
+        "path": "docs/migration/PRICE-20261102_대표확정요금.md",
+        "item": "보호자 5,000원(음료 제외) — 고지 품목 '보호자 입장권'",
+        "revision": "v1 (2026-11-02)"
+      },
+      "confirmed_by": "대표 (2026-11-02 확정 요금, 벤 지시 경유)",
+      "confirmed_at": "2026-11-02",
+      "note": "인계문 '음료 제외'에 따라 이전 고지 예외 문구 '음료 포함 실질 0원' 허용을 없앴다.",
+      "price_check": {
+        "catalog_id": "tkt_guardian",
+        "notice_title": "보호자 입장권",
+        "notice_field": "sale"
+      }
+    },
+    "price.guardian_net_addon": {
+      "value": 3000,
+      "unit": "원",
+      "scope": "보호자 네트 추가 1인 (보호자 입장권 5,000원 별도, 합계 8,000원)",
+      "status": "confirmed",
+      "source": {
+        "path": "docs/migration/PRICE-20261102_대표확정요금.md",
+        "item": "보호자 네트 추가 3,000원 — 고지 품목 '보호자 네트 추가권'",
+        "revision": "v1 (2026-11-02)"
+      },
+      "confirmed_by": "대표 (2026-11-02 확정 요금, 벤 지시 경유)",
+      "confirmed_at": "2026-11-02",
+      "note": "카탈로그의 유일한 네트 추가 품목 addon_net_challenge 로 연결했다(벤 확인 필요).",
+      "price_check": {
+        "catalog_id": "addon_net_challenge",
+        "notice_title": "보호자 네트 추가권",
+        "notice_field": "sale"
+      }
+    },
+    "price.ride_coaster_single": {
+      "value": 9000,
+      "unit": "원",
+      "scope": "짚코스터 단독 이용 1회",
+      "status": "confirmed",
+      "source": {
+        "path": "docs/migration/PRICE-20261102_대표확정요금.md",
+        "item": "짚코스터 단독 9,000원 — 고지 품목 '짚코스터 단독 이용권'",
+        "revision": "v1 (2026-11-02)"
+      },
+      "confirmed_by": "대표 (2026-11-02 확정 요금, 벤 지시 경유)",
+      "confirmed_at": "2026-11-02",
+      "price_check": {
+        "catalog_id": "ride_coaster_single",
+        "notice_title": "짚코스터 단독 이용권",
+        "notice_field": "sale"
+      }
+    },
+    "price.addon_coaster_extra": {
+      "value": 9000,
+      "unit": "원",
+      "scope": "짚코스터 추가 탑승 1회",
+      "status": "confirmed",
+      "source": {
+        "path": "docs/migration/PRICE-20261102_대표확정요금.md",
+        "item": "짚코스터 추가 9,000원 — 고지 품목 '짚코스터 추가 탑승권'",
+        "revision": "v1 (2026-11-02)"
+      },
+      "confirmed_by": "대표 (2026-11-02 확정 요금, 벤 지시 경유)",
+      "confirmed_at": "2026-11-02",
+      "price_check": {
+        "catalog_id": "addon_coaster_extra",
+        "notice_title": "짚코스터 추가 탑승권",
+        "notice_field": "sale"
+      }
+    },
     "discount.resident_rate": {
       "value": 0.2,
       "scope": "봉화군민 우대 할인 (현장 신분증 확인)",
       "status": "confirmed",
       "source": {
-        "path": "01_봉플레이_운영시스템/pages/booking.html",
-        "item": "이용 요금 — '봉화군민 20% 우대 할인'",
-        "revision": "d7ac76c"
+        "path": "docs/migration/PRICE-20261102_대표확정요금.md",
+        "item": "봉화군민 20% — 고지 문구 '봉화군민'",
+        "revision": "v1 (2026-11-02)"
       },
-      "confirmed_by": "대표 (2026-09-29 '웹 고지 요금 그대로') + 클로이 품목 대조",
-      "confirmed_at": "2026-09-29",
+      "confirmed_by": "대표 (2026-11-02 확정 요금, 벤 지시 경유)",
+      "confirmed_at": "2026-11-02",
       "price_check": {
         "discount_rule": "resident",
         "notice_label": "봉화군민"
       }
     },
-    "price.tkt_basic": {
-      "value": 15000,
-      "unit": "원",
-      "scope": "어린이 기본이용권 1인 (2시간)",
-      "status": "unresolved",
-      "source": {
-        "path": "01_봉플레이_운영시스템/pages/booking.html",
-        "item": "이용 요금 — '어린이 기본이용권 (2시간)'",
-        "revision": "d7ac76c"
-      },
-      "note": "대표 결정(2026-09-29): 할인 없이 15,000원 — 공식 요금표 tkt_basic 과 일치. 고객 고지(booking.html)가 아직 14,000원 오픈할인이므로 고지 정정 전까지 unresolved. 정정 후 confirmed 승격 (docs/migration/CLAUDE-004b_대표결정_20260929.md)."
-    },
-    "price.tkt_allday": {
-      "value": 21000,
-      "unit": "원",
-      "scope": "어린이 종합이용권 1인 (개인)",
-      "status": "system_default",
-      "source": {
-        "path": "01_봉플레이_운영시스템/assets/bongplay-id.js",
-        "item": "PRODUCT_CATALOG tkt_allday.list_price",
-        "revision": "3bada78"
-      },
-      "note": "고지에는 단체권의 정가(취소선)로만 나오고 개인 판매가로 따로 고지되지 않았다."
-    },
     "price.tkt_morning": {
-      "value": 18000,
+      "value": null,
       "unit": "원",
       "scope": "조조 오전권 1인 (12시 이전 입장)",
-      "status": "system_default",
+      "status": "retired",
       "source": {
-        "path": "01_봉플레이_운영시스템/assets/bongplay-id.js",
-        "item": "PRODUCT_CATALOG tkt_morning.list_price",
-        "revision": "3bada78"
+        "path": "docs/migration/PRICE-20261102_대표확정요금.md",
+        "item": "조조권 폐지",
+        "revision": "v1 (2026-11-02)"
       },
-      "note": "고객 고지에 없다."
+      "confirmed_by": "대표 (2026-11-02 확정 요금, 벤 지시 경유)",
+      "confirmed_at": "2026-11-02",
+      "note": "폐지. 카탈로그에 남기려면 deprecated: true 로 신규 판매를 막고, 고객 고지에는 '조조' 표기가 없어야 한다. 과거 매출은 소급 변경하지 않는다.",
+      "price_check": {
+        "retired": true,
+        "catalog_id": "tkt_morning",
+        "notice_terms": [
+          "조조"
+        ]
+      }
     },
     "price.daycare_group_voucher": {
       "value": null,
@@ -222,6 +318,19 @@
         "revision": "d7ac76c"
       },
       "note": "대표 결정(2026-09-29): 폐지 — 고객 고지에서 삭제 예정. 삭제 후 이 항목도 계약에서 제거. 이전 기록: 고지에 할인율이 없고 DISCOUNT_RULES 에도 없다."
+    },
+    "policy.discount_stacking": {
+      "value": "none",
+      "scope": "할인 중복 적용 (군민·단체 등)",
+      "status": "confirmed",
+      "source": {
+        "path": "docs/migration/PRICE-20261102_대표확정요금.md",
+        "item": "중복 할인 없음",
+        "revision": "v1 (2026-11-02)"
+      },
+      "confirmed_by": "대표 (2026-11-02 확정 요금, 벤 지시 경유)",
+      "confirmed_at": "2026-11-02",
+      "note": "할인은 한 건만 적용한다. 자동 대조 규칙은 없다 — 운영시스템 bongplay-id.js 의 할인 선택(가장 큰 할인율 1건)과 일치함을 코드 읽기로 확인(892a061)."
     }
   }
 }

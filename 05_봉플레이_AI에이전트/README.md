@@ -11,7 +11,7 @@
 | `core/profile.py` | 계약 로더, 고객용/내부용 사용 규칙, 시설 설명 생성 | 아니오 |
 | `core/price_check.py` | confirmed 요금이 고객 고지·카탈로그와 같은지 대조. 불일치·추출 실패·미분류 가격은 실패 | 아니오 |
 | `core/js_static.py` | JS 배열 리터럴을 실행 없이 읽는 제한적 파서. 중복·따옴표·계산 키, spread, 비리터럴 값, 선언 뒤 변경은 거부 | 아니오 |
-| `tests/fixtures/` | 변형·회귀 테스트의 고정 기준 (구 고지 `d7ac76c`, 카탈로그 `3bada78`). 실제 화면이 바뀌어도 수정하지 않는다 | – |
+| `tests/fixtures/` | 변형·회귀 테스트의 고정 기준 (구 고지 `d7ac76c`, 카탈로그 `3bada78`, 그 짝인 계약 고정본 `profile_892a061.json`, PRICE-20261102 합성 고지). 실제 화면이 바뀌어도 수정하지 않는다 | – |
 | `core/gate.py` | 안전·분쟁 문의·리뷰를 사람에게 넘기는 키워드 게이트 | 아니오 |
 | `core/settings.py` | `ANTHROPIC_MODEL` 확인 (LLM 명령에서만 호출) | – |
 | `env.template` | 환경변수 템플릿 (값 비어 있음). 루트 `.gitignore`가 `.env.*`를 무시하므로 이 이름을 쓴다 | – |
@@ -26,7 +26,8 @@ python3 -B -m unittest discover -s tests   # 전체 테스트 (키·모델·네�
 python3 -B -m core.price_check             # 요금 대조. 실패가 있으면 종료코드 1
 ```
 
-Python 3.10 이상, 표준 라이브러리만 쓴다. 확인한 환경: Linux, Python 3.11.15 — 전체 통과.
+Python 3.10 이상, 표준 라이브러리만 쓴다. 확인한 환경: Linux, Python 3.11.15 — 전체 통과 (CLAUDE-004b).
+PRICE-20261102 이후 (Linux, Python 3.11.17): 115건 중 113건 통과. 실제 `01_` 고지·카탈로그가 새 확정 요금과 달라 `RealFiles`와 부수효과 테스트의 `price_check.main()` 단정 2건이 실패한다 — 01 정정 전까지 의도한 실패다.
 
 부수효과 테스트 3건(`test_no_side_effects`)은 격리된 작업 폴더가 필요하다. 기본은 시스템 임시폴더다.
 임시폴더를 만들 수 없는 환경(권한이 막힌 Windows 샌드박스 등)에서는 쓰기 가능한 기존 폴더를 지정한다.
@@ -47,10 +48,14 @@ $env:BONGPLAY_TEST_WORKDIR="C:\path\to\writable"; python -B -m unittest discover
 | `system_default` | 쓰지 않음 → "확정 후 안내" | 사용하되 표시 |
 | `unverified` | 쓰지 않음 | 쓰지 않음 |
 | `unresolved` | 쓰지 않음 | 쓰지 않음 |
+| `retired` | 쓰지 않음 (폐지) | 쓰지 않음 |
 
 - 값을 `confirmed`로 올리려면 `confirmed_by`·`confirmed_at`·`source.revision`(커밋 SHA 또는 문서 판본)을 적은 PR을 벤이 검토한다. 로더가 이 항목 없이는 파일을 거부한다.
 - confirmed 요금·할인은 `price_check` 규칙이 있어야 하고, 고지·카탈로그와 다르면 `price_check`가 실패한다.
 - 고객 고지에 새 품목·할인이 생겼는데 계약에 없으면 실패한다. 카드 구조는 CSS 클래스가 아니라 판매가(`<strong>N원</strong>`) 기준으로 찾고, 카드로 분류되지 않은 금액이나 카드 안의 다른 금액은 실패다. 광고 문구 등 예외는 계약의 `notice_allowed_text`에 정확한 문장으로만 허용한다.
+- `retired`(폐지) 품목은 `confirmed_by`·`confirmed_at`·`source.revision`과 `price_check.retired: true`가 필요하다. 카탈로그에서 `deprecated: true`가 아니거나 고객 고지 페이지 어디에든(요금 영역 밖·`alt` 등 속성 포함) `notice_terms`가 남아 있으면 `price_check`가 실패한다.
+- 요금 기준은 [PRICE-20261102 대표 확정 요금](../docs/migration/PRICE-20261102_대표확정요금.md)이다 (2026-09-29 기본권 15,000원 결정을 대체).
+- `policy.discount_stacking`(중복 할인 없음)은 자동 대조 규칙이 없다. 운영시스템 할인 선택 코드와의 일치는 코드 읽기로만 확인했다.
 - 운영시간은 대표 결정으로 **미정**이다 (2026-09-29).
 
 ## 모델
