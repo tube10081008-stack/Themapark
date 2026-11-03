@@ -31,7 +31,7 @@ begin
              'claim_queue_call_notifications', 'report_queue_call_notification'))
        or (n.nspname = 'private' and p.proname in (
              'visit_today', 'visit_safety_pass', 'visit_last4', 'visit_sorted_ids', 'visit_request_replay',
-             'visit_entry_json', 'visit_reconcile_order', 'trg_queue_call_notification'))
+             'visit_entry_json', 'visit_reconcile_order', 'visit_unsettled_orders', 'trg_queue_call_notification'))
   loop
     execute format('drop function if exists %s', r.sig);
   end loop;

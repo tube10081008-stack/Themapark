@@ -154,7 +154,8 @@
   {"entry_id": "ve_…", "queue_id": "…", "formatted_number": "A-012", "guardian_masked": "홍*현", "last4": "1234",
    "business_date": "…", "past_business_date": false, "entered_at": "…", "status": "partial",
    "ticket_count": 3, "inside_count": 1, "returned_count": 2,
-   "tickets": [{"ticket_id": "…", "product_name": "어린이 기본이용권", "returned": true, "returned_at": "…"}]}]}
+   "tickets": [{"ticket_id": "…", "product_name": "어린이 기본이용권", "returned": true, "returned_at": "…"}],
+   "settlement": {"settled": false, "unsettled_orders": [{"order_id": "…", "item_total": 4000, "paid_total": 2500, "balance": 1500}]}}]}
 ```
 
 - `p_last4`가 없으면 오늘 체류 중인 팀 전체다. 있으면 숫자 4자리여야 한다(`LAST4_FORMAT`).
@@ -163,6 +164,7 @@
   - `p_include_past_unreturned`: 지난 영업일의 미반납 팀도 포함한다(`past_business_date:true`). "이전 방문 재검색"은 이 옵션으로만 보인다.
 - **돌려주지 않는 것:** 전화번호 전체, 보호자 실명, 자녀 정보, `consent_id`. 이름은 서버 마스킹(`private.mask_name`) 값만 준다.
 - 같은 뒷번호의 두 팀은 두 건으로 따로 나온다. 직원은 대기번호·인원·입장 시각으로 고르고, 반납은 `entry_id`로만 한다.
+- `settlement`는 서버가 조회 시점에 원장으로 계산한 **참고 표시**다(E6 7번과 같은 규칙). 화면은 이 값으로 반납 버튼을 막거나 안내할 수 있다. 하지만 반납 허용 여부는 E6이 같은 트랜잭션에서 다시 판정한다. 화면 표시를 서버 검증으로 쓰지 않는다.
 
 ### E5. 입장 기록 단건 — `get_visit_entry`
 
@@ -186,6 +188,20 @@
 | 4 | 입장 기록 (시설 범위) | `not_found` |
 | 5 | 지정 티켓이 이 입장 기록 소속 | `TICKET_NOT_IN_ENTRY` |
 | 6 | 지정 티켓 중 이미 반납된 것이 있음 | `TICKET_ALREADY_RETURNED` (`already_returned` 목록 포함, 하나도 반영하지 않음) |
+| 7 | **이 방문의 미정산 주문** (반납할 팔찌가 있을 때만) | `UNSETTLED_ORDERS` (`unsettled_orders` 목록 포함, 하나도 반영하지 않음) |
+
+7번 미정산 판정 (같은 트랜잭션·시설 잠금 안에서 기존 원장을 다시 읽는다):
+- **대상 주문:** `order_items` 또는 `order_payments` 중 하나라도 이 방문에 연결된 주문
+  - 매표 주문: `consent_id`가 이 서약서
+  - 매점 POS 방문 연동 주문: `visit_id`가 서약서의 `visit_id` 또는 서약서 id
+- **판정:** 주문별로 활성 품목 금액(`paid_amount`, 0이면 `total_price`)과 유효 결제 합계(`status='paid'`, 미취소)를 비교해 다르면 미정산이다.
+  - `balance > 0`: 받을 돈. 품목은 서버에 있는데 결제가 없거나 모자람
+  - `balance < 0`: 돌려줄 돈. 품목은 취소됐는데 결제가 남음(환불 미처리)
+- **전액 환불:** 품목·결제·티켓을 함께 취소하면 0/0이라 정산 완료다.
+- **판정 대상이 아닌 것:**
+  - 방문과 연결되지 않은 매점 주문
+  - 단말에만 있고 서버에 올라오지 않은 아웃박스 건 (한계, 9절)
+- **반납할 팔찌가 없을 때:** 전체 반납인데 남은 팔찌가 없으면 아무것도 쓰지 않으므로 7번을 보지 않는다(`already_exited`).
 
 - **전체 반납:** `p_return_all=true`는 남은 티켓 전부를 반납한다. 남은 것이 없으면 `ok:true, returned_now:[], already_exited:true`이고 아무것도 바꾸지 않는다.
 - **두 단말 동시 처리:** 두 단말이 같은 팔찌를 동시에 반납하면 먼저 잠금을 얻은 쪽만 반영된다. 다른 쪽은 `TICKET_ALREADY_RETURNED`라 인원이 두 번 빠지지 않는다.
@@ -224,6 +240,7 @@
 | `PAYMENT_NOT_CONFIRMED`, `PARTIAL_PAYMENT_REJECTED`, `TICKET_LEDGER_INCOMPLETE` | 결제·발권 저장(기존 아웃박스)이 끝난 뒤 같은 `request_id`로 다시 E3. 입장 처리하지 않음 |
 | `REQUEST_ID_CONFLICT` | 단말 오류. 새 동작이면 새 `request_id` |
 | `TICKET_ALREADY_RETURNED`, `TICKET_ALREADY_ENTERED`, `ENTRY_EXISTS_OTHER_ORDER`, `ALREADY_ISSUED_OTHER_ORDER` | 재시도 금지. 화면을 새로 읽어(E4·E5) 현재 상태를 보여 줌 |
+| `UNSETTLED_ORDERS` | 자동 재시도 금지. `unsettled_orders`를 보여 주고 결제(또는 환불)를 원장에 기록한다. 매표 저장 대기 중이면 아웃박스 전송을 끝낸다. 그 뒤 직원이 다시 누를 때 같은 `request_id` 사용 (실패는 저장되지 않으므로 새로 판정) |
 | 그 밖의 `ok:false` | 재시도 금지, 메시지 표시 |
 
 ## 5. 호출 알림 (발송 원장 분리)
@@ -278,3 +295,15 @@
   - `safety_consents.entry_at/exit_at`은 비어 있을 때만 채운다.
 - **복구:** 새 표·함수·트리거만 삭제하면 원래 상태다(`test_supabase_install/90_reset_visit_entry.sql`, 시험 설치 전용 보호 있음). 결제·발권·대기열 원장은 이 마이그레이션이 바꾸지 않는다.
   - 예외: E3 성공 시의 대기열 `issued` 전환은 기존 발권 완료와 같은 결과로 남는다.
+
+## 9. 미정산 차단의 한계와 결정 사항 (2026-11-03 반납 계약 검토)
+
+- **서버가 확인하는 것:** 이 방문에 연결된 주문의 품목 금액과 결제 원장의 차이. 기존 원장(`order_items`·`order_payments`)으로 판정한다.
+  - 매표 `createOrder`는 품목과 결제를 따로 올리므로, 한쪽만 서버에 도착한 상태가 실제로 생긴다. 이 상태가 차단된다.
+- **서버가 확인하지 못하는 것 (화면 검사로 대신하지 않음, 결정 필요):**
+  1. **초과 이용 요금:** 기본권 2시간을 넘긴 경우의 요금 품목·금액·규칙이 카탈로그와 계약에 없다. 받는다면 반납 전에 `order_items`(방문 연동 `visit_id` 또는 `consent_id`, 새 품목 id)와 `order_payments`에 기록해야 7번이 판정한다.
+  2. **팔찌 분실·파손 배상:** 금액과 품목이 없다. 받는다면 1과 같은 방식으로 기록한다.
+  3. **방문과 연결하지 않은 매점 결제:** POS에서 방문을 고르지 않은 주문은 이 방문으로 판정할 수 없다. 체류 중 구매를 방문에 반드시 연동할지 정해야 한다.
+  4. **서버 미도착 아웃박스 건:** 단말에만 있는 주문·결제는 서버가 볼 수 없다. 근본 해결은 품목·결제를 한 RPC로 원자적으로 저장하는 것이다(별도 작업).
+  5. **비상 퇴장:** 미정산이어도 퇴장 기록이 필요한 경우(대피, 보호자 응급 이동 등)의 예외 절차와 권한을 정해야 한다. 현재는 예외가 없다.
+  6. **돌려줄 돈(`balance < 0`)도 차단할지:** 현재는 차단한다.

@@ -141,6 +141,42 @@ BEGIN
 END;
 $$;
 
+-- 방문 미정산 주문 (반납 차단 근거, 읽기 전용).
+-- 대상 주문: 이 방문 서약서에 연결된 주문 — order_items·order_payments 의 consent_id 가 서약서 id 이거나,
+--   visit_id 가 서약서의 visit_id 또는 서약서 id (매점 POS 가 방문 연동 시 쓰는 값)인 주문.
+-- 주문별 활성 품목 금액(paid_amount, 0 이면 total_price)과 유효 결제 합계(status='paid', 미취소)가 다르면 미정산이다.
+--   balance > 0 : 받을 돈 (품목만 있고 결제가 없거나 모자람)
+--   balance < 0 : 돌려줄 돈 (품목은 취소됐는데 결제가 남음)
+-- 서버에 아직 올라오지 않은 단말 아웃박스 건은 보이지 않는다 (계약 E6 한계).
+CREATE OR REPLACE FUNCTION private.visit_unsettled_orders(p_consent_id TEXT)
+RETURNS JSONB LANGUAGE sql STABLE SET search_path = public, pg_temp AS $$
+    WITH keys AS (
+        SELECT DISTINCT k FROM (
+            SELECT p_consent_id AS k
+            UNION ALL
+            SELECT c.visit_id FROM public.safety_consents c WHERE c.id = p_consent_id AND c.visit_id IS NOT NULL
+        ) x WHERE k IS NOT NULL
+    ), orders AS (
+        SELECT order_id FROM public.order_items
+         WHERE order_id IS NOT NULL AND (consent_id = p_consent_id OR visit_id IN (SELECT k FROM keys))
+        UNION
+        SELECT order_id FROM public.order_payments
+         WHERE order_id IS NOT NULL AND (consent_id = p_consent_id OR visit_id IN (SELECT k FROM keys))
+    ), sums AS (
+        SELECT o.order_id,
+               (SELECT COALESCE(SUM(CASE WHEN COALESCE(i.paid_amount, 0) > 0 THEN i.paid_amount ELSE COALESCE(i.total_price, 0) END), 0)
+                  FROM public.order_items i
+                 WHERE i.order_id = o.order_id AND COALESCE(i.status, 'paid') <> 'cancelled' AND i.cancelled_at IS NULL) AS item_total,
+               (SELECT COALESCE(SUM(p.amount), 0)
+                  FROM public.order_payments p
+                 WHERE p.order_id = o.order_id AND p.status = 'paid' AND p.cancelled_at IS NULL) AS paid_total
+          FROM orders o
+    )
+    SELECT COALESCE(jsonb_agg(jsonb_build_object('order_id', order_id, 'item_total', item_total, 'paid_total', paid_total,
+                                                  'balance', item_total - paid_total) ORDER BY order_id), '[]'::jsonb)
+      FROM sums WHERE item_total <> paid_total
+$$;
+
 -- 입장 기록 1건의 직원용 표현 (전화번호 전체·실명·자녀·consent_id 없음)
 CREATE OR REPLACE FUNCTION private.visit_entry_json(p_entry_id TEXT, p_today DATE)
 RETURNS JSONB LANGUAGE sql STABLE SET search_path = public, pg_temp AS $$
@@ -161,7 +197,9 @@ RETURNS JSONB LANGUAGE sql STABLE SET search_path = public, pg_temp AS $$
         'tickets', (SELECT COALESCE(jsonb_agg(jsonb_build_object(
                         'ticket_id', t.ticket_id, 'product_name', t.product_name,
                         'returned', t.returned_at IS NOT NULL, 'returned_at', t.returned_at) ORDER BY t.ticket_id), '[]'::jsonb)
-                      FROM public.visit_entry_tickets t WHERE t.entry_id = e.id)
+                      FROM public.visit_entry_tickets t WHERE t.entry_id = e.id),
+        'settlement', (SELECT jsonb_build_object('settled', jsonb_array_length(u.v) = 0, 'unsettled_orders', u.v)
+                         FROM (SELECT private.visit_unsettled_orders(e.consent_id) AS v) u)
     )
     FROM public.visit_entries e
     LEFT JOIN public.ticket_queue q ON q.id = e.queue_id
@@ -531,6 +569,7 @@ DECLARE
     v_returned INTEGER;
     v_status TEXT;
     v_resp JSONB;
+    v_unsettled JSONB;
 BEGIN
     IF NOT private.verify_staff_permission(p_access_code, p_site_id) THEN
         RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED_STAFF', 'message', '직원 인증에 실패했거나 시설 권한이 없습니다.');
@@ -581,6 +620,17 @@ BEGIN
     ELSE
         SELECT array_agg(ticket_id ORDER BY ticket_id) INTO v_targets
           FROM public.visit_entry_tickets WHERE entry_id = p_entry_id AND returned_at IS NULL;
+    END IF;
+
+    IF v_targets IS NOT NULL AND array_length(v_targets, 1) IS NOT NULL THEN
+        -- 미정산 차단: 이 방문에 연결된 주문의 품목 금액과 유효 결제가 다르면 반납을 반영하지 않는다
+        --   (같은 트랜잭션·시설 잠금 안에서 원장을 다시 읽는다. 화면 검사 결과는 근거로 쓰지 않는다)
+        v_unsettled := private.visit_unsettled_orders(v_entry.consent_id);
+        IF jsonb_array_length(v_unsettled) > 0 THEN
+            RETURN jsonb_build_object('ok', false, 'error', 'UNSETTLED_ORDERS', 'entry_id', p_entry_id,
+                'unsettled_orders', v_unsettled,
+                'message', '이 방문에 정산되지 않은 주문이 있어 반납을 반영하지 않았습니다. 결제(또는 환불)를 원장에 기록한 뒤 다시 시도해 주세요.');
+        END IF;
     END IF;
 
     IF v_targets IS NULL OR array_length(v_targets, 1) IS NULL THEN
@@ -852,6 +902,7 @@ REVOKE ALL ON FUNCTION private.visit_sorted_ids(JSONB) FROM PUBLIC, anon, authen
 REVOKE ALL ON FUNCTION private.visit_request_replay(TEXT, TEXT, TEXT, JSONB) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION private.visit_entry_json(TEXT, DATE) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION private.visit_reconcile_order(TEXT, TEXT, JSONB) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION private.visit_unsettled_orders(TEXT) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION private.trg_queue_call_notification() FROM PUBLIC, anon, authenticated;
 
 REVOKE ALL ON FUNCTION public.verify_visit_guardian_last4(TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
