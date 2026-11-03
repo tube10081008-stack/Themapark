@@ -917,10 +917,12 @@ create policy "audits_insert" on public.safety_audits
   with check (true);
 
 -- 점검 일지 수정은 당일 작성 중에만 허용 (과거 점검 기록 사후 위조 방지)
+--   ※ current_date 는 서버 UTC 기준이라 KST 00~09시에 "오늘" 기록 수정이 막히고 "어제" 기록 수정이 열렸다.
+--     서약서 정책·안전 인터록 트리거와 같이 KST 로 고정한다 (CLAUDE-011 C2, 2026-10-15 벤 R2 결정).
 create policy "audits_update" on public.safety_audits
   for update to anon
-  using (audit_date = current_date)
-  with check (audit_date = current_date);
+  using (audit_date = (now() at time zone 'Asia/Seoul')::date)
+  with check (audit_date = (now() at time zone 'Asia/Seoul')::date);
 
 -- ※ DELETE 정책: 등록하지 않음 (과거 안전점검 기록 임의 삭제 불가)
 
