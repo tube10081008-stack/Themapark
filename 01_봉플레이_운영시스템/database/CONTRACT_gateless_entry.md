@@ -237,7 +237,9 @@
   - 같은 팀의 그날 발송 대상이 3건을 넘음
 - **상태:**
   - `pending` → 작업자 수령(`sending`, 임대 2분) → `sent` / `retry`(`pending`으로, 다음 시도 시각 지정) / `failed`(3회 소진) / `unknown`(공급사 접수 여부 불명, 자동 재발송 안 함)
-  - 수령 시점에 팀이 더 이상 `called`가 아니거나 호출 뒤 15분이 지났으면 `expired`(발송 안 함)
+  - 수령 시점에 다음 중 하나면 `expired`(발송 안 함): 팀이 더 이상 `called`가 아님, 호출 뒤 15분이 지남, 같은 팀에 더 새로운 발송 대상 알림(60초 뒤 재호출)이 있음. 따라서 한 팀에 동시에 두 알림이 나가지 않는다
+  - 알림은 팀 상태가 `called`일 때의 호출·재호출에만 만든다. 처리 중(`processing`) 팀을 재호출해도 알림을 만들지 않는다
+  - 작업자가 수령 후 보고 없이 임대가 끝나면 다시 보내지 않고 `unknown`으로 둔다(이미 발송됐을 수 있으므로)
 - **실패 처리:** 발송 실패·불명은 대기열을 바꾸지 않는다. 다음 팀을 자동 호출하지 않고, 같은 호출을 다시 발송하지 않는다. 매표소는 육성 호출을 계속한다.
 - **작업자 함수 (`service_role` 전용, anon 불가):**
   - `claim_queue_call_notifications(p_limit int default 10, p_lease_seconds int default 120)` → `{ok, items:[{notification_id, claim_token, queue_id, formatted_number, desk_no, recipient_phone, attempt}]}`
@@ -274,5 +276,5 @@
   - 기존 `complete_queue_issuance`와 구 게이트 화면은 남는다. 새 화면 배포 전까지 기존 흐름이 그대로 동작한다.
   - 구 경로로 이미 `issued`된 팀은 같은 주문으로 E3를 부르면 입장 기록이 생긴다(6번 호환).
   - `safety_consents.entry_at/exit_at`은 비어 있을 때만 채운다.
-- **복구:** 새 표와 함수만 삭제하면 원래 상태다(`90_reset_visit_entry.sql`). 결제·발권·대기열 원장은 이 마이그레이션이 바꾸지 않는다.
+- **복구:** 새 표·함수·트리거만 삭제하면 원래 상태다(`test_supabase_install/90_reset_visit_entry.sql`, 시험 설치 전용 보호 있음). 결제·발권·대기열 원장은 이 마이그레이션이 바꾸지 않는다.
   - 예외: E3 성공 시의 대기열 `issued` 전환은 기존 발권 완료와 같은 결과로 남는다.

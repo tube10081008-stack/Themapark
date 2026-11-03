@@ -30,8 +30,16 @@ queue_rpcs(f) as (values
   ('call_next_queue_team'), ('recall_queue_team'), ('start_queue_processing'), ('hold_queue_team'),
   ('restore_queue_team'), ('cancel_queue_team'), ('complete_queue_issuance'), ('get_staff_queue_list'),
   ('set_desk_pause_status')),
+-- BEN-ENTRY-01 게이트 없는 입장: 직원 RPC 7개 (함수 안 운영 암호 검증). 발송 작업자 RPC 2개는 service_role 전용.
+visit_rpcs(f) as (values
+  ('verify_visit_guardian_last4'), ('confirm_visit_entry'), ('search_visit_entries'), ('get_visit_entry'),
+  ('return_visit_wristbands'), ('get_visit_occupancy'), ('get_queue_call_notifications')),
+visit_worker_rpcs(f) as (values ('claim_queue_call_notifications'), ('report_queue_call_notification')),
+visit_tables(t) as (values ('visit_entries'), ('visit_entry_tickets'), ('visit_identity_checks'),
+  ('visit_entry_requests'), ('queue_call_notifications')),
 anon_rpc_allow(f) as (
   select f from queue_rpcs
+  union all select f from visit_rpcs
   union all values ('verify_staff_access'), ('get_today_consents_secure'), ('mask_expired_consents_secure')),
 fns as (
   select p.oid, n.nspname, p.proname, p.prosecdef, p.proconfig
@@ -147,6 +155,44 @@ checks(level, check_id, ok, detail) as (
                                           where a.grantee = 0 and a.privilege_type = 'EXECUTE')), '')
   from fns f join pg_proc p on p.oid = f.oid cross join api_roles r
   where f.nspname = 'public' and f.proname = 'lookup_family_children'
+  union all
+  select 'FAIL', 'V01 게이트 없는 입장 표 5개 (BEN-ENTRY-01)',
+         bool_and(to_regclass('public.' || t) is not null),
+         coalesce(string_agg(t, ', ') filter (where to_regclass('public.' || t) is null), 'PROPOSED_MIGRATION_visit_entry.sql')
+  from visit_tables
+  union all
+  select 'FAIL', 'V02 입장 표 RLS 켜짐',
+         bool_and(coalesce(c.relrowsecurity, false)),
+         coalesce(string_agg(t.t, ', ') filter (where not coalesce(c.relrowsecurity, false)), '')
+  from visit_tables t left join pg_class c on c.oid = to_regclass('public.' || t.t)
+  union all
+  select 'FAIL', 'V03 anon·authenticated 의 입장 표 직접 권한 없음',
+         coalesce(not bool_or(has_table_privilege(r.r, 'public.' || v.t, p.p)), true),
+         coalesce(string_agg(r.r || ':' || v.t || ':' || p.p, ', ') filter (where has_table_privilege(r.r, 'public.' || v.t, p.p)), '')
+  from api_roles r cross join visit_tables v cross join privs p
+  where to_regclass('public.' || v.t) is not null
+  union all
+  select 'FAIL', 'V04 입장 직원 RPC 7개 anon 실행 가능 (함수 안 암호 검증)',
+         count(*) filter (where exists (select 1 from fns f where f.nspname = 'public' and f.proname = v.f
+                                        and has_function_privilege('anon', f.oid, 'EXECUTE'))) = 7,
+         coalesce(string_agg(v.f, ', ') filter (where not exists (select 1 from fns f where f.nspname = 'public' and f.proname = v.f
+                                        and has_function_privilege('anon', f.oid, 'EXECUTE'))), '')
+  from visit_rpcs v
+  union all
+  select 'FAIL', 'V05 발송 작업자 RPC 는 service_role 만 (anon·authenticated·PUBLIC 불가)',
+         count(*) = 2 and bool_and(has_function_privilege('service_role', f.oid, 'EXECUTE')
+             and not has_function_privilege('anon', f.oid, 'EXECUTE')
+             and not has_function_privilege('authenticated', f.oid, 'EXECUTE')
+             and not exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                              where a.grantee = 0 and a.privilege_type = 'EXECUTE')),
+         coalesce(string_agg(f.proname, ', '), '')
+  from fns f join pg_proc p on p.oid = f.oid
+  where f.nspname = 'public' and f.proname in (select f from visit_worker_rpcs)
+  union all
+  select 'FAIL', 'V06 호출 알림 트리거(ticket_queue)·입장 원장 인터록 트리거(visit_entries)',
+         exists (select 1 from pg_trigger where tgname = 'trg_queue_call_notification' and tgrelid = to_regclass('public.ticket_queue'))
+         and exists (select 1 from pg_trigger where tgname = 'trg_safety_interlock' and tgrelid = to_regclass('public.visit_entries')),
+         '대기열 SQL 을 다시 설치했다면 PROPOSED_MIGRATION_visit_entry.sql 도 다시 실행'
   union all
   select 'FAIL', 'Q03 창구 시드 2개 이상',
          (select count(*) from public.ticket_queue_desks) >= 2, ''

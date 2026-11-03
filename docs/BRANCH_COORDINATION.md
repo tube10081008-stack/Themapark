@@ -153,3 +153,6 @@ COORD-007 / Ben / ben/COORD-007-live-targets / 기준 ed5a2ce / 운영 대상 �
 
 기준 master `892a06143ebe69e64a77761cd5793ab199c9755b` (R2 기준 `dd7dc19`).
 - ANT-006 / 아난티 / `antigravity/ANT-006-ticket-queue` / `01_봉플레이_운영시스템/assets/bongplay-queue.js`, `pages/queue-status.html`, `pages/queue-display.html`, `database/PROPOSED_MIGRATION_ticket_queue.sql`, `tests/ticket_queue.test.js`, `tests/e2e_ticket_queue_flows.js`, `pages/consent.html`, `pages/consent-desk.html`, `index.html` / R1 6대 수정 및 R2 4대 필수 수정(토큰전용 조회·만료·RateLimit, RPC 서명 일치, 서버측 직원·시설 인증, 결제·서약·티켓 원장 전수 대사 및 멱등 재시도) 완결. 단위 19건 통과(19.5ms), CDP 헤드리스 4세션 실사용 E2E 6단계 통과(19.32초), 기존 회귀 57건 전수 통과 / 보고서 `docs/qa/ANT-006_발권대기열.md` 갱신 및 벤 검토 대기.
+
+## BEN-ENTRY-01 게이트 없는 발권·입장·반납 (2026-11-03)
+BEN-ENTRY-01 | 클로이 | `claude/BEN-ENTRY-01-gateless-entry` | 기준 `8df36cf` (`claude/CLAUDE-011-queue-followup`, master `892a061` 에는 대기열 SQL 없음) | `01_…/database/CONTRACT_gateless_entry.md`, `PROPOSED_MIGRATION_visit_entry.sql`, 설치 묶음(ORDER·60·90·91)·설치 검증 스크립트, `tests/queue-contract/visit-entry/`, `docs/qa/BEN-ENTRY-01_게이트없는입장_서버구현.md`, 본 행 | 계약 `a96b801` 선커밋, 합성 PostgreSQL 시험 17/17·설치 검증 전체 통과, 화면·운영 DB·알림톡 발송 없음 | 벤 검토 대기 / 아난티 화면 착수 가능

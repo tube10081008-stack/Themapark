@@ -30,6 +30,7 @@ PORT="${PORT:-55433}"
 API_PORT="${API_PORT:-3011}"
 DB=bp_test
 QUEUE_SQL="${QUEUE_SQL:-$DB_DIR/PROPOSED_MIGRATION_ticket_queue.sql}"   # 대조 실행용으로 다른 판본 지정 가능
+VISIT_SQL="$DB_DIR/PROPOSED_MIGRATION_visit_entry.sql"                  # BEN-ENTRY-01 (대기열 표에 트리거를 둔다)
 TEST_CODE="SYN-TEST-$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')"   # 실행마다 새로 만드는 시험 전용 값
 JWT_SECRET="SYN-LOCAL-JWT-SECRET-$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 TMP="$(mktemp -d)"
@@ -123,6 +124,7 @@ left=$(psql_as postgres "$DB" -t -A -c "select count(*) from pg_class where reln
 base=$(psql_as postgres "$DB" -t -A -c "select count(*) from public.safety_consents")
 [ "$left" = 0 ] && ok "대기열 표 0개, 서약서 ${base}건 유지" || bad "대기열 표 ${left}개 남음"
 apply "$DB" "$QUEUE_SQL"
+apply "$DB" "$VISIT_SQL"   # 대기열 표를 다시 만들면 그 위의 호출 알림 트리거도 다시 둔다
 verify "대기열 재설치"
 
 step "F. 91 전체 초기화 → 처음부터 설치"
@@ -144,6 +146,7 @@ expect_fail bp_nomarker "$TMP/40.sql" "시험 설치 표시"
 expect_fail bp_nomarker "$BUNDLE/50_synthetic_seed.sql" "시험 설치 표시"
 expect_fail bp_nomarker "$BUNDLE/90_reset_queue.sql" "시험 설치 표시"
 expect_fail bp_nomarker "$BUNDLE/91_reset_all_test.sql" "시험 설치 표시"
+expect_fail bp_nomarker "$BUNDLE/90_reset_visit_entry.sql" "시험 설치 표시"
 expect_fail "$DB" "$BUNDLE/40_test_staff_code.sql" "자리표시자"
 
 step "H. 서약서 취소 3열(C1): 기존 행 호환·반복 적용·권한"
@@ -173,7 +176,20 @@ done
 [ "$(lookup_open)" = "f" ] && ok "2회 적용 후 PUBLIC·anon·authenticated 실행 권한 없음" || bad "적용 후에도 익명 실행 가능"
 psql_as postgres bp_compat -f "$DB_DIR/FINAL_SUPABASE_SETUP.sql" > "$TMP/i2.log" 2>&1 || bad "FINAL 재실행 실패"
 [ "$(lookup_open)" = "f" ] && ok "FINAL 재실행(CREATE OR REPLACE) 뒤에도 차단 유지" || bad "FINAL 재실행 뒤 익명 실행 권한이 되살아남"
+apply bp_compat "$VISIT_SQL"
 DB_SAVE="$DB"; DB=bp_compat; verify "호환 점검 DB (차단 적용 후)"; DB="$DB_SAVE"
+
+step "J. 게이트 없는 입장(BEN-ENTRY-01): 운영 중 DB(기존 행) 위 2회 적용 → 90_reset_visit_entry 복구 → 재적용"
+cnt() { psql_as postgres "$DB" -Atc "select (select count(*) from public.safety_consents) || '/' || (select count(*) from public.ticket_queue) || '/' || (select count(*) from public.order_items) || '/' || (select count(*) from public.ticket_ledger)"; }
+before=$(cnt)
+apply "$DB" "$VISIT_SQL"; apply "$DB" "$VISIT_SQL"
+verify "입장 마이그레이션 2회 적용 후"
+apply "$DB" "$BUNDLE/90_reset_visit_entry.sql"
+left=$(psql_as postgres "$DB" -Atc "select count(*) from pg_class where relnamespace = 'public'::regnamespace and relname in ('visit_entries','visit_entry_tickets','visit_identity_checks','visit_entry_requests','queue_call_notifications')")
+trg=$(psql_as postgres "$DB" -Atc "select count(*) from pg_trigger where tgname = 'trg_queue_call_notification'")
+[ "$left" = 0 ] && [ "$trg" = 0 ] && [ "$(cnt)" = "$before" ] && ok "복구: 입장 표·트리거 0개, 서약서/대기열/품목/티켓 수 유지 ($before)" || bad "복구 후 남은 표 ${left}, 트리거 ${trg}, 수 $(cnt) (전 $before)"
+apply "$DB" "$VISIT_SQL"
+verify "복구 후 재적용"
 
 step "결과"
 if [ "$FAILS" -eq 0 ]; then echo "전체 통과"; else echo "실패 ${FAILS}건"; fi
