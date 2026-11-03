@@ -105,24 +105,41 @@ async function team(c, s, label, phone, { verify = true, start = true, desk = 1 
   if (start) assert.equal((await s.rpc('start_queue_processing', { p_queue_id: e.id, p_desk_no: desk })).ok, true);
   return { cid, qid: e.id, phone };
 }
-/** createOrder 와 같은 원장: 입장권 n장(+선택 매점 품목), 결제, 티켓 */
-async function ledger(c, cid, { qty = 2, price = 18000, pay = 'full', tickets = true, fnb = 0, ticketItems = true } = {}) {
+/**
+ * 매표 createOrder 와 같은 원장 (consent-desk: sales_channel 'desk_ticketing', 품목 1줄 = 상품 1종, list_price·unit_price = 단가).
+ * qty: 어린이 기본권 수, guardian: 보호자 입장권 수, socks: 논슬립 양말 켤레, fnb: 매점 품목 금액(허용 안 됨 — 거부 시험용),
+ * extra: [{product_id, category, qty, unit, discount}] 직접 지정 줄. pay: 'full' | 'partial' | 'none' | 금액(숫자)
+ */
+async function ledger(c, cid, { qty = 2, price = 18000, guardian = 0, guardianPrice = 5000, socks = 0, socksPrice = 3000,
+  pay = 'full', tickets = true, fnb = 0, ticketItems = true, channel = 'desk_ticketing', extra = [] } = {}) {
   const order = uid('ORD');
-  if (ticketItems) await c.query(`insert into public.order_items (item_id, order_id, product_id, product_name, product_category, unit_price, quantity, list_price, paid_amount, consent_id, status, site_id, purchased_at)
-    values ($1, $2, 'tkt_basic', 'SYN 기본이용권', 'ticket', $3::bigint, $4::int, $3::bigint * $4::int, $3::bigint * $4::int, $5, 'paid', $6, now())`, [order + '-I1', order, price, qty, cid, SITE]);
-  if (fnb) await c.query(`insert into public.order_items (item_id, order_id, product_id, product_name, product_category, unit_price, quantity, list_price, paid_amount, consent_id, status, site_id, purchased_at)
-    values ($1, $2, 'fnb_americano', 'SYN 아메리카노', 'fnb', $3::bigint, 1, $3::bigint, $3::bigint, $4, 'paid', $5, now())`, [order + '-F1', order, fnb, cid, SITE]);
-  const total = (ticketItems ? price * qty : 0) + fnb;
-  const amount = pay === 'full' ? total : pay === 'partial' ? Math.floor(total / 2) : 0;
+  const lines = [];
+  if (ticketItems && qty > 0) lines.push({ id: 'tkt_basic', name: 'SYN 어린이 기본이용권', cat: 'ticket', qty, unit: price, disc: 0 });
+  if (guardian > 0) lines.push({ id: 'tkt_guardian', name: 'SYN 보호자 입장권', cat: 'ticket', qty: guardian, unit: guardianPrice, disc: 0 });
+  if (socks > 0) lines.push({ id: 'md_safety_socks', name: 'SYN 논슬립 양말', cat: 'merchandise', qty: socks, unit: socksPrice, disc: 0 });
+  if (fnb) lines.push({ id: 'fnb_americano', name: 'SYN 아메리카노', cat: 'fnb', qty: 1, unit: fnb, disc: 0 });
+  for (const x of extra) lines.push({ id: x.product_id, name: 'SYN ' + x.product_id, cat: x.category, qty: x.qty ?? 1, unit: x.unit, disc: x.discount ?? 0, amount: x.amount });
+  let n = 0;
+  for (const l of lines) {
+    const amount = l.amount ?? l.unit * l.qty - l.disc;
+    await c.query(`insert into public.order_items (item_id, order_id, product_id, product_name, category, product_category, unit_price, quantity, list_price,
+        discount_amount, total_price, paid_amount, consent_id, status, site_id, sales_channel, purchased_at)
+      values ($1, $2, $3, $4, $5, $5, $6::bigint, $7::int, $6::bigint, $8::bigint, $9::bigint, $9::bigint, $10, 'paid', $11, $12, now())`,
+      [`${order}-I${++n}`, order, l.id, l.name, l.cat, l.unit, l.qty, l.disc, amount, cid, SITE, channel]);
+    l.amountCalc = amount;
+  }
+  const total = lines.reduce((a, l) => a + l.amountCalc, 0);
+  const amount = pay === 'full' ? total : pay === 'partial' ? Math.floor(total / 2) : pay === 'none' ? 0 : pay;
   if (amount > 0) await c.query(`insert into public.order_payments (id, order_id, site_id, consent_id, method, amount, status) values ($1, $2, $3, $4, 'card', $5, 'paid')`,
     [order + '-P1', order, SITE, cid, amount]);
   const ids = [];
-  if (ticketItems) for (let i = 1; i <= qty; i++) {
-    ids.push(`${order}-T${i}`);
-    if (tickets) await c.query(`insert into public.ticket_ledger (ticket_id, site_id, order_id, consent_id, status, product_id, product_name, price_paid) values ($1, $2, $3, $4, 'active', 'tkt_basic', 'SYN 기본이용권', $5)`,
-      [`${order}-T${i}`, SITE, order, cid, price]);
+  for (const l of lines.filter((x) => x.cat === 'ticket')) for (let k = 1; k <= l.qty; k++) {
+    const tid = `${order}-${l.id}-T${k}`;
+    ids.push(tid);
+    if (tickets) await c.query(`insert into public.ticket_ledger (ticket_id, site_id, order_id, consent_id, status, product_id, product_name, price_paid) values ($1, $2, $3, $4, 'active', $5, $6, $7)`,
+      [tid, SITE, order, cid, l.id, l.name, l.unit]);
   }
-  return { order, tickets: ids };
+  return { order, tickets: ids, total };
 }
 async function ledgerSnapshot(c) {
   const out = {};
@@ -264,19 +281,21 @@ test('V04 두 단말 동시 확정 (다른 request_id): 하나만 쓰고 다른 
   });
 });
 
-test('V05 매점 단독 주문은 입장객을 늘리지 않는다 (확정 거부, 체류 중 추가 구매도 인원 불변)', { skip }, async () => {
+test('V05 매점 품목은 매표 주문에 넣을 수 없고, 매점 단독 주문·체류 중 매점 구매는 입장객을 늘리지 않는다', { skip }, async () => {
   await scenario(async ({ c, open }) => {
     const s = await open();
     const t = await team(c, s, 'A', '010-2000-0003');
     const store = await ledger(c, t.cid, { ticketItems: false, fnb: 3500 });
     const r = await s.rpc('confirm_visit_entry', { p_queue_id: t.qid, p_order_id: store.order, p_ticket_ids: ['SYN-NONE-1'], p_request_id: rid() });
-    assert.equal(r.error, 'ORDER_TICKET_ITEMS_EMPTY', JSON.stringify(r));
-    const o = await ledger(c, t.cid, { qty: 2, fnb: 4000 });
-    assert.equal((await confirm(s, t, o)).ok, true, '입장권+매점 혼합 주문은 입장권 수만큼');
+    assert.equal(r.error, 'ORDER_PRODUCT_NOT_ALLOWED', JSON.stringify(r));
+    const mixed = await ledger(c, t.cid, { qty: 2, fnb: 4000 });
+    const rm = await confirm(s, t, mixed);
+    assert.deepEqual([rm.error, rm.products], ['ORDER_PRODUCT_NOT_ALLOWED', ['fnb_americano:fnb']]);
+    const o = await ledger(c, t.cid, { qty: 2 });
+    assert.equal((await confirm(s, t, o)).ok, true);
     const occ1 = await s.rpc('get_visit_occupancy', {});
-    await ledger(c, t.cid, { ticketItems: false, fnb: 2500 });   // 체류 중 매점 추가 구매
-    await c.query(`insert into public.order_items (item_id, order_id, product_id, product_category, quantity, paid_amount, status, site_id, purchased_at)
-      values ($1, $1, 'fnb_water', 'fnb', 1, 1000, 'paid', $2, now())`, [uid('WALKUP'), SITE]);   // 서약 없는 매점 손님
+    await c.query(`insert into public.order_items (item_id, order_id, product_id, product_category, quantity, paid_amount, status, site_id, sales_channel, purchased_at)
+      values ($1, $1, 'fnb_water', 'fnb', 1, 1000, 'paid', $2, 'pos_kiosk', now())`, [uid('WALKUP'), SITE]);   // 서약 없는 키오스크 손님
     const occ2 = await s.rpc('get_visit_occupancy', {});
     assert.deepEqual([occ1.cumulative_visitors, occ1.current_inside], [2, 2]);
     assert.deepEqual(occ2, occ1);
@@ -677,9 +696,12 @@ test('V19 혼합 주문(입장권+매점 한 주문): 귀속 판정 불가는 �
   await scenario(async ({ c, open }) => {
     const s = await open();
     const t = await team(c, s, 'M', '010-2100-0002');
-    const o = await ledger(c, t.cid, { qty: 2, fnb: 4000 });   // 36,000 + 4,000 = 40,000 전액 결제
+    const o = await ledger(c, t.cid, { qty: 2 });               // 입장권 36,000 전액 결제로 입장
     const e = await confirm(s, t, o);
-    await repay(c, t.cid, o.order, 38000);                      // 2,000 부족 — 입장권 몫인지 매점 몫인지 알 수 없음
+    // 규칙 이전의 과거 혼합 주문 모사: 같은 주문에 매점 품목 4,000 (현재 매표 주문 규칙으로는 새로 만들 수 없음)
+    await c.query(`insert into public.order_items (item_id, order_id, product_id, product_name, category, product_category, unit_price, quantity, list_price, paid_amount, consent_id, status, site_id, sales_channel, purchased_at)
+      values ($1, $2, 'fnb_americano', 'SYN 아메리카노', 'fnb', 'fnb', 4000, 1, 4000, 4000, $3, 'paid', $4, 'desk_ticketing', now())`, [o.order + '-LEGACY', o.order, t.cid, SITE]);
+    await repay(c, t.cid, o.order, 38000);                      // 40,000 중 2,000 부족 — 입장권 몫인지 매점 몫인지 알 수 없음
     const r = await s.rpc('return_visit_wristbands', { p_entry_id: e.entry_id, p_ticket_ids: [o.tickets[0]], p_request_id: rid() });
     assert.equal(r.error, 'UNSETTLED_TICKET_ORDER');
     assert.equal(r.attribution_undeterminable, true);
@@ -780,5 +802,91 @@ test('V21 비상 대피 사후 기록: 정산·인터록과 독립, 대피 시�
     await passAudit(c);   // (결제 원장 쓰기는 기존 인터록을 따른다)
     await c.query(`insert into public.order_payments (id, order_id, site_id, consent_id, method, amount, status) values ($1, $2, $3, $4, 'cash', 18000, 'paid')`, [uid('PAY'), E3.o.order, SITE, E3.t.cid]);
     assert.equal((await s.rpc('resolve_visit_followup', { p_followup_id: pay.followup_id, p_request_id: rid() })).ok, true);
+  });
+});
+
+test('V22 확정 예시: 어린이 기본권 2명 36,000 + 보호자 1명 5,000 + 양말 2켤레 6,000 = 47,000원, 발권·입장 3명 (양말은 별도 줄·인원 없음)', { skip }, async () => {
+  await scenario(async ({ c, open }) => {
+    const s = await open();
+    const t = await team(c, s, 'S', '010-2300-0001');
+    const o = await ledger(c, t.cid, { qty: 2, guardian: 1, socks: 2 });
+    assert.equal(o.total, 47000);
+    assert.equal(o.tickets.length, 3, '티켓 원장은 이용권 3장만 (양말 없음)');
+    const before = await ledgerSnapshot(c);
+    const r = await confirm(s, t, o);
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.deepEqual([r.ticket_count, r.inside_count], [3, 3]);
+    const sum = r.order_summary;
+    assert.deepEqual([sum.item_total, sum.paid_total, sum.visitor_count], [47000, 47000, 3]);
+    assert.deepEqual(sum.lines.map((l) => [l.product_id, l.kind, l.quantity, l.unit_price, l.amount, l.creates_visitors]), [
+      ['tkt_basic', 'ticket', 2, 18000, 36000, true],
+      ['tkt_guardian', 'ticket', 1, 5000, 5000, true],
+      ['md_safety_socks', 'socks', 2, 3000, 6000, false]]);
+    assert.deepEqual(await ledgerSnapshot(c), before, '원장 불변');
+    const db = (await c.query(`select (select count(*) from public.visit_entry_tickets)::int tickets,
+        (select ticket_count from public.visit_entries) tc,
+        (select count(*) from public.visit_entry_tickets where product_id = 'md_safety_socks')::int socks`)).rows[0];
+    assert.deepEqual(db, { tickets: 3, tc: 3, socks: 0 });
+    let occ = await s.rpc('get_visit_occupancy', {});
+    assert.deepEqual([occ.entered_teams, occ.cumulative_visitors, occ.current_inside], [1, 3, 3]);
+    const st = (await s.rpc('get_visit_entry', { p_entry_id: r.entry_id })).entry.settlement;
+    assert.deepEqual([st.return_blocked, st.blocking_orders, st.refund_due, st.other_due], [false, [], [], []], '양말 포함 주문도 정산 완료');
+    const out = await s.rpc('return_visit_wristbands', { p_entry_id: r.entry_id, p_return_all: true, p_request_id: rid() });
+    assert.deepEqual([out.ok, out.returned_now.length, out.inside_count], [true, 3, 0]);
+    occ = await s.rpc('get_visit_occupancy', {});
+    assert.deepEqual([occ.cumulative_visitors, occ.current_inside, occ.exited_visitors], [3, 0, 3]);
+  });
+});
+
+test('V23 매표 주문 품목·금액 서버 검증: 양말 단가·할인, 합계 초과·미달, 허용 밖 품목, 키오스크 경로, 줄 금액, 양말을 티켓으로 요청 — 모두 아무것도 쓰지 않음', { skip }, async () => {
+  await scenario(async ({ c, open }) => {
+    const s = await open();
+    const t = await team(c, s, 'V', '010-2300-0002');
+    const expectReject = async (o, code, extraArgs = {}) => {
+      const before = await counts(c);
+      const r = await confirm(s, t, o, extraArgs);
+      assert.equal(r.error, code, JSON.stringify(r));
+      assert.deepEqual(await counts(c), before);
+      return r;
+    };
+    await expectReject(await ledger(c, t.cid, { qty: 2, guardian: 1, socks: 2, socksPrice: 2500 }), 'SOCKS_PRICE_MISMATCH');
+    await expectReject(await ledger(c, t.cid, { qty: 2, extra: [{ product_id: 'md_safety_socks', category: 'merchandise', qty: 2, unit: 3000, discount: 600 }] }), 'SOCKS_PRICE_MISMATCH');
+    await expectReject(await ledger(c, t.cid, { qty: 2, guardian: 1, socks: 2, pay: 48000 }), 'PAYMENT_TOTAL_MISMATCH');
+    await expectReject(await ledger(c, t.cid, { qty: 2, guardian: 1, socks: 2, pay: 46000 }), 'PARTIAL_PAYMENT_REJECTED');
+    const cape = await expectReject(await ledger(c, t.cid, { qty: 2, extra: [{ product_id: 'md_forest_cape', category: 'merchandise', unit: 12000 }] }), 'ORDER_PRODUCT_NOT_ALLOWED');
+    assert.deepEqual(cape.products, ['md_forest_cape:merchandise']);
+    await expectReject(await ledger(c, t.cid, { qty: 0, extra: [{ product_id: 'tkt_morning', category: 'ticket', qty: 2, unit: 18000 }] }), 'ORDER_PRODUCT_NOT_ALLOWED');
+    await expectReject(await ledger(c, t.cid, { qty: 2, guardian: 1, socks: 2, channel: 'pos_kiosk' }), 'ORDER_CHANNEL_NOT_DESK');
+    await expectReject(await ledger(c, t.cid, { qty: 2, extra: [{ product_id: 'md_safety_socks', category: 'merchandise', qty: 2, unit: 3000, amount: 3000 }] }), 'ORDER_LINE_AMOUNT_MISMATCH');
+    const o = await ledger(c, t.cid, { qty: 2, guardian: 1, socks: 2 });
+    await expectReject({ order: o.order, tickets: [...o.tickets, 'SYN-SOCKS-AS-TICKET'] }, 'TICKET_QUANTITY_MISMATCH');
+    // 기존 체험 추가권은 금액에 포함, 인원 없음
+    const a = await ledger(c, t.cid, { qty: 1, guardian: 1, socks: 1, extra: [{ product_id: 'addon_coaster_extra', category: 'addon_attraction', unit: 9000 }] });
+    assert.equal(a.total, 18000 + 5000 + 3000 + 9000);
+    const ok = await confirm(s, t, a);
+    assert.deepEqual([ok.ok, ok.ticket_count, ok.order_summary.item_total, ok.order_summary.visitor_count], [true, 2, 35000, 2]);
+    assert.deepEqual(ok.order_summary.lines.map((l) => [l.kind, l.creates_visitors]), [['ticket', true], ['ticket', true], ['addon', false], ['socks', false]]);
+    const occ = await s.rpc('get_visit_occupancy', {});
+    assert.deepEqual([occ.cumulative_visitors, occ.current_inside], [2, 2]);
+  });
+});
+
+test('V24 키오스크 주문은 입장·반납 정산에서 제외: 입장권이 든 키오스크 주문에 받을 돈이 있어도 반납을 막지 않고 정산 표시에도 없음', { skip }, async () => {
+  await scenario(async ({ c, open }) => {
+    const s = await open();
+    const t = await team(c, s, 'K', '010-2300-0003');
+    const o = await ledger(c, t.cid, { qty: 2 });
+    const e = await confirm(s, t, o);
+    const visitId = (await c.query(`select visit_id from public.safety_consents where id = $1`, [t.cid])).rows[0].visit_id;
+    const kiosk = uid('ORD-KIOSK');
+    await c.query(`insert into public.order_items (item_id, order_id, product_id, category, product_category, unit_price, quantity, list_price, paid_amount, visit_id, consent_id, status, site_id, sales_channel, purchased_at)
+      values ($1, $2, 'tkt_basic', 'ticket', 'ticket', 18000, 1, 18000, 18000, $3, $4, 'paid', $5, 'pos_kiosk', now())`, [kiosk + '-I1', kiosk, visitId, t.cid, SITE]);
+    const st = (await s.rpc('get_visit_entry', { p_entry_id: e.entry_id })).entry.settlement;
+    assert.deepEqual([st.return_blocked, st.blocking_orders, st.other_due, st.refund_due], [false, [], [], []]);
+    const r = await s.rpc('return_visit_wristbands', { p_entry_id: e.entry_id, p_return_all: true, p_request_id: rid() });
+    assert.deepEqual([r.ok, r.inside_count, r.refund_followups], [true, 0, []]);
+    const occ = await s.rpc('get_visit_occupancy', {});
+    assert.deepEqual([occ.cumulative_visitors, occ.current_inside, occ.exited_visitors, occ.open_followups], [2, 0, 2, 0]);
+    assert.equal((await c.query(`select count(*)::int n from public.order_items where order_id = $1`, [kiosk])).rows[0].n, 1, '키오스크 주문 원장 보존');
   });
 });

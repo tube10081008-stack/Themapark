@@ -33,7 +33,8 @@ begin
        or (n.nspname = 'private' and p.proname in (
              'visit_today', 'visit_safety_pass', 'visit_last4', 'visit_sorted_ids', 'visit_request_replay',
              'visit_entry_json', 'visit_reconcile_order', 'visit_unsettled_orders', 'visit_ticket_order_balances',
-             'visit_balance_class', 'visit_open_followups', 'trg_queue_call_notification'))
+             'visit_balance_class', 'visit_open_followups', 'visit_desk_item_kind', 'visit_socks_unit_price',
+             'visit_order_summary', 'trg_queue_call_notification'))
   loop
     execute format('drop function if exists %s', r.sig);
   end loop;

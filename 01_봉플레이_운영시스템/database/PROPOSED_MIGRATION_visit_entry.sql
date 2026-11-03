@@ -189,6 +189,20 @@ BEGIN
 END;
 $$;
 
+-- 매표 주문 허용 품목 (2026-11-03 대표 결정). ticket = 이용권(인원·티켓 생성), addon = 기존 체험 추가권,
+-- socks = 논슬립 양말(인원·티켓 없음). 그 밖의 품목은 null (매표 주문에 넣을 수 없음).
+CREATE OR REPLACE FUNCTION private.visit_desk_item_kind(p_product_id TEXT, p_category TEXT)
+RETURNS TEXT LANGUAGE sql IMMUTABLE AS $$
+    SELECT CASE
+        WHEN p_category = 'ticket' AND p_product_id IN ('tkt_basic', 'tkt_allday', 'tkt_guardian', 'tkt_infant_free', 'tkt_teacher_free') THEN 'ticket'
+        WHEN p_category = 'addon_attraction' AND p_product_id IN ('ride_coaster_single', 'addon_coaster_extra', 'addon_net_challenge', 'addon_sled_slope') THEN 'addon'
+        WHEN p_category = 'merchandise' AND p_product_id = 'md_safety_socks' THEN 'socks'
+    END
+$$;
+-- 논슬립 양말 켤레당 확정 금액 (대표 결정 2026-11-03). 바꾸려면 이 함수와 계약을 함께 고친다.
+CREATE OR REPLACE FUNCTION private.visit_socks_unit_price()
+RETURNS BIGINT LANGUAGE sql IMMUTABLE AS $$ SELECT 3000::BIGINT $$;
+
 -- 이전 판(전 주문 대상) 헬퍼 제거 — 대표 결정(2026-11-03)으로 입장권 주문만 본다
 DROP FUNCTION IF EXISTS private.visit_unsettled_orders(TEXT);
 
@@ -212,17 +226,21 @@ RETURNS JSONB LANGUAGE sql STABLE SET search_path = public, pg_temp AS $$
         SELECT order_id FROM public.order_payments
          WHERE order_id IS NOT NULL AND (consent_id = p_consent_id OR visit_id IN (SELECT k FROM keys))
     ), ticket_orders AS (
+        -- 입장권 품목이 있는 주문만, 키오스크 주문(품목 중 하나라도 pos_kiosk)은 제외 (대표 결정 2026-11-03)
         SELECT l.order_id FROM linked l
          WHERE EXISTS (SELECT 1 FROM public.order_items i
                         WHERE i.order_id = l.order_id AND COALESCE(i.product_category, i.category) = 'ticket')
+           AND NOT EXISTS (SELECT 1 FROM public.order_items i
+                            WHERE i.order_id = l.order_id AND i.sales_channel = 'pos_kiosk')
     ), sums AS (
+        -- ticket_total = 매표 허용 품목(이용권·체험 추가권·양말), other_total = 그 밖의 품목
         SELECT o.order_id,
                COALESCE(SUM(CASE WHEN COALESCE(i.paid_amount, 0) > 0 THEN i.paid_amount ELSE COALESCE(i.total_price, 0) END)
-                        FILTER (WHERE COALESCE(i.product_category, i.category) = 'ticket'), 0) AS ticket_total,
+                        FILTER (WHERE private.visit_desk_item_kind(i.product_id, COALESCE(i.product_category, i.category)) IS NOT NULL), 0) AS ticket_total,
                COALESCE(SUM(CASE WHEN COALESCE(i.paid_amount, 0) > 0 THEN i.paid_amount ELSE COALESCE(i.total_price, 0) END)
-                        FILTER (WHERE COALESCE(i.product_category, i.category) IS DISTINCT FROM 'ticket'), 0) AS other_total,
-               COUNT(i.item_id) FILTER (WHERE COALESCE(i.product_category, i.category) = 'ticket') AS active_ticket_items,
-               COUNT(i.item_id) FILTER (WHERE COALESCE(i.product_category, i.category) IS DISTINCT FROM 'ticket') AS active_other_items,
+                        FILTER (WHERE i.item_id IS NOT NULL AND private.visit_desk_item_kind(i.product_id, COALESCE(i.product_category, i.category)) IS NULL), 0) AS other_total,
+               COUNT(i.item_id) FILTER (WHERE private.visit_desk_item_kind(i.product_id, COALESCE(i.product_category, i.category)) IS NOT NULL) AS active_ticket_items,
+               COUNT(i.item_id) FILTER (WHERE private.visit_desk_item_kind(i.product_id, COALESCE(i.product_category, i.category)) IS NULL) AS active_other_items,
                (SELECT COALESCE(SUM(p.amount), 0) FROM public.order_payments p
                  WHERE p.order_id = o.order_id AND p.status = 'paid' AND p.cancelled_at IS NULL) AS paid_total
           FROM ticket_orders o
@@ -317,13 +335,38 @@ RETURNS JSONB LANGUAGE sql STABLE SET search_path = public, pg_temp AS $$
     WHERE e.id = p_entry_id
 $$;
 
--- 결제·발권 원장 대사 (complete_queue_issuance 7~12단계와 같은 규칙·같은 오류 코드). 통과면 null.
+-- 주문 품목 줄 요약 (영수증용, 서버 원장 기준). 활성 품목만.
+CREATE OR REPLACE FUNCTION private.visit_order_summary(p_order_id TEXT)
+RETURNS JSONB LANGUAGE sql STABLE SET search_path = public, pg_temp AS $$
+    WITH lines AS (
+        SELECT i.item_id, i.product_id, i.product_name,
+               private.visit_desk_item_kind(i.product_id, COALESCE(i.product_category, i.category)) AS kind,
+               i.quantity, COALESCE(i.unit_price, 0) AS unit_price, COALESCE(i.discount_amount, 0) AS discount_amount,
+               CASE WHEN COALESCE(i.paid_amount, 0) > 0 THEN i.paid_amount ELSE COALESCE(i.total_price, 0) END AS amount
+          FROM public.order_items i
+         WHERE i.order_id = p_order_id AND COALESCE(i.status, 'paid') <> 'cancelled' AND i.cancelled_at IS NULL
+    )
+    SELECT jsonb_build_object(
+        'item_total', COALESCE((SELECT SUM(amount) FROM lines), 0),
+        'paid_total', (SELECT COALESCE(SUM(p.amount), 0) FROM public.order_payments p
+                        WHERE p.order_id = p_order_id AND p.status = 'paid' AND p.cancelled_at IS NULL),
+        'visitor_count', COALESCE((SELECT SUM(quantity) FROM lines WHERE kind = 'ticket'), 0),
+        'lines', COALESCE((SELECT jsonb_agg(jsonb_build_object(
+                     'product_id', product_id, 'product_name', product_name, 'kind', kind, 'quantity', quantity,
+                     'unit_price', unit_price, 'discount_amount', discount_amount, 'amount', amount,
+                     'creates_visitors', kind = 'ticket')
+                   ORDER BY CASE kind WHEN 'ticket' THEN 1 WHEN 'addon' THEN 2 WHEN 'socks' THEN 3 ELSE 4 END, product_id, item_id)
+                  FROM lines), '[]'::jsonb))
+$$;
+
+-- 결제·발권 원장 대사 (complete_queue_issuance 7~12단계 규칙 + 매표 주문 허용 품목·금액 규칙). 통과면 null.
 CREATE OR REPLACE FUNCTION private.visit_reconcile_order(p_consent_id TEXT, p_order_id TEXT, p_ticket_ids JSONB)
 RETURNS JSONB LANGUAGE plpgsql STABLE SET search_path = public, pg_temp AS $$
 DECLARE
     v_tickets_count INTEGER := jsonb_array_length(p_ticket_ids);
     v_item_count INTEGER; v_item_foreign INTEGER; v_order_qty INTEGER; v_order_total BIGINT;
     v_matched INTEGER; v_ledger_active INTEGER; v_paid_total BIGINT;
+    v_bad JSONB;
 BEGIN
     SELECT COUNT(*),
            COUNT(*) FILTER (WHERE consent_id IS DISTINCT FROM p_consent_id),
@@ -339,6 +382,45 @@ BEGIN
     IF v_item_foreign > 0 OR EXISTS (SELECT 1 FROM public.order_payments
                                       WHERE order_id = p_order_id AND consent_id IS DISTINCT FROM p_consent_id) THEN
         RETURN jsonb_build_object('ok', false, 'error', 'ORDER_CONSENT_MISMATCH', 'message', '주문 품목·결제가 이 팀의 서약서에 연결되어 있지 않습니다.');
+    END IF;
+
+    -- [대표 결정 2026-11-03] 매표 판매 경로·허용 품목·줄 금액·양말 금액 (활성 품목 기준)
+    SELECT COALESCE(jsonb_agg(DISTINCT COALESCE(sales_channel, '(없음)')), '[]'::jsonb) INTO v_bad
+      FROM public.order_items
+     WHERE order_id = p_order_id AND COALESCE(status, 'paid') <> 'cancelled' AND cancelled_at IS NULL
+       AND sales_channel IS DISTINCT FROM 'desk_ticketing';
+    IF jsonb_array_length(v_bad) > 0 THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'ORDER_CHANNEL_NOT_DESK', 'sales_channels', v_bad,
+            'message', '매표 판매 경로(desk_ticketing) 주문만 입장을 확정할 수 있습니다. 키오스크 주문은 입장·반납 정산에 쓰지 않습니다.');
+    END IF;
+    SELECT COALESCE(jsonb_agg(DISTINCT COALESCE(product_id, '(없음)') || ':' || COALESCE(product_category, category, '(없음)')), '[]'::jsonb) INTO v_bad
+      FROM public.order_items
+     WHERE order_id = p_order_id AND COALESCE(status, 'paid') <> 'cancelled' AND cancelled_at IS NULL
+       AND private.visit_desk_item_kind(product_id, COALESCE(product_category, category)) IS NULL;
+    IF jsonb_array_length(v_bad) > 0 THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'ORDER_PRODUCT_NOT_ALLOWED', 'products', v_bad,
+            'message', '매표 주문에는 이용권·기존 체험 추가권·논슬립 양말만 담을 수 있습니다.');
+    END IF;
+    SELECT COALESCE(jsonb_agg(item_id ORDER BY item_id), '[]'::jsonb) INTO v_bad
+      FROM public.order_items
+     WHERE order_id = p_order_id AND COALESCE(status, 'paid') <> 'cancelled' AND cancelled_at IS NULL
+       AND (COALESCE(quantity, 0) < 1
+            OR (CASE WHEN COALESCE(paid_amount, 0) > 0 THEN paid_amount ELSE COALESCE(total_price, 0) END)
+               <> COALESCE(unit_price, 0) * quantity - COALESCE(discount_amount, 0)
+            OR COALESCE(discount_amount, 0) < 0);
+    IF jsonb_array_length(v_bad) > 0 THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'ORDER_LINE_AMOUNT_MISMATCH', 'item_ids', v_bad,
+            'message', '품목 줄 금액이 단가 × 수량 − 할인과 맞지 않습니다.');
+    END IF;
+    SELECT COALESCE(jsonb_agg(item_id ORDER BY item_id), '[]'::jsonb) INTO v_bad
+      FROM public.order_items
+     WHERE order_id = p_order_id AND COALESCE(status, 'paid') <> 'cancelled' AND cancelled_at IS NULL
+       AND private.visit_desk_item_kind(product_id, COALESCE(product_category, category)) = 'socks'
+       AND (COALESCE(unit_price, 0) <> private.visit_socks_unit_price() OR COALESCE(discount_amount, 0) <> 0);
+    IF jsonb_array_length(v_bad) > 0 THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'SOCKS_PRICE_MISMATCH', 'item_ids', v_bad,
+            'expected_unit_price', private.visit_socks_unit_price(),
+            'message', '논슬립 양말은 켤레당 ' || private.visit_socks_unit_price() || '원, 할인 없이 판매합니다.');
     END IF;
     IF v_order_qty <= 0 THEN
         RETURN jsonb_build_object('ok', false, 'error', 'ORDER_TICKET_ITEMS_EMPTY', 'message', '주문에 입장권 품목이 없습니다. (매점 단독 주문은 입장 기록을 만들지 않습니다)');
@@ -368,6 +450,10 @@ BEGIN
     IF v_paid_total < v_order_total THEN
         RETURN jsonb_build_object('ok', false, 'error', 'PARTIAL_PAYMENT_REJECTED',
             'message', '결제 수납 금액(' || v_paid_total || '원)이 주문 금액(' || v_order_total || '원)에 미달합니다.');
+    END IF;
+    IF v_paid_total > v_order_total THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'PAYMENT_TOTAL_MISMATCH', 'item_total', v_order_total, 'paid_total', v_paid_total,
+            'message', '결제 합계(' || v_paid_total || '원)가 주문 금액(' || v_order_total || '원)과 다릅니다.');
     END IF;
     RETURN NULL;
 END;
@@ -510,8 +596,9 @@ BEGIN
         IF v_entry.order_id = p_order_id AND
            (SELECT private.visit_sorted_ids(COALESCE(jsonb_agg(ticket_id), '[]'::jsonb)) FROM public.visit_entry_tickets WHERE entry_id = v_entry.id)
              = private.visit_sorted_ids(p_ticket_ids) THEN
-            RETURN private.visit_entry_json(v_entry.id, v_today) - 'tickets' - 'guardian_masked' - 'last4' - 'formatted_number'
-                   || jsonb_build_object('ok', true, 'order_id', v_entry.order_id, 'already_entered', true, 'replayed', false);
+            RETURN private.visit_entry_json(v_entry.id, v_today) - 'tickets' - 'guardian_masked' - 'last4' - 'formatted_number' - 'settlement'
+                   || jsonb_build_object('ok', true, 'order_id', v_entry.order_id, 'order_summary', private.visit_order_summary(v_entry.order_id),
+                                         'already_entered', true, 'replayed', false);
         END IF;
         RETURN jsonb_build_object('ok', false, 'error', 'ENTRY_EXISTS_OTHER_ORDER', 'entry_id', v_entry.id,
             'message', '이 팀은 다른 주문·티켓으로 이미 입장 기록이 있습니다.');
@@ -582,7 +669,8 @@ BEGIN
 
     v_resp := jsonb_build_object('ok', true, 'entry_id', v_entry_id, 'queue_id', p_queue_id, 'order_id', p_order_id,
         'business_date', v_today, 'entered_at', v_now, 'ticket_count', v_count, 'inside_count', v_count,
-        'returned_count', 0, 'status', 'inside', 'already_entered', false, 'replayed', false);
+        'returned_count', 0, 'status', 'inside', 'order_summary', private.visit_order_summary(p_order_id),
+        'already_entered', false, 'replayed', false);
     INSERT INTO public.visit_entry_requests (site_id, request_id, op, params, response)
     VALUES (p_site_id, p_request_id, 'confirm_visit_entry', v_params, v_resp);
     RETURN v_resp;
@@ -1278,6 +1366,9 @@ REVOKE ALL ON FUNCTION private.visit_sorted_ids(JSONB) FROM PUBLIC, anon, authen
 REVOKE ALL ON FUNCTION private.visit_request_replay(TEXT, TEXT, TEXT, JSONB) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION private.visit_entry_json(TEXT, DATE) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION private.visit_reconcile_order(TEXT, TEXT, JSONB) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION private.visit_desk_item_kind(TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION private.visit_socks_unit_price() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION private.visit_order_summary(TEXT) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION private.visit_ticket_order_balances(TEXT) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION private.visit_balance_class(JSONB, TEXT) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION private.visit_open_followups(TEXT, TEXT, TEXT, TEXT, JSONB, BOOLEAN, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
