@@ -106,12 +106,18 @@
 
 요청: `(p_access_code text, p_queue_id text, p_order_id text, p_ticket_ids jsonb, p_request_id text, p_staff_id text default 'desk_staff', p_site_id text default 'bongplay_bonghwa')`
 
-성공 응답:
+성공 응답 (예: 어린이 기본권 2명 36,000 + 보호자 1명 5,000 + 논슬립 양말 2켤레 6,000 = 47,000원, 입장 3명):
 ```json
 {"ok": true, "entry_id": "ve_…", "queue_id": "…", "order_id": "…", "business_date": "2026-11-03",
  "entered_at": "…", "ticket_count": 3, "inside_count": 3, "returned_count": 0, "status": "inside",
+ "order_summary": {"item_total": 47000, "paid_total": 47000, "visitor_count": 3, "lines": [
+   {"product_id": "tkt_basic", "product_name": "…", "kind": "ticket", "quantity": 2, "unit_price": 18000, "discount_amount": 0, "amount": 36000, "creates_visitors": true},
+   {"product_id": "tkt_guardian", "product_name": "…", "kind": "ticket", "quantity": 1, "unit_price": 5000, "discount_amount": 0, "amount": 5000, "creates_visitors": true},
+   {"product_id": "md_safety_socks", "product_name": "…", "kind": "socks", "quantity": 2, "unit_price": 3000, "discount_amount": 0, "amount": 6000, "creates_visitors": false}]},
  "already_entered": false, "replayed": false}
 ```
+
+- `order_summary`는 서버가 원장으로 확인한 품목별 금액이다. 영수증의 품목 줄은 이 값을 쓴다(양말은 별도 줄, 인원 없음).
 
 - **같은 방문 재처리:** 다른 단말이나 다른 `request_id`로 같은 방문(같은 `queue_id`·`order_id`·티켓 집합)을 다시 확정하면 새 행 없이 `already_entered:true`다.
 - **같은 요청 재전송:** 같은 `request_id`로 재전송하면 저장된 응답에 `replayed:true`다.
@@ -129,8 +135,26 @@
 | 7 | 서약서 유효 (같은 시설, 취소 아님) | `CONSENT_INVALID`, `CONSENT_CANCELLED` |
 | 8 | 이 팀의 오늘 뒷번호 일치 기록 | `LAST4_NOT_VERIFIED` |
 | 9 | 안전점검 인터록: 오늘(KST) `decision='pass'` 점검 있음 | `SAFETY_INTERLOCK_BLOCKED` |
-| 10 | 원장 대사: 기존 `complete_queue_issuance`와 같은 규칙과 같은 코드 | `ORDER_ITEMS_EMPTY`, `ORDER_CONSENT_MISMATCH`, `ORDER_TICKET_ITEMS_EMPTY`, `TICKET_QUANTITY_MISMATCH`, `TICKET_LEDGER_INCOMPLETE`, `PAYMENT_NOT_CONFIRMED`, `PARTIAL_PAYMENT_REJECTED` |
+| 10 | 원장 대사: 기존 `complete_queue_issuance` 규칙 + 매표 주문 허용 품목·금액 규칙(아래) | `ORDER_ITEMS_EMPTY`, `ORDER_CONSENT_MISMATCH`, `ORDER_CHANNEL_NOT_DESK`, `ORDER_PRODUCT_NOT_ALLOWED`, `ORDER_LINE_AMOUNT_MISMATCH`, `SOCKS_PRICE_MISMATCH`, `ORDER_TICKET_ITEMS_EMPTY`, `TICKET_QUANTITY_MISMATCH`, `TICKET_LEDGER_INCOMPLETE`, `PAYMENT_NOT_CONFIRMED`, `PARTIAL_PAYMENT_REJECTED`, `PAYMENT_TOTAL_MISMATCH` |
 | 11 | 티켓이 다른 입장 기록에 이미 있음 | `TICKET_ALREADY_ENTERED` |
+
+10번 매표 주문 허용 품목·금액 규칙 (2026-11-03 대표 결정. 서버가 원장으로 검증하며, 화면 검사는 근거가 아니다):
+
+| 종류(`kind`) | 허용 품목(`product_id`, 범주) | 인원·티켓 | 금액 규칙 |
+|---|---|---|---|
+| `ticket` 이용권 | `tkt_basic`, `tkt_allday`, `tkt_guardian`, `tkt_infant_free`, `tkt_teacher_free` (범주 `ticket`) | 수량만큼 티켓·입장 인원 | 줄 금액 = 단가 × 수량 − 할인 |
+| `addon` 기존 체험 추가권 | `ride_coaster_single`, `addon_coaster_extra`, `addon_net_challenge`, `addon_sled_slope` (범주 `addon_attraction`) | 인원·티켓 없음 | 줄 금액 = 단가 × 수량 − 할인 |
+| `socks` 논슬립 양말 | `md_safety_socks` (범주 `merchandise`) | **인원·티켓 없음** | **켤레당 3,000원, 할인 없음** (줄 금액 = 3,000 × 수량). 화면 기본 수량 0켤레, 선택 구매 |
+
+- **그 밖의 품목:** 식음료, 다른 굿즈, 폐지된 조조권(`tkt_morning`) 등은 매표 주문에 들어갈 수 없다(`ORDER_PRODUCT_NOT_ALLOWED`, 품목 목록 포함).
+- **판매 경로:** 주문의 모든 활성 품목이 매표 판매 경로(`sales_channel='desk_ticketing'`)여야 한다. 키오스크(`pos_kiosk`) 등 다른 경로 주문은 입장 확정에 쓸 수 없다(`ORDER_CHANNEL_NOT_DESK`).
+- **줄 금액:** 수량은 1 이상이고, 줄 금액(`paid_amount`)이 단가 × 수량 − 할인과 같아야 한다(`ORDER_LINE_AMOUNT_MISMATCH`). 양말은 단가 3,000원·할인 0이어야 한다(`SOCKS_PRICE_MISMATCH`).
+- **결제 합계:** 유효 결제 합계는 활성 품목 금액 합계와 **정확히 같아야** 한다.
+  - 모자라면 `PAYMENT_NOT_CONFIRMED`·`PARTIAL_PAYMENT_REJECTED`, 넘치면 `PAYMENT_TOTAL_MISMATCH`
+  - 기존 `complete_queue_issuance`는 이상(≥) 기준을 그대로 둔다.
+- **인원:** 입장 인원과 티켓 수는 `ticket` 품목 수량만으로 정한다. 양말·체험 추가권은 금액에만 들어간다.
+- **보존:** 이 규칙은 새 입장 확정에만 적용한다. 이미 있는 주문·매출·입장 기록은 바꾸지 않는다.
+- **이용권 단가:** 이용권·체험 추가권 단가는 서버가 고정값으로 검증하지 않는다. 카탈로그와 가격 계약(`site_profile.json`)이 기준이다(9절).
 
 10번 원장 대사의 세부 조건:
 - 활성 품목은 전부 이 서약서 소속이다. 결제 행도 전부 이 서약서 소속이다.
@@ -202,15 +226,17 @@
 - **입장권 주문:** 이 방문에 연결된 주문 중 입장권 품목(`product_category='ticket'`, 취소 포함)이 하나라도 있는 주문이다.
   - 연결 기준: `order_items`·`order_payments`의 `consent_id`가 이 서약서이거나, `visit_id`가 서약서의 `visit_id` 또는 서약서 id
   - **입장권 품목이 없는 매점·기타 단독 주문은 방문 ID가 연결돼 있어도 판정에서 제외한다.**
+  - **키오스크 주문(품목 중 하나라도 `sales_channel='pos_kiosk'`)은 입장권이 있어도 판정에서 제외한다**(2026-11-03 대표 결정).
 - **주문별 금액** (활성 품목 = 미취소):
   - `ticket_total`: 활성 입장권 금액(`paid_amount`, 0이면 `total_price`)
   - `other_total`: 활성 비입장권 금액
   - `paid_total`: 유효 결제 합계(`status='paid'`, 미취소)
   - `balance`: `ticket_total + other_total − paid_total`
-- **귀속(`attribution`)** — 임의로 배분하지 않는다:
-  - `ticket`: 활성 비입장권 품목이 없다. 차액 전체가 입장권 몫이다.
-  - `other`: 활성 입장권 품목이 없다(입장권은 환불, 매점 품목만 남음). 차액은 매점 몫이다.
-  - `undeterminable`: 활성 입장권과 활성 매점 품목이 한 주문에 함께 있고 결제가 그 합계와 다르다. **귀속을 판정할 수 없다.**
+- **귀속(`attribution`)** — 임의로 배분하지 않는다. "매표 허용 품목"은 위 표의 이용권·체험 추가권·양말이다.
+  - `ticket`: 활성 품목이 모두 매표 허용 품목이다. 차액 전체가 매표(입장) 주문 몫이다. 양말이 들어 있어도 같다.
+  - `other`: 활성 매표 허용 품목이 없다(그 밖의 품목만 남음). 차액은 매점 몫이다.
+  - `undeterminable`: 매표 허용 품목과 그 밖의 품목(식음료 등, 규칙 이전의 과거 혼합 주문)이 함께 활성이고 결제가 합계와 다르다. **귀속을 판정할 수 없다.**
+  - `ticket_total`은 매표 허용 품목 금액이고, `other_total`은 그 밖의 품목 금액이다.
 - **반납 차단:** `balance > 0`이고 귀속이 `ticket` 또는 `undeterminable`이면 `UNSETTLED_TICKET_ORDER`다.
   - 귀속을 판정할 수 없는 주문은 매점 몫으로 보고 통과시키지 않는다. 그 주문은 `attribution_undeterminable:true`로 따로 보고한다(9절 결정 대기).
   - 귀속이 `other`인 받을 돈은 막지 않는다(`settlement.other_due` 참고 표시).
@@ -285,6 +311,7 @@
   - 대피 시각 뒤에 정상 반납된 티켓은 그대로 두고 `returned_after_event_visitors`로 센다.
   - 입장 기록 상태와 `exited_at`도 갱신한다. 서약서 거울은 E6과 같은 규칙이다.
 - **정산 독립:** 입장권 주문의 받을 돈·돌려줄 돈이 있어도 막지 않는다. 대신 후속 확인(E8, 출처 `evacuation`)을 만든다.
+- **권한:** 현장 직원(운영 암호)이 기록한다. 관리자 전용으로 제한하지 않는다(2026-11-03 대표 확정).
 - **멱등:**
   - 같은 `request_id`는 재생한다.
   - 같은 시설·같은 `occurred_at` 대피가 이미 있으면 새로 만들지 않고 `already_recorded:true`로 그 기록을 돌려준다.
@@ -346,6 +373,8 @@
 
 1. 호출 응답의 `queue_id`로만 뒷번호 대조(E2)를 한다. 뒷번호 입력으로 팀을 고르지 않는다.
 2. 결제·발권 저장(`createOrder`) 완료 확인 뒤 E3를 부른다. `ok:true`일 때만 "입장 완료"를 표시하고 팔찌를 준다.
+   - 매표 장바구니는 이용권·기존 체험 추가권·논슬립 양말만 담는다. 양말은 켤레당 3,000원, 기본 0켤레, 선택 구매다.
+   - 영수증에는 양말을 별도 품목 줄로 표시하고 인원 수에 넣지 않는다(E3 `order_summary`).
    - 화면 단독 판정이나 로컬 캐시로 입장을 표시하지 않는다.
 3. 버튼을 누를 때마다 `request_id`를 새로 만든다. 같은 동작의 재전송·연타는 같은 `request_id`를 쓴다(4절).
 4. 반납 화면은 E4 결과에서 팀을 고르고 티켓(사람) 단위로 선택한다. 전체 반납은 `p_return_all`을 쓴다.
@@ -373,8 +402,14 @@
   - 돌려줄 돈은 반납을 허용하고 후속 확인을 만든다(환불 완료로 처리하지 않음).
   - 비상 대피는 정산과 독립된 사후 기록이다(E9).
   - 초과시간·팔찌 분실·파손 비용은 추가하지 않는다.
+- **반영한 대표 결정 (추가):**
+  - 매표 주문 허용 품목은 이용권·기존 체험 추가권·논슬립 양말(켤레당 3,000원)뿐이다. 서버가 품목·줄 금액·결제 합계를 검증한다.
+  - 키오스크 주문은 입장·반납 정산에서 제외한다.
+  - 비상 대피 사후 기록은 현장 직원에게 허용한다.
 - **남은 결정:**
   1. **귀속 판정 불가 혼합 주문:** 입장권과 매점 품목이 한 주문에 섞여 받을 돈이 남은 경우, 현재는 임의 배분 없이 **반납을 막고** `attribution_undeterminable`로 보고한다. 막지 않으려면 대표 결정이 필요하다.
      - 매표 `createOrder`는 입장권과 매점 품목을 한 주문으로 받을 수 있다(현행 화면).
      - 근본 해결은 화면이 입장권 주문과 매점 주문을 나눠 저장하는 것이다.
   2. **서버 미도착 아웃박스 건:** 단말에만 있는 주문·결제는 서버가 볼 수 없다. 품목·결제 원자 저장 RPC는 별도 작업이다.
+  3. **이용권·체험 추가권 단가의 서버 검증:** 양말만 서버 고정값(3,000원)으로 검증한다. 이용권 단가까지 서버가 검증하려면 서버 가격표를 두고 가격 계약과 맞추는 작업이 필요하다.
+  4. **양말 가격 계약·카탈로그 반영:** 현재 카탈로그 `md_safety_socks`는 2,500원이다. 가격 계약(`site_profile.json`)과 카탈로그를 3,000원으로 맞추는 작업이 필요하다(클로이 가격 계약·아난티 카탈로그).
