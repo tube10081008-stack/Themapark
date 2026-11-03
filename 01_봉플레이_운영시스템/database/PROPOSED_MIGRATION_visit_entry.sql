@@ -59,9 +59,57 @@ CREATE TABLE IF NOT EXISTS public.visit_entry_tickets (
     entered_at TIMESTAMPTZ NOT NULL,
     returned_at TIMESTAMPTZ,
     returned_by TEXT,
-    return_request_id TEXT
+    return_request_id TEXT,
+    return_kind TEXT CHECK (return_kind IN ('normal', 'evacuation')),
+    evacuation_id TEXT
 );
+-- 이미 설치된 시험 DB 를 위한 열 추가 (반복 실행 안전)
+ALTER TABLE public.visit_entry_tickets ADD COLUMN IF NOT EXISTS return_kind TEXT;
+ALTER TABLE public.visit_entry_tickets ADD COLUMN IF NOT EXISTS evacuation_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_visit_entry_tickets_entry ON public.visit_entry_tickets (entry_id);
+CREATE INDEX IF NOT EXISTS idx_visit_entry_tickets_open ON public.visit_entry_tickets (site_id, entered_at) WHERE returned_at IS NULL;
+
+-- 1-3b. 정산 후속 확인 (반납·대피를 막지 않은 차액. 원장이 맞춰졌을 때만 resolved)
+CREATE TABLE IF NOT EXISTS public.visit_settlement_followups (
+    id TEXT PRIMARY KEY,
+    site_id TEXT NOT NULL,
+    entry_id TEXT NOT NULL REFERENCES public.visit_entries(id),
+    consent_id TEXT NOT NULL,
+    order_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('refund_due', 'payment_due')),
+    source TEXT NOT NULL CHECK (source IN ('return', 'evacuation')),
+    amount_at_detection BIGINT NOT NULL,
+    attribution TEXT NOT NULL,
+    detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    detected_by TEXT,
+    detect_request_id TEXT,
+    evacuation_id TEXT,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved')),
+    resolved_at TIMESTAMPTZ,
+    resolved_by TEXT,
+    resolution_note TEXT,
+    resolve_request_id TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_visit_followups_open ON public.visit_settlement_followups (entry_id, order_id, kind) WHERE status = 'open';
+CREATE INDEX IF NOT EXISTS idx_visit_followups_site_status ON public.visit_settlement_followups (site_id, status, detected_at);
+
+-- 1-3c. 비상 대피 사후 기록 (대피 시점 체류 명단 스냅숏 보존)
+CREATE TABLE IF NOT EXISTS public.visit_evacuations (
+    id TEXT PRIMARY KEY,
+    site_id TEXT NOT NULL,
+    occurred_at TIMESTAMPTZ NOT NULL,
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    reason TEXT NOT NULL,
+    recorded_by TEXT,
+    request_id TEXT,
+    inside_teams INTEGER NOT NULL,
+    inside_visitors INTEGER NOT NULL,
+    closed_visitors INTEGER NOT NULL,
+    returned_after_event_visitors INTEGER NOT NULL,
+    snapshot JSONB NOT NULL,
+    followups JSONB NOT NULL DEFAULT '[]'::jsonb,
+    CONSTRAINT uq_visit_evacuations_site_time UNIQUE (site_id, occurred_at)
+);
 
 -- 1-4. 변경 요청 멱등 기록 (성공 응답만 저장)
 CREATE TABLE IF NOT EXISTS public.visit_entry_requests (
@@ -141,14 +189,15 @@ BEGIN
 END;
 $$;
 
--- 방문 미정산 주문 (반납 차단 근거, 읽기 전용).
--- 대상 주문: 이 방문 서약서에 연결된 주문 — order_items·order_payments 의 consent_id 가 서약서 id 이거나,
---   visit_id 가 서약서의 visit_id 또는 서약서 id (매점 POS 가 방문 연동 시 쓰는 값)인 주문.
--- 주문별 활성 품목 금액(paid_amount, 0 이면 total_price)과 유효 결제 합계(status='paid', 미취소)가 다르면 미정산이다.
---   balance > 0 : 받을 돈 (품목만 있고 결제가 없거나 모자람)
---   balance < 0 : 돌려줄 돈 (품목은 취소됐는데 결제가 남음)
--- 서버에 아직 올라오지 않은 단말 아웃박스 건은 보이지 않는다 (계약 E6 한계).
-CREATE OR REPLACE FUNCTION private.visit_unsettled_orders(p_consent_id TEXT)
+-- 이전 판(전 주문 대상) 헬퍼 제거 — 대표 결정(2026-11-03)으로 입장권 주문만 본다
+DROP FUNCTION IF EXISTS private.visit_unsettled_orders(TEXT);
+
+-- 방문 입장권 주문의 차액 (반납 판정 근거, 읽기 전용). 차액이 0 이 아닌 주문만 돌려준다.
+-- 입장권 주문 = 이 방문에 연결된 주문(consent_id 가 서약서, 또는 visit_id 가 서약서 visit_id·서약서 id) 중
+--   입장권 품목(product_category 또는 category = 'ticket', 취소 포함)이 하나라도 있는 주문.
+--   입장권 품목이 없는 매점·기타 단독 주문은 방문 ID 가 연결돼 있어도 제외한다.
+-- 귀속(임의 배분 없음): ticket = 활성 비입장권 없음 / other = 활성 입장권 없음 / undeterminable = 둘 다 활성
+CREATE OR REPLACE FUNCTION private.visit_ticket_order_balances(p_consent_id TEXT)
 RETURNS JSONB LANGUAGE sql STABLE SET search_path = public, pg_temp AS $$
     WITH keys AS (
         SELECT DISTINCT k FROM (
@@ -156,25 +205,80 @@ RETURNS JSONB LANGUAGE sql STABLE SET search_path = public, pg_temp AS $$
             UNION ALL
             SELECT c.visit_id FROM public.safety_consents c WHERE c.id = p_consent_id AND c.visit_id IS NOT NULL
         ) x WHERE k IS NOT NULL
-    ), orders AS (
+    ), linked AS (
         SELECT order_id FROM public.order_items
          WHERE order_id IS NOT NULL AND (consent_id = p_consent_id OR visit_id IN (SELECT k FROM keys))
         UNION
         SELECT order_id FROM public.order_payments
          WHERE order_id IS NOT NULL AND (consent_id = p_consent_id OR visit_id IN (SELECT k FROM keys))
+    ), ticket_orders AS (
+        SELECT l.order_id FROM linked l
+         WHERE EXISTS (SELECT 1 FROM public.order_items i
+                        WHERE i.order_id = l.order_id AND COALESCE(i.product_category, i.category) = 'ticket')
     ), sums AS (
         SELECT o.order_id,
-               (SELECT COALESCE(SUM(CASE WHEN COALESCE(i.paid_amount, 0) > 0 THEN i.paid_amount ELSE COALESCE(i.total_price, 0) END), 0)
-                  FROM public.order_items i
-                 WHERE i.order_id = o.order_id AND COALESCE(i.status, 'paid') <> 'cancelled' AND i.cancelled_at IS NULL) AS item_total,
-               (SELECT COALESCE(SUM(p.amount), 0)
-                  FROM public.order_payments p
+               COALESCE(SUM(CASE WHEN COALESCE(i.paid_amount, 0) > 0 THEN i.paid_amount ELSE COALESCE(i.total_price, 0) END)
+                        FILTER (WHERE COALESCE(i.product_category, i.category) = 'ticket'), 0) AS ticket_total,
+               COALESCE(SUM(CASE WHEN COALESCE(i.paid_amount, 0) > 0 THEN i.paid_amount ELSE COALESCE(i.total_price, 0) END)
+                        FILTER (WHERE COALESCE(i.product_category, i.category) IS DISTINCT FROM 'ticket'), 0) AS other_total,
+               COUNT(i.item_id) FILTER (WHERE COALESCE(i.product_category, i.category) = 'ticket') AS active_ticket_items,
+               COUNT(i.item_id) FILTER (WHERE COALESCE(i.product_category, i.category) IS DISTINCT FROM 'ticket') AS active_other_items,
+               (SELECT COALESCE(SUM(p.amount), 0) FROM public.order_payments p
                  WHERE p.order_id = o.order_id AND p.status = 'paid' AND p.cancelled_at IS NULL) AS paid_total
-          FROM orders o
+          FROM ticket_orders o
+          LEFT JOIN public.order_items i
+            ON i.order_id = o.order_id AND COALESCE(i.status, 'paid') <> 'cancelled' AND i.cancelled_at IS NULL
+         GROUP BY o.order_id
     )
-    SELECT COALESCE(jsonb_agg(jsonb_build_object('order_id', order_id, 'item_total', item_total, 'paid_total', paid_total,
-                                                  'balance', item_total - paid_total) ORDER BY order_id), '[]'::jsonb)
-      FROM sums WHERE item_total <> paid_total
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+               'order_id', order_id, 'ticket_total', ticket_total, 'other_total', other_total,
+               'item_total', ticket_total + other_total, 'paid_total', paid_total,
+               'balance', ticket_total + other_total - paid_total,
+               'attribution', CASE WHEN active_other_items = 0 THEN 'ticket'
+                                   WHEN active_ticket_items = 0 THEN 'other'
+                                   ELSE 'undeterminable' END) ORDER BY order_id), '[]'::jsonb)
+      FROM sums WHERE ticket_total + other_total <> paid_total
+$$;
+
+-- 차액 분류: blocking(받을 돈, 입장권·판정 불가) / refund(돌려줄 돈) / other(받을 돈, 매점 몫)
+CREATE OR REPLACE FUNCTION private.visit_balance_class(p_balances JSONB, p_class TEXT)
+RETURNS JSONB LANGUAGE sql IMMUTABLE AS $$
+    SELECT COALESCE(jsonb_agg(x ORDER BY x->>'order_id'), '[]'::jsonb)
+      FROM jsonb_array_elements(COALESCE(p_balances, '[]'::jsonb)) x
+     WHERE CASE p_class
+             WHEN 'blocking' THEN (x->>'balance')::BIGINT > 0 AND x->>'attribution' IN ('ticket', 'undeterminable')
+             WHEN 'refund'   THEN (x->>'balance')::BIGINT < 0
+             WHEN 'other'    THEN (x->>'balance')::BIGINT > 0 AND x->>'attribution' = 'other'
+             ELSE false END
+$$;
+
+-- 후속 확인 생성 (같은 입장·주문·종류의 미처리 건이 있으면 그 건을 돌려준다). p_with_payment_due: 대피 때만 true
+CREATE OR REPLACE FUNCTION private.visit_open_followups(p_site_id TEXT, p_entry_id TEXT, p_consent_id TEXT, p_source TEXT,
+    p_balances JSONB, p_with_payment_due BOOLEAN, p_staff_id TEXT, p_request_id TEXT, p_evacuation_id TEXT)
+RETURNS JSONB LANGUAGE plpgsql SET search_path = public, extensions, pg_temp AS $$
+DECLARE
+    x JSONB;
+    v_kind TEXT;
+    v_out JSONB := '[]'::jsonb;
+    v_row RECORD;
+BEGIN
+    FOR x IN SELECT * FROM jsonb_array_elements(private.visit_balance_class(p_balances, 'refund'))
+             UNION ALL
+             SELECT * FROM jsonb_array_elements(CASE WHEN p_with_payment_due THEN private.visit_balance_class(p_balances, 'blocking') ELSE '[]'::jsonb END)
+    LOOP
+        v_kind := CASE WHEN (x->>'balance')::BIGINT < 0 THEN 'refund_due' ELSE 'payment_due' END;
+        INSERT INTO public.visit_settlement_followups (id, site_id, entry_id, consent_id, order_id, kind, source,
+            amount_at_detection, attribution, detected_by, detect_request_id, evacuation_id)
+        VALUES ('vf_' || encode(extensions.gen_random_bytes(12), 'hex'), p_site_id, p_entry_id, p_consent_id, x->>'order_id',
+            v_kind, p_source, abs((x->>'balance')::BIGINT), x->>'attribution', p_staff_id, p_request_id, p_evacuation_id)
+        ON CONFLICT (entry_id, order_id, kind) WHERE status = 'open' DO NOTHING;
+        SELECT * INTO v_row FROM public.visit_settlement_followups
+         WHERE entry_id = p_entry_id AND order_id = x->>'order_id' AND kind = v_kind AND status = 'open';
+        v_out := v_out || jsonb_build_object('followup_id', v_row.id, 'kind', v_row.kind, 'source', v_row.source,
+            'order_id', v_row.order_id, 'amount', v_row.amount_at_detection, 'attribution', v_row.attribution);
+    END LOOP;
+    RETURN v_out;
+END;
 $$;
 
 -- 입장 기록 1건의 직원용 표현 (전화번호 전체·실명·자녀·consent_id 없음)
@@ -196,10 +300,17 @@ RETURNS JSONB LANGUAGE sql STABLE SET search_path = public, pg_temp AS $$
         'returned_count', (SELECT COUNT(*) FROM public.visit_entry_tickets t WHERE t.entry_id = e.id AND t.returned_at IS NOT NULL),
         'tickets', (SELECT COALESCE(jsonb_agg(jsonb_build_object(
                         'ticket_id', t.ticket_id, 'product_name', t.product_name,
-                        'returned', t.returned_at IS NOT NULL, 'returned_at', t.returned_at) ORDER BY t.ticket_id), '[]'::jsonb)
+                        'returned', t.returned_at IS NOT NULL, 'returned_at', t.returned_at,
+                        'return_kind', t.return_kind) ORDER BY t.ticket_id), '[]'::jsonb)
                       FROM public.visit_entry_tickets t WHERE t.entry_id = e.id),
-        'settlement', (SELECT jsonb_build_object('settled', jsonb_array_length(u.v) = 0, 'unsettled_orders', u.v)
-                         FROM (SELECT private.visit_unsettled_orders(e.consent_id) AS v) u)
+        'settlement', (SELECT jsonb_build_object(
+                             'return_blocked', jsonb_array_length(private.visit_balance_class(u.v, 'blocking')) > 0,
+                             'blocking_orders', private.visit_balance_class(u.v, 'blocking'),
+                             'refund_due', private.visit_balance_class(u.v, 'refund'),
+                             'other_due', private.visit_balance_class(u.v, 'other'),
+                             'open_followups', (SELECT COUNT(*) FROM public.visit_settlement_followups f
+                                                 WHERE f.entry_id = e.id AND f.status = 'open'))
+                         FROM (SELECT private.visit_ticket_order_balances(e.consent_id) AS v) u)
     )
     FROM public.visit_entries e
     LEFT JOIN public.ticket_queue q ON q.id = e.queue_id
@@ -569,7 +680,9 @@ DECLARE
     v_returned INTEGER;
     v_status TEXT;
     v_resp JSONB;
-    v_unsettled JSONB;
+    v_balances JSONB;
+    v_block JSONB;
+    v_followups JSONB := '[]'::jsonb;
 BEGIN
     IF NOT private.verify_staff_permission(p_access_code, p_site_id) THEN
         RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED_STAFF', 'message', '직원 인증에 실패했거나 시설 권한이 없습니다.');
@@ -625,11 +738,14 @@ BEGIN
     IF v_targets IS NOT NULL AND array_length(v_targets, 1) IS NOT NULL THEN
         -- 미정산 차단: 이 방문에 연결된 주문의 품목 금액과 유효 결제가 다르면 반납을 반영하지 않는다
         --   (같은 트랜잭션·시설 잠금 안에서 원장을 다시 읽는다. 화면 검사 결과는 근거로 쓰지 않는다)
-        v_unsettled := private.visit_unsettled_orders(v_entry.consent_id);
-        IF jsonb_array_length(v_unsettled) > 0 THEN
-            RETURN jsonb_build_object('ok', false, 'error', 'UNSETTLED_ORDERS', 'entry_id', p_entry_id,
-                'unsettled_orders', v_unsettled,
-                'message', '이 방문에 정산되지 않은 주문이 있어 반납을 반영하지 않았습니다. 결제(또는 환불)를 원장에 기록한 뒤 다시 시도해 주세요.');
+        -- 대표 결정(2026-11-03): 이 방문 입장권 주문의 받을 돈만 막는다 (매점 단독 주문 제외, 혼합 주문은 귀속 판정)
+        v_balances := private.visit_ticket_order_balances(v_entry.consent_id);
+        v_block := private.visit_balance_class(v_balances, 'blocking');
+        IF jsonb_array_length(v_block) > 0 THEN
+            RETURN jsonb_build_object('ok', false, 'error', 'UNSETTLED_TICKET_ORDER', 'entry_id', p_entry_id,
+                'blocking_orders', v_block,
+                'attribution_undeterminable', EXISTS (SELECT 1 FROM jsonb_array_elements(v_block) b WHERE b->>'attribution' = 'undeterminable'),
+                'message', '이 방문의 입장권 주문에 받을 돈이 남아 반납을 반영하지 않았습니다. 결제를 원장에 기록한 뒤 다시 시도해 주세요.');
         END IF;
     END IF;
 
@@ -642,8 +758,12 @@ BEGIN
     END IF;
 
     UPDATE public.visit_entry_tickets
-       SET returned_at = v_now, returned_by = p_staff_id, return_request_id = p_request_id
+       SET returned_at = v_now, returned_by = p_staff_id, return_request_id = p_request_id, return_kind = 'normal'
      WHERE entry_id = p_entry_id AND ticket_id = ANY (v_targets) AND returned_at IS NULL;
+
+    -- 돌려줄 돈은 반납을 막지 않는다. 환불 완료로 처리하지 않고 후속 확인을 같은 트랜잭션에서 만든다
+    v_followups := private.visit_open_followups(p_site_id, p_entry_id, v_entry.consent_id, 'return', v_balances, false,
+                                                p_staff_id, p_request_id, NULL);
 
     SELECT COUNT(*) FILTER (WHERE returned_at IS NULL), COUNT(*) FILTER (WHERE returned_at IS NOT NULL)
       INTO v_inside, v_returned FROM public.visit_entry_tickets WHERE entry_id = p_entry_id;
@@ -665,7 +785,9 @@ BEGIN
     v_resp := jsonb_build_object('ok', true, 'entry_id', p_entry_id, 'returned_now', to_jsonb(v_targets),
         'ticket_count', v_entry.ticket_count, 'inside_count', v_inside, 'returned_count', v_returned,
         'status', v_status, 'exited_at', CASE WHEN v_inside = 0 THEN v_now END,
-        'past_business_date', v_entry.business_date < v_today, 'already_exited', false, 'replayed', false);
+        'past_business_date', v_entry.business_date < v_today, 'already_exited', false, 'replayed', false,
+        'refund_followups', v_followups,
+        'refund_completed', CASE WHEN jsonb_array_length(v_followups) > 0 THEN false END);
     INSERT INTO public.visit_entry_requests (site_id, request_id, op, params, response)
     VALUES (p_site_id, p_request_id, 'return_visit_wristbands', v_params, v_resp);
     RETURN v_resp;
@@ -701,6 +823,8 @@ BEGIN
         'refunded_after_entry_visitors', COUNT(t.ticket_id) FILTER (WHERE EXISTS (
             SELECT 1 FROM public.ticket_ledger l WHERE l.ticket_id = t.ticket_id
                AND (l.cancelled_at IS NOT NULL OR COALESCE(l.status, 'active') = 'cancelled'))),
+        'evacuated_visitors', COUNT(t.ticket_id) FILTER (WHERE t.return_kind = 'evacuation'),
+        'open_followups', (SELECT COUNT(*) FROM public.visit_settlement_followups f WHERE f.site_id = p_site_id AND f.status = 'open'),
         'past_unreturned_visitors', (SELECT COUNT(*) FROM public.visit_entry_tickets pt
                                        JOIN public.visit_entries pe ON pe.id = pt.entry_id
                                       WHERE pe.site_id = p_site_id AND pe.business_date < v_date AND pt.returned_at IS NULL)
@@ -709,6 +833,255 @@ BEGIN
     JOIN public.visit_entry_tickets t ON t.entry_id = e.id
     WHERE e.site_id = p_site_id AND e.business_date = v_date;
     RETURN v_res;
+END;
+$$;
+
+-- E8. 정산 후속 확인 목록
+CREATE OR REPLACE FUNCTION public.get_visit_followups(
+    p_access_code TEXT,
+    p_status TEXT DEFAULT 'open',
+    p_site_id TEXT DEFAULT 'bongplay_bonghwa'
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $$
+BEGIN
+    IF NOT private.verify_staff_permission(p_access_code, p_site_id) THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED_STAFF', 'message', '직원 인증에 실패했거나 시설 권한이 없습니다.');
+    END IF;
+    IF p_status IS NOT NULL AND p_status NOT IN ('open', 'resolved') THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'INVALID_STATUS', 'message', 'p_status 는 open, resolved 또는 null(전체)입니다.');
+    END IF;
+    RETURN jsonb_build_object('ok', true, 'items', COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+                   'followup_id', f.id, 'kind', f.kind, 'source', f.source, 'entry_id', f.entry_id,
+                   'formatted_number', q.formatted_number, 'order_id', f.order_id,
+                   'amount_at_detection', f.amount_at_detection,
+                   'current_balance', COALESCE((SELECT (b->>'balance')::BIGINT
+                                                  FROM jsonb_array_elements(private.visit_ticket_order_balances(f.consent_id)) b
+                                                 WHERE b->>'order_id' = f.order_id), 0),
+                   'attribution', f.attribution, 'detected_at', f.detected_at, 'evacuation_id', f.evacuation_id,
+                   'status', f.status, 'resolved_at', f.resolved_at, 'resolution_note', f.resolution_note)
+                 ORDER BY f.detected_at, f.id)
+          FROM public.visit_settlement_followups f
+          LEFT JOIN public.visit_entries e ON e.id = f.entry_id
+          LEFT JOIN public.ticket_queue q ON q.id = e.queue_id
+         WHERE f.site_id = p_site_id AND (p_status IS NULL OR f.status = p_status)), '[]'::jsonb));
+END;
+$$;
+
+-- E8. 정산 후속 확인 처리 (원장 balance = 0 일 때만)
+CREATE OR REPLACE FUNCTION public.resolve_visit_followup(
+    p_access_code TEXT,
+    p_followup_id TEXT,
+    p_note TEXT DEFAULT NULL,
+    p_request_id TEXT DEFAULT NULL,
+    p_staff_id TEXT DEFAULT 'desk_staff',
+    p_site_id TEXT DEFAULT 'bongplay_bonghwa'
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $$
+DECLARE
+    v_now TIMESTAMPTZ := NOW();
+    v_f RECORD;
+    v_params JSONB;
+    v_replay JSONB;
+    v_balance BIGINT;
+    v_resp JSONB;
+BEGIN
+    IF NOT private.verify_staff_permission(p_access_code, p_site_id) THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED_STAFF', 'message', '직원 인증에 실패했거나 시설 권한이 없습니다.');
+    END IF;
+    IF p_request_id IS NULL OR length(p_request_id) NOT BETWEEN 8 AND 64 THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'REQUEST_ID_REQUIRED', 'message', '요청 번호(request_id, 8~64자)가 필요합니다.');
+    END IF;
+    PERFORM private.lock_ticket_queue_site(p_site_id);
+    v_params := jsonb_build_object('followup_id', p_followup_id);
+    v_replay := private.visit_request_replay(p_site_id, p_request_id, 'resolve_visit_followup', v_params);
+    IF v_replay IS NOT NULL THEN RETURN v_replay; END IF;
+
+    SELECT * INTO v_f FROM public.visit_settlement_followups WHERE id = p_followup_id AND site_id = p_site_id FOR UPDATE;
+    IF NOT FOUND THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'not_found', 'message', '후속 확인 건을 찾을 수 없습니다.');
+    END IF;
+    IF v_f.status = 'resolved' THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'FOLLOWUP_ALREADY_RESOLVED', 'resolved_at', v_f.resolved_at);
+    END IF;
+    SELECT COALESCE((SELECT (b->>'balance')::BIGINT FROM jsonb_array_elements(private.visit_ticket_order_balances(v_f.consent_id)) b
+                      WHERE b->>'order_id' = v_f.order_id), 0) INTO v_balance;
+    IF v_balance <> 0 THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'FOLLOWUP_LEDGER_NOT_SETTLED', 'current_balance', v_balance,
+            'message', '원장의 품목 금액과 결제가 아직 맞지 않습니다. 환불·결제를 원장에 기록한 뒤 처리해 주세요.');
+    END IF;
+    UPDATE public.visit_settlement_followups
+       SET status = 'resolved', resolved_at = v_now, resolved_by = p_staff_id, resolution_note = left(p_note, 500),
+           resolve_request_id = p_request_id
+     WHERE id = p_followup_id;
+    v_resp := jsonb_build_object('ok', true, 'followup_id', p_followup_id, 'status', 'resolved', 'resolved_at', v_now,
+        'current_balance', 0, 'replayed', false);
+    INSERT INTO public.visit_entry_requests (site_id, request_id, op, params, response)
+    VALUES (p_site_id, p_request_id, 'resolve_visit_followup', v_params, v_resp);
+    RETURN v_resp;
+END;
+$$;
+
+-- E9. 비상 대피 사후 기록 (정산·안전점검 인터록과 독립)
+CREATE OR REPLACE FUNCTION public.record_emergency_evacuation(
+    p_access_code TEXT,
+    p_occurred_at TIMESTAMPTZ,
+    p_reason TEXT,
+    p_request_id TEXT,
+    p_staff_id TEXT DEFAULT 'desk_staff',
+    p_site_id TEXT DEFAULT 'bongplay_bonghwa'
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $$
+DECLARE
+    v_today DATE := private.visit_today();
+    v_now TIMESTAMPTZ := NOW();
+    v_params JSONB;
+    v_replay JSONB;
+    v_existing RECORD;
+    v_id TEXT;
+    v_snapshot JSONB;
+    v_teams INTEGER;
+    v_visitors INTEGER;
+    v_after INTEGER;
+    v_closed INTEGER := 0;
+    v_entry RECORD;
+    v_followups JSONB := '[]'::jsonb;
+    v_affected JSONB;
+    v_resp JSONB;
+BEGIN
+    IF NOT private.verify_staff_permission(p_access_code, p_site_id) THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED_STAFF', 'message', '직원 인증에 실패했거나 시설 권한이 없습니다.');
+    END IF;
+    IF p_request_id IS NULL OR length(p_request_id) NOT BETWEEN 8 AND 64 THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'REQUEST_ID_REQUIRED', 'message', '요청 번호(request_id, 8~64자)가 필요합니다.');
+    END IF;
+    IF p_reason IS NULL OR trim(p_reason) = '' THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'REASON_REQUIRED', 'message', '대피 사유를 입력해 주세요.');
+    END IF;
+    IF p_occurred_at IS NULL OR p_occurred_at > v_now + INTERVAL '1 minute' OR p_occurred_at < v_now - INTERVAL '24 hours' THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'OCCURRED_AT_OUT_OF_RANGE', 'message', '대피 시각은 지난 24시간 안이어야 합니다.');
+    END IF;
+
+    PERFORM private.lock_ticket_queue_site(p_site_id);
+    v_params := jsonb_build_object('occurred_at', p_occurred_at, 'reason', p_reason);
+    v_replay := private.visit_request_replay(p_site_id, p_request_id, 'record_emergency_evacuation', v_params);
+    IF v_replay IS NOT NULL THEN RETURN v_replay; END IF;
+
+    SELECT * INTO v_existing FROM public.visit_evacuations WHERE site_id = p_site_id AND occurred_at = p_occurred_at;
+    IF FOUND THEN
+        RETURN jsonb_build_object('ok', true, 'evacuation_id', v_existing.id, 'occurred_at', v_existing.occurred_at,
+            'recorded_at', v_existing.recorded_at,
+            'inside_at_event', jsonb_build_object('teams', v_existing.inside_teams, 'visitors', v_existing.inside_visitors),
+            'closed_now_visitors', 0, 'returned_after_event_visitors', v_existing.returned_after_event_visitors,
+            'followups', v_existing.followups, 'already_recorded', true, 'replayed', false);
+    END IF;
+
+    -- 대피 시점 체류 명단: 그 시각에 입장해 있었고 반납되지 않았던 티켓 (영업일 무관)
+    SELECT COALESCE(jsonb_agg(jsonb_build_object('entry_id', x.entry_id, 'formatted_number', x.formatted_number,
+                    'business_date', x.business_date, 'inside_at_event', x.n) ORDER BY x.entry_id), '[]'::jsonb),
+           COUNT(*), COALESCE(SUM(x.n), 0)
+      INTO v_snapshot, v_teams, v_visitors
+      FROM (SELECT t.entry_id, e.business_date, q.formatted_number, COUNT(*)::INTEGER AS n
+              FROM public.visit_entry_tickets t
+              JOIN public.visit_entries e ON e.id = t.entry_id
+              LEFT JOIN public.ticket_queue q ON q.id = e.queue_id
+             WHERE t.site_id = p_site_id AND t.entered_at <= p_occurred_at
+               AND (t.returned_at IS NULL OR t.returned_at > p_occurred_at)
+             GROUP BY t.entry_id, e.business_date, q.formatted_number) x;
+    SELECT COUNT(*) INTO v_after FROM public.visit_entry_tickets t
+     WHERE t.site_id = p_site_id AND t.entered_at <= p_occurred_at AND t.returned_at > p_occurred_at;
+
+    v_id := 'vx_' || encode(extensions.gen_random_bytes(12), 'hex');
+    INSERT INTO public.visit_evacuations (id, site_id, occurred_at, recorded_at, reason, recorded_by, request_id,
+        inside_teams, inside_visitors, closed_visitors, returned_after_event_visitors, snapshot)
+    VALUES (v_id, p_site_id, p_occurred_at, v_now, p_reason, p_staff_id, p_request_id, v_teams, v_visitors, 0, v_after, v_snapshot);
+
+    -- 데이터 변경 CTE 는 FOR 루프 커서에 쓸 수 없으므로, 먼저 닫고 영향받은 입장 id 를 모은다
+    WITH closed AS (
+        UPDATE public.visit_entry_tickets
+           SET returned_at = p_occurred_at, return_kind = 'evacuation', evacuation_id = v_id,
+               returned_by = p_staff_id, return_request_id = p_request_id
+         WHERE site_id = p_site_id AND returned_at IS NULL AND entered_at <= p_occurred_at
+        RETURNING entry_id
+    )
+    SELECT COALESCE(jsonb_object_agg(entry_id, n), '{}'::jsonb) INTO v_affected
+      FROM (SELECT entry_id, COUNT(*)::INTEGER AS n FROM closed GROUP BY entry_id) z;
+
+    FOR v_entry IN
+        SELECT e.id, e.consent_id, e.entered_at, (v_affected->>e.id)::INTEGER AS n
+          FROM public.visit_entries e
+         WHERE e.id IN (SELECT jsonb_object_keys(v_affected))
+         ORDER BY e.id
+    LOOP
+        v_closed := v_closed + v_entry.n;
+        UPDATE public.visit_entries e
+           SET status = CASE WHEN NOT EXISTS (SELECT 1 FROM public.visit_entry_tickets t WHERE t.entry_id = e.id AND t.returned_at IS NULL)
+                             THEN 'exited' ELSE 'partial' END,
+               exited_at = CASE WHEN NOT EXISTS (SELECT 1 FROM public.visit_entry_tickets t WHERE t.entry_id = e.id AND t.returned_at IS NULL)
+                                THEN (SELECT MAX(returned_at) FROM public.visit_entry_tickets t WHERE t.entry_id = e.id) END,
+               version = version + 1, updated_at = v_now
+         WHERE e.id = v_entry.id;
+        UPDATE public.safety_consents
+           SET exit_at = p_occurred_at,
+               stay_duration_minutes = GREATEST(0, round(EXTRACT(EPOCH FROM (p_occurred_at - v_entry.entered_at)) / 60)::INTEGER),
+               updated_at = v_now
+         WHERE id = v_entry.consent_id AND exit_at IS NULL AND created_date = v_today
+           AND NOT EXISTS (SELECT 1 FROM public.visit_entry_tickets t WHERE t.entry_id = v_entry.id AND t.returned_at IS NULL);
+        -- 정산과 독립: 받을 돈·돌려줄 돈 모두 막지 않고 후속 확인으로 남긴다
+        v_followups := v_followups || private.visit_open_followups(p_site_id, v_entry.id, v_entry.consent_id, 'evacuation',
+            private.visit_ticket_order_balances(v_entry.consent_id), true, p_staff_id, p_request_id, v_id);
+    END LOOP;
+
+    UPDATE public.visit_evacuations SET closed_visitors = v_closed, followups = v_followups WHERE id = v_id;
+
+    v_resp := jsonb_build_object('ok', true, 'evacuation_id', v_id, 'occurred_at', p_occurred_at, 'recorded_at', v_now,
+        'inside_at_event', jsonb_build_object('teams', v_teams, 'visitors', v_visitors),
+        'closed_now_visitors', v_closed, 'returned_after_event_visitors', v_after,
+        'followups', v_followups, 'already_recorded', false, 'replayed', false);
+    INSERT INTO public.visit_entry_requests (site_id, request_id, op, params, response)
+    VALUES (p_site_id, p_request_id, 'record_emergency_evacuation', v_params, v_resp);
+    RETURN v_resp;
+END;
+$$;
+
+-- E9. 대피 기록 조회
+CREATE OR REPLACE FUNCTION public.get_visit_evacuation(
+    p_access_code TEXT,
+    p_evacuation_id TEXT,
+    p_site_id TEXT DEFAULT 'bongplay_bonghwa'
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $$
+DECLARE
+    v RECORD;
+BEGIN
+    IF NOT private.verify_staff_permission(p_access_code, p_site_id) THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'UNAUTHORIZED_STAFF', 'message', '직원 인증에 실패했거나 시설 권한이 없습니다.');
+    END IF;
+    SELECT * INTO v FROM public.visit_evacuations WHERE id = p_evacuation_id AND site_id = p_site_id;
+    IF NOT FOUND THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'not_found');
+    END IF;
+    RETURN jsonb_build_object('ok', true, 'evacuation_id', v.id, 'occurred_at', v.occurred_at, 'recorded_at', v.recorded_at,
+        'reason', v.reason, 'recorded_by', v.recorded_by,
+        'inside_at_event', jsonb_build_object('teams', v.inside_teams, 'visitors', v.inside_visitors),
+        'closed_visitors', v.closed_visitors, 'returned_after_event_visitors', v.returned_after_event_visitors,
+        'snapshot', v.snapshot, 'followups', v.followups);
 END;
 $$;
 
@@ -891,8 +1264,11 @@ ALTER TABLE public.visit_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.visit_entry_tickets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.visit_entry_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.queue_call_notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.visit_settlement_followups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.visit_evacuations ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.visit_identity_checks, public.visit_entries, public.visit_entry_tickets,
-    public.visit_entry_requests, public.queue_call_notifications FROM PUBLIC, anon, authenticated;
+    public.visit_entry_requests, public.queue_call_notifications,
+    public.visit_settlement_followups, public.visit_evacuations FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON SEQUENCE public.visit_identity_checks_id_seq FROM PUBLIC, anon, authenticated;
 
 REVOKE ALL ON FUNCTION private.visit_today() FROM PUBLIC, anon, authenticated;
@@ -902,7 +1278,9 @@ REVOKE ALL ON FUNCTION private.visit_sorted_ids(JSONB) FROM PUBLIC, anon, authen
 REVOKE ALL ON FUNCTION private.visit_request_replay(TEXT, TEXT, TEXT, JSONB) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION private.visit_entry_json(TEXT, DATE) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION private.visit_reconcile_order(TEXT, TEXT, JSONB) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION private.visit_unsettled_orders(TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION private.visit_ticket_order_balances(TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION private.visit_balance_class(JSONB, TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION private.visit_open_followups(TEXT, TEXT, TEXT, TEXT, JSONB, BOOLEAN, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION private.trg_queue_call_notification() FROM PUBLIC, anon, authenticated;
 
 REVOKE ALL ON FUNCTION public.verify_visit_guardian_last4(TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
@@ -912,6 +1290,10 @@ REVOKE ALL ON FUNCTION public.get_visit_entry(TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.return_visit_wristbands(TEXT, TEXT, JSONB, BOOLEAN, TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.get_visit_occupancy(TEXT, DATE, TEXT) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.get_queue_call_notifications(TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.get_visit_followups(TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.resolve_visit_followup(TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.record_emergency_evacuation(TEXT, TIMESTAMPTZ, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.get_visit_evacuation(TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.claim_queue_call_notifications(INTEGER, INTEGER) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.report_queue_call_notification(TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
 
@@ -923,6 +1305,10 @@ GRANT EXECUTE ON FUNCTION public.get_visit_entry(TEXT, TEXT, TEXT) TO anon, auth
 GRANT EXECUTE ON FUNCTION public.return_visit_wristbands(TEXT, TEXT, JSONB, BOOLEAN, TEXT, TEXT, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.get_visit_occupancy(TEXT, DATE, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.get_queue_call_notifications(TEXT, TEXT, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.get_visit_followups(TEXT, TEXT, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.resolve_visit_followup(TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.record_emergency_evacuation(TEXT, TIMESTAMPTZ, TEXT, TEXT, TEXT, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.get_visit_evacuation(TEXT, TEXT, TEXT) TO anon, authenticated;
 -- 발송 작업자 RPC: service_role 만 (수신 전화번호를 돌려주므로 anon 불가)
 GRANT EXECUTE ON FUNCTION public.claim_queue_call_notifications(INTEGER, INTEGER) TO service_role;
 GRANT EXECUTE ON FUNCTION public.report_queue_call_notification(TEXT, TEXT, TEXT, TEXT, TEXT) TO service_role;

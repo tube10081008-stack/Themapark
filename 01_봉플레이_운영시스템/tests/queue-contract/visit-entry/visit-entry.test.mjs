@@ -72,7 +72,7 @@ const uid = (p) => `SYN-${p}-${Date.now().toString(36)}-${++seq}`;
 const rid = () => 'SYN-REQ-' + Math.random().toString(36).slice(2, 12) + (++seq);
 
 async function reset(c) {
-  await c.query(`truncate public.visit_entry_tickets, public.visit_entries, public.visit_identity_checks, public.visit_entry_requests,
+  await c.query(`truncate public.visit_settlement_followups, public.visit_evacuations, public.visit_entry_tickets, public.visit_entries, public.visit_identity_checks, public.visit_entry_requests,
     public.queue_call_notifications, public.ticket_queue, public.ticket_queue_rate_limits, public.order_items, public.order_payments,
     public.ticket_ledger, public.safety_consents, public.safety_audits`);
   await c.query(`update public.ticket_queue_desks set current_queue_id = null, is_paused = false`);
@@ -379,7 +379,8 @@ test('V09 입장 뒤 취소·환불: 확정 거래·입장 기록 보존, 체류
     assert.deepEqual((await c.query(`select to_jsonb(e) as j from public.visit_entries e`)).rows, entryBefore);
     const occ = await s.rpc('get_visit_occupancy', {});
     assert.deepEqual([occ.cumulative_visitors, occ.current_inside, occ.refunded_after_entry_visitors], [2, 2, 2]);
-    assert.equal((await s.rpc('get_visit_entry', { p_entry_id: e.entry_id })).entry.settlement.settled, true, '전액 환불은 정산 완료(0/0)');
+    const st = (await s.rpc('get_visit_entry', { p_entry_id: e.entry_id })).entry.settlement;
+    assert.deepEqual([st.return_blocked, st.blocking_orders, st.refund_due, st.other_due], [false, [], [], []], '전액 환불은 정산 완료(0/0)');
     assert.equal((await s.rpc('return_visit_wristbands', { p_entry_id: e.entry_id, p_return_all: true, p_request_id: rid() })).ok, true);
   });
 });
@@ -628,66 +629,156 @@ test('V17 60초 뒤 재호출: 새 알림 1건만 발송, 보내지 않은 이�
   });
 });
 
-test('V18 미정산 차단: 방문에 연결된 주문의 품목 금액 ≠ 유효 결제면 반납을 같은 트랜잭션에서 거부, 정산 후 같은 request_id 로 통과', { skip }, async () => {
+const occ = (s) => s.rpc('get_visit_occupancy', {});
+const occPick = (o) => [o.cumulative_visitors, o.current_inside, o.exited_visitors];
+/** 입장 뒤 결제 원장을 바꿔 차액을 만든다: 기존 결제 취소 → 새 금액 결제 (0 이면 결제 없음) */
+async function repay(c, cid, order, amount) {
+  await c.query(`update public.order_payments set status = 'cancelled', cancelled_at = now() where order_id = $1 and status = 'paid'`, [order]);
+  if (amount > 0) await c.query(`insert into public.order_payments (id, order_id, site_id, consent_id, method, amount, status) values ($1, $2, $3, $4, 'card', $5, 'paid')`,
+    [uid('PAY'), order, SITE, cid, amount]);
+}
+const pick = (o) => ({ ticket_total: o.ticket_total, other_total: o.other_total, item_total: o.item_total, paid_total: o.paid_total, balance: o.balance, attribution: o.attribution });
+
+test('V18 반납 차단 범위(대표 결정): 입장권 주문의 받을 돈만 막고, 방문 연결 매점 단독 주문은 제외 — 체류 인원·금액 대조', { skip }, async () => {
   await scenario(async ({ c, open }) => {
     const s = await open();
     const t = await team(c, s, 'A', '010-2100-0001');
-    const o = await ledger(c, t.cid, { qty: 2 });
+    const o = await ledger(c, t.cid, { qty: 2 });            // 입장권 2 × 18,000 = 36,000, 전액 결제
     const e = await confirm(s, t, o);
     const visitId = (await c.query(`select visit_id from public.safety_consents where id = $1`, [t.cid])).rows[0].visit_id;
-    const snap = async () => ({ ...(await counts(c)),
-      entry: (await c.query(`select status, version from public.visit_entries where id = $1`, [e.entry_id])).rows[0],
-      consent: (await c.query(`select exit_at from public.safety_consents where id = $1`, [t.cid])).rows[0] });
-    const expectBlocked = async (args, balance) => {
-      const before = await snap();
-      const r = await s.rpc('return_visit_wristbands', { p_entry_id: e.entry_id, ...args });
-      assert.equal(r.error, 'UNSETTLED_ORDERS', JSON.stringify(r));
-      assert.ok(r.unsettled_orders.some((u) => u.balance === balance), JSON.stringify(r.unsettled_orders));
-      assert.deepEqual(await snap(), before, '차단 시 아무것도 쓰지 않음');
-      return r;
-    };
-
-    // (1) 매점 POS 추가 구매(방문 연동 visit_id): 품목은 서버에 올라왔고 결제는 아직 → 받을 돈 4,000
-    const addon = uid('ORD-ADDON');
-    await c.query(`insert into public.order_items (item_id, order_id, product_id, product_name, product_category, unit_price, quantity, list_price, paid_amount, visit_id, status, site_id, purchased_at)
-      values ($1, $2, 'fnb_apple_juice', 'SYN 사과주스', 'fnb', 4000, 1, 4000, 4000, $3, 'paid', $4, now())`, [addon + '-I1', addon, visitId, SITE]);
+    // (1) 방문 연동 매점 단독 주문 미결제 4,000 → 반납 막지 않음, 정산 표시에도 없음
+    const store = uid('ORD-STORE');
+    await c.query(`insert into public.order_items (item_id, order_id, product_id, product_name, product_category, quantity, paid_amount, visit_id, status, site_id, purchased_at)
+      values ($1, $2, 'fnb_apple_juice', 'SYN 사과주스', 'fnb', 1, 4000, $3, 'paid', $4, now())`, [store + '-I1', store, visitId, SITE]);
+    const st = (await s.rpc('get_visit_entry', { p_entry_id: e.entry_id })).entry.settlement;
+    assert.deepEqual([st.return_blocked, st.blocking_orders, st.other_due, st.refund_due], [false, [], [], []]);
+    const r1 = await s.rpc('return_visit_wristbands', { p_entry_id: e.entry_id, p_ticket_ids: [o.tickets[0]], p_request_id: rid() });
+    assert.deepEqual([r1.ok, r1.inside_count, r1.refund_followups, r1.refund_completed ?? null], [true, 1, [], null]);
+    assert.deepEqual(occPick(await occ(s)), [2, 1, 1]);
+    // (2) 입장권 주문 받을 돈 18,000 (결제 일부 취소) → 차단, 아무것도 쓰지 않음, 금액 정확
+    await repay(c, t.cid, o.order, 18000);
     const req = rid();
-    await expectBlocked({ p_ticket_ids: [o.tickets[0]], p_request_id: req }, 4000);
-    await expectBlocked({ p_return_all: true, p_request_id: rid() }, 4000);
-    const shown = await s.rpc('search_visit_entries', { p_last4: '0001' });
-    assert.equal(shown.entries[0].settlement.settled, false, '검색 결과에 서버 계산 정산 상태');
-    // 부분 결제 → 남은 1,500
-    await c.query(`insert into public.order_payments (id, order_id, site_id, visit_id, method, amount, status) values ($1, $2, $3, $4, 'cash', 2500, 'paid')`, [addon + '-P1', addon, SITE, visitId]);
-    await expectBlocked({ p_ticket_ids: [o.tickets[0]], p_request_id: req }, 1500);
-    // 나머지 결제 기록 → 같은 request_id 로 다시 보내면 새로 판정되어 통과
-    await c.query(`insert into public.order_payments (id, order_id, site_id, visit_id, method, amount, status) values ($1, $2, $3, $4, 'card', 1500, 'paid')`, [addon + '-P2', addon, SITE, visitId]);
-    const ok1 = await s.rpc('return_visit_wristbands', { p_entry_id: e.entry_id, p_ticket_ids: [o.tickets[0]], p_request_id: req });
-    assert.deepEqual([ok1.ok, ok1.inside_count, ok1.replayed], [true, 1, false]);
+    const blocked = await s.rpc('return_visit_wristbands', { p_entry_id: e.entry_id, p_return_all: true, p_request_id: req });
+    assert.equal(blocked.error, 'UNSETTLED_TICKET_ORDER', JSON.stringify(blocked));
+    assert.equal(blocked.attribution_undeterminable, false);
+    assert.deepEqual(blocked.blocking_orders.map(pick), [{ ticket_total: 36000, other_total: 0, item_total: 36000, paid_total: 18000, balance: 18000, attribution: 'ticket' }]);
+    assert.deepEqual(blocked.blocking_orders.map((b) => b.order_id), [o.order], '매점 단독 주문은 목록에 없음');
+    assert.deepEqual(occPick(await occ(s)), [2, 1, 1], '차단 시 체류 인원 불변');
+    // (3) 받을 돈 결제 기록 → 같은 request_id 로 새로 판정되어 통과
+    await c.query(`insert into public.order_payments (id, order_id, site_id, consent_id, method, amount, status) values ($1, $2, $3, $4, 'cash', 18000, 'paid')`, [uid('PAY'), o.order, SITE, t.cid]);
+    const ok = await s.rpc('return_visit_wristbands', { p_entry_id: e.entry_id, p_return_all: true, p_request_id: req });
+    assert.deepEqual([ok.ok, ok.inside_count, ok.status], [true, 0, 'exited']);
+    assert.deepEqual(occPick(await occ(s)), [2, 0, 2]);
+    assert.equal((await c.query(`select count(*)::int n from public.visit_settlement_followups`)).rows[0].n, 0);
+  });
+});
 
-    // (2) 돌려줄 돈: 품목은 취소했는데 결제가 남음 (환불 미처리) → balance -3,000
-    const refund = uid('ORD-REF');
-    await c.query(`insert into public.order_items (item_id, order_id, product_id, product_category, quantity, paid_amount, visit_id, status, cancelled_at, site_id, purchased_at)
-      values ($1, $2, 'addon_net_challenge', 'addon_attraction', 1, 3000, $3, 'cancelled', now(), $4, now())`, [refund + '-I1', refund, visitId, SITE]);
-    await c.query(`insert into public.order_payments (id, order_id, site_id, visit_id, method, amount, status) values ($1, $2, $3, $4, 'card', 3000, 'paid')`, [refund + '-P1', refund, SITE, visitId]);
-    await expectBlocked({ p_return_all: true, p_request_id: rid() }, -3000);
-    await c.query(`update public.order_payments set status = 'cancelled', cancelled_at = now() where order_id = $1`, [refund]);
+test('V19 혼합 주문(입장권+매점 한 주문): 귀속 판정 불가는 임의 배분 없이 차단·보고, 매점 몫만 남으면 막지 않음 — 인원·금액 대조', { skip }, async () => {
+  await scenario(async ({ c, open }) => {
+    const s = await open();
+    const t = await team(c, s, 'M', '010-2100-0002');
+    const o = await ledger(c, t.cid, { qty: 2, fnb: 4000 });   // 36,000 + 4,000 = 40,000 전액 결제
+    const e = await confirm(s, t, o);
+    await repay(c, t.cid, o.order, 38000);                      // 2,000 부족 — 입장권 몫인지 매점 몫인지 알 수 없음
+    const r = await s.rpc('return_visit_wristbands', { p_entry_id: e.entry_id, p_ticket_ids: [o.tickets[0]], p_request_id: rid() });
+    assert.equal(r.error, 'UNSETTLED_TICKET_ORDER');
+    assert.equal(r.attribution_undeterminable, true);
+    assert.deepEqual(r.blocking_orders.map(pick), [{ ticket_total: 36000, other_total: 4000, item_total: 40000, paid_total: 38000, balance: 2000, attribution: 'undeterminable' }]);
+    assert.ok(!('ticket_due' in r.blocking_orders[0]) && !('other_due' in r.blocking_orders[0]), '배분 값 없음');
+    assert.deepEqual(occPick(await occ(s)), [2, 2, 0]);
+    // 입장권 품목을 환불(취소)하고 매점 품목만 남긴 경우: 남은 받을 돈은 매점 몫 → 막지 않음
+    await c.query(`update public.order_items set status = 'cancelled', cancelled_at = now() where order_id = $1 and product_category = 'ticket'`, [o.order]);
+    await repay(c, t.cid, o.order, 0);
+    const st = (await s.rpc('get_visit_entry', { p_entry_id: e.entry_id })).entry.settlement;
+    assert.deepEqual([st.return_blocked, st.other_due.map(pick)], [false, [{ ticket_total: 0, other_total: 4000, item_total: 4000, paid_total: 0, balance: 4000, attribution: 'other' }]]);
+    const ok = await s.rpc('return_visit_wristbands', { p_entry_id: e.entry_id, p_return_all: true, p_request_id: rid() });
+    assert.deepEqual([ok.ok, ok.inside_count], [true, 0]);
+    assert.deepEqual(occPick(await occ(s)), [2, 0, 2]);
+  });
+});
 
-    // (3) 서약서 소속 매표 주문의 결제가 취소됐는데 품목·티켓은 살아 있음 → 받을 돈
-    await c.query(`update public.order_payments set status = 'cancelled', cancelled_at = now() where order_id = $1`, [o.order]);
-    await expectBlocked({ p_return_all: true, p_request_id: rid() }, 36000);
-    await c.query(`update public.order_payments set status = 'paid', cancelled_at = null where order_id = $1`, [o.order]);
+test('V20 돌려줄 돈: 반납은 허용, 환불 완료로 처리하지 않고 후속 확인 — 원장이 맞아야만 처리 (금액·인원 대조)', { skip }, async () => {
+  await scenario(async ({ c, open }) => {
+    const s = await open();
+    const t = await team(c, s, 'R', '010-2100-0003');
+    const o = await ledger(c, t.cid, { qty: 2 });
+    const e = await confirm(s, t, o);
+    const over = uid('PAY-OVER');
+    await c.query(`insert into public.order_payments (id, order_id, site_id, consent_id, method, amount, status) values ($1, $2, $3, $4, 'card', 3000, 'paid')`, [over, o.order, SITE, t.cid]);
+    const r1 = await s.rpc('return_visit_wristbands', { p_entry_id: e.entry_id, p_ticket_ids: [o.tickets[0]], p_request_id: rid() });
+    assert.deepEqual([r1.ok, r1.inside_count, r1.refund_completed], [true, 1, false]);
+    assert.deepEqual(r1.refund_followups.map((f) => [f.kind, f.amount, f.order_id, f.attribution]), [['refund_due', 3000, o.order, 'ticket']]);
+    const fid = r1.refund_followups[0].followup_id;
+    const r2 = await s.rpc('return_visit_wristbands', { p_entry_id: e.entry_id, p_return_all: true, p_request_id: rid() });
+    assert.deepEqual([r2.ok, r2.refund_followups.map((f) => f.followup_id)], [true, [fid]], '같은 차액은 후속 확인 1건');
+    assert.equal((await c.query(`select count(*)::int n from public.visit_settlement_followups`)).rows[0].n, 1);
+    assert.deepEqual([...occPick(await occ(s)), (await occ(s)).open_followups], [2, 0, 2, 1]);
+    const list = await s.rpc('get_visit_followups', {});
+    assert.deepEqual(list.items.map((f) => [f.followup_id, f.kind, f.amount_at_detection, f.current_balance, f.status]), [[fid, 'refund_due', 3000, -3000, 'open']]);
+    const req = rid();
+    const notYet = await s.rpc('resolve_visit_followup', { p_followup_id: fid, p_note: 'SYN 환불했어요(화면)', p_request_id: req });
+    assert.deepEqual([notYet.error, notYet.current_balance], ['FOLLOWUP_LEDGER_NOT_SETTLED', -3000], '메모만으로는 처리 안 됨');
+    await c.query(`update public.order_payments set status = 'cancelled', cancelled_at = now() where id = $1`, [over]);   // 환불 원장 기록
+    const done = await s.rpc('resolve_visit_followup', { p_followup_id: fid, p_note: 'SYN 카드 취소', p_request_id: req });
+    assert.deepEqual([done.ok, done.status, done.current_balance], [true, 'resolved', 0]);
+    assert.equal((await s.rpc('resolve_visit_followup', { p_followup_id: fid, p_request_id: req })).replayed, true);
+    assert.equal((await s.rpc('resolve_visit_followup', { p_followup_id: fid, p_request_id: rid() })).error, 'FOLLOWUP_ALREADY_RESOLVED');
+    assert.equal((await occ(s)).open_followups, 0);
+  });
+});
 
-    // (4) 이 방문과 연결되지 않은 매점 손님의 미결제 주문은 이 방문 반납에 영향 없음
-    await c.query(`insert into public.order_items (item_id, order_id, product_id, product_category, quantity, paid_amount, status, site_id, purchased_at)
-      values ($1, $1, 'fnb_water', 'fnb', 1, 1000, 'paid', $2, now())`, [uid('WALKUP'), SITE]);
-    const done = await s.rpc('return_visit_wristbands', { p_entry_id: e.entry_id, p_return_all: true, p_request_id: rid() });
-    assert.deepEqual([done.ok, done.status], [true, 'exited'], JSON.stringify(done));
-
-    // (5) 남은 팔찌가 없는 전체 반납(아무것도 쓰지 않음)은 미정산과 무관하게 already_exited
-    const later = uid('ORD-LATE');
-    await c.query(`insert into public.order_items (item_id, order_id, product_category, quantity, paid_amount, visit_id, status, site_id, purchased_at)
-      values ($1, $2, 'fnb', 1, 2000, $3, 'paid', $4, now())`, [later + '-I1', later, visitId, SITE]);
-    const noop = await s.rpc('return_visit_wristbands', { p_entry_id: e.entry_id, p_return_all: true, p_request_id: rid() });
-    assert.deepEqual([noop.ok, noop.already_exited], [true, true]);
+test('V21 비상 대피 사후 기록: 정산·인터록과 독립, 대피 시점 명단·인원·금액이 원장과 일치', { skip }, async () => {
+  await scenario(async ({ c, open }) => {
+    const s = await open();
+    const make = async (label, phone, qty) => { const t = await team(c, s, label, phone); const o = await ledger(c, t.cid, { qty }); const e = await confirm(s, t, o); return { t, o, e }; };
+    const E1 = await make('E1', '010-2200-0001', 3);
+    const E2 = await make('E2', '010-2200-0002', 2);
+    const E3 = await make('E3', '010-2200-0003', 2);
+    const E4 = await make('E4', '010-2200-0004', 1);
+    const E5 = await make('E5', '010-2200-0005', 2);
+    await c.query(`update public.visit_entry_tickets set entered_at = entered_at - interval '30 minutes'`);
+    await c.query(`update public.visit_entries set entered_at = entered_at - interval '30 minutes'`);
+    // E2: 대피 전 1명 정상 반납 (반납 시각을 10분 전으로)
+    assert.equal((await s.rpc('return_visit_wristbands', { p_entry_id: E2.e.entry_id, p_ticket_ids: [E2.o.tickets[0]], p_request_id: rid() })).ok, true);
+    await c.query(`update public.visit_entry_tickets set returned_at = now() - interval '10 minutes' where ticket_id = $1`, [E2.o.tickets[0]]);
+    // E5: 대피 시각 뒤 1명 정상 반납 (지금)
+    assert.equal((await s.rpc('return_visit_wristbands', { p_entry_id: E5.e.entry_id, p_ticket_ids: [E5.o.tickets[0]], p_request_id: rid() })).ok, true);
+    // E3 받을 돈 18,000 (일반 반납이면 막힘), E4 돌려줄 돈 2,000
+    await repay(c, E3.t.cid, E3.o.order, 18000);
+    assert.equal((await s.rpc('return_visit_wristbands', { p_entry_id: E3.e.entry_id, p_return_all: true, p_request_id: rid() })).error, 'UNSETTLED_TICKET_ORDER');
+    await c.query(`insert into public.order_payments (id, order_id, site_id, consent_id, method, amount, status) values ($1, $2, $3, $4, 'cash', 2000, 'paid')`, [uid('PAY'), E4.o.order, SITE, E4.t.cid]);
+    // 안전점검 기록이 없어도 대피 기록은 된다
+    await c.query(`truncate public.safety_audits`);
+    const ledgerBefore = await ledgerSnapshot(c);
+    const at = (await c.query(`select (now() - interval '2 minutes') as t`)).rows[0].t;
+    assert.equal((await s.rpc('record_emergency_evacuation', { p_occurred_at: at, p_reason: '', p_request_id: rid() })).error, 'REASON_REQUIRED');
+    assert.equal((await s.rpc('record_emergency_evacuation', { p_occurred_at: new Date(Date.now() + 3600e3).toISOString(), p_reason: 'SYN', p_request_id: rid() })).error, 'OCCURRED_AT_OUT_OF_RANGE');
+    const req = rid();
+    const ev = await s.rpc('record_emergency_evacuation', { p_occurred_at: at, p_reason: 'SYN 화재경보 대피', p_request_id: req });
+    assert.equal(ev.ok, true, JSON.stringify(ev));
+    assert.deepEqual([ev.inside_at_event, ev.closed_now_visitors, ev.returned_after_event_visitors], [{ teams: 5, visitors: 9 }, 8, 1]);
+    const snap = Object.fromEntries((await s.rpc('get_visit_evacuation', { p_evacuation_id: ev.evacuation_id })).snapshot.map((x) => [x.entry_id, x.inside_at_event]));
+    assert.deepEqual(snap, { [E1.e.entry_id]: 3, [E2.e.entry_id]: 1, [E3.e.entry_id]: 2, [E4.e.entry_id]: 1, [E5.e.entry_id]: 2 });
+    assert.deepEqual(ev.followups.map((f) => [f.kind, f.amount, f.order_id, f.source]).sort(),
+      [['payment_due', 18000, E3.o.order, 'evacuation'], ['refund_due', 2000, E4.o.order, 'evacuation']].sort());
+    assert.deepEqual(await ledgerSnapshot(c), ledgerBefore, '대피 기록은 결제·발권 원장을 바꾸지 않음');
+    const o2 = await occ(s);
+    assert.deepEqual([o2.cumulative_visitors, o2.current_inside, o2.exited_visitors, o2.evacuated_visitors, o2.open_followups], [10, 0, 10, 8, 2]);
+    const kinds = (await c.query(`select return_kind, count(*)::int n from public.visit_entry_tickets group by 1 order by 1`)).rows;
+    assert.deepEqual(kinds, [{ return_kind: 'evacuation', n: 8 }, { return_kind: 'normal', n: 2 }]);
+    assert.equal((await c.query(`select count(*)::int n from public.visit_entries where status <> 'exited'`)).rows[0].n, 0);
+    // 멱등: 같은 요청 재생, 같은 대피 시각 다른 요청은 already_recorded, 대피 뒤 일반 반납은 already_exited
+    assert.equal((await s.rpc('record_emergency_evacuation', { p_occurred_at: at, p_reason: 'SYN 화재경보 대피', p_request_id: req })).replayed, true);
+    const again = await s.rpc('record_emergency_evacuation', { p_occurred_at: at, p_reason: 'SYN 다시', p_request_id: rid() });
+    assert.deepEqual([again.already_recorded, again.closed_now_visitors, again.evacuation_id], [true, 0, ev.evacuation_id]);
+    assert.equal((await s.rpc('return_visit_wristbands', { p_entry_id: E1.e.entry_id, p_return_all: true, p_request_id: rid() })).already_exited, true);
+    assert.equal((await s.rpc('return_visit_wristbands', { p_entry_id: E1.e.entry_id, p_ticket_ids: [E1.o.tickets[0]], p_request_id: rid() })).error, 'TICKET_ALREADY_RETURNED');
+    assert.equal((await c.query(`select count(*)::int n from public.visit_evacuations`)).rows[0].n, 1);
+    // 후속 확인: 받을 돈은 결제 기록 뒤에만 처리
+    const pay = (await s.rpc('get_visit_followups', {})).items.find((f) => f.kind === 'payment_due');
+    assert.deepEqual([pay.current_balance, pay.amount_at_detection], [18000, 18000]);
+    await passAudit(c);   // (결제 원장 쓰기는 기존 인터록을 따른다)
+    await c.query(`insert into public.order_payments (id, order_id, site_id, consent_id, method, amount, status) values ($1, $2, $3, $4, 'cash', 18000, 'paid')`, [uid('PAY'), E3.o.order, SITE, E3.t.cid]);
+    assert.equal((await s.rpc('resolve_visit_followup', { p_followup_id: pay.followup_id, p_request_id: rid() })).ok, true);
   });
 });

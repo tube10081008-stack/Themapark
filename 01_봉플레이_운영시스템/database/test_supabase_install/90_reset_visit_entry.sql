@@ -28,14 +28,18 @@ begin
     where (n.nspname = 'public' and p.proname in (
              'verify_visit_guardian_last4', 'confirm_visit_entry', 'search_visit_entries', 'get_visit_entry',
              'return_visit_wristbands', 'get_visit_occupancy', 'get_queue_call_notifications',
-             'claim_queue_call_notifications', 'report_queue_call_notification'))
+             'claim_queue_call_notifications', 'report_queue_call_notification',
+             'get_visit_followups', 'resolve_visit_followup', 'record_emergency_evacuation', 'get_visit_evacuation'))
        or (n.nspname = 'private' and p.proname in (
              'visit_today', 'visit_safety_pass', 'visit_last4', 'visit_sorted_ids', 'visit_request_replay',
-             'visit_entry_json', 'visit_reconcile_order', 'visit_unsettled_orders', 'trg_queue_call_notification'))
+             'visit_entry_json', 'visit_reconcile_order', 'visit_unsettled_orders', 'visit_ticket_order_balances',
+             'visit_balance_class', 'visit_open_followups', 'trg_queue_call_notification'))
   loop
     execute format('drop function if exists %s', r.sig);
   end loop;
 
+  drop table if exists public.visit_settlement_followups;
+  drop table if exists public.visit_evacuations;
   drop table if exists public.visit_entry_tickets;
   drop table if exists public.visit_entries;   -- 트리거 trg_safety_interlock 도 함께 지워진다 (공유 함수 private.trg_safety_interlock 은 유지)
   drop table if exists public.visit_identity_checks;

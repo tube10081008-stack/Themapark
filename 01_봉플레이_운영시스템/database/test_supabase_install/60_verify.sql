@@ -30,13 +30,14 @@ queue_rpcs(f) as (values
   ('call_next_queue_team'), ('recall_queue_team'), ('start_queue_processing'), ('hold_queue_team'),
   ('restore_queue_team'), ('cancel_queue_team'), ('complete_queue_issuance'), ('get_staff_queue_list'),
   ('set_desk_pause_status')),
--- BEN-ENTRY-01 게이트 없는 입장: 직원 RPC 7개 (함수 안 운영 암호 검증). 발송 작업자 RPC 2개는 service_role 전용.
+-- BEN-ENTRY-01 게이트 없는 입장: 직원 RPC 11개 (함수 안 운영 암호 검증). 발송 작업자 RPC 2개는 service_role 전용.
 visit_rpcs(f) as (values
   ('verify_visit_guardian_last4'), ('confirm_visit_entry'), ('search_visit_entries'), ('get_visit_entry'),
-  ('return_visit_wristbands'), ('get_visit_occupancy'), ('get_queue_call_notifications')),
+  ('return_visit_wristbands'), ('get_visit_occupancy'), ('get_queue_call_notifications'),
+  ('get_visit_followups'), ('resolve_visit_followup'), ('record_emergency_evacuation'), ('get_visit_evacuation')),
 visit_worker_rpcs(f) as (values ('claim_queue_call_notifications'), ('report_queue_call_notification')),
 visit_tables(t) as (values ('visit_entries'), ('visit_entry_tickets'), ('visit_identity_checks'),
-  ('visit_entry_requests'), ('queue_call_notifications')),
+  ('visit_entry_requests'), ('queue_call_notifications'), ('visit_settlement_followups'), ('visit_evacuations')),
 anon_rpc_allow(f) as (
   select f from queue_rpcs
   union all select f from visit_rpcs
@@ -156,7 +157,7 @@ checks(level, check_id, ok, detail) as (
   from fns f join pg_proc p on p.oid = f.oid cross join api_roles r
   where f.nspname = 'public' and f.proname = 'lookup_family_children'
   union all
-  select 'FAIL', 'V01 게이트 없는 입장 표 5개 (BEN-ENTRY-01)',
+  select 'FAIL', 'V01 게이트 없는 입장 표 7개 (BEN-ENTRY-01)',
          bool_and(to_regclass('public.' || t) is not null),
          coalesce(string_agg(t, ', ') filter (where to_regclass('public.' || t) is null), 'PROPOSED_MIGRATION_visit_entry.sql')
   from visit_tables
@@ -172,9 +173,9 @@ checks(level, check_id, ok, detail) as (
   from api_roles r cross join visit_tables v cross join privs p
   where to_regclass('public.' || v.t) is not null
   union all
-  select 'FAIL', 'V04 입장 직원 RPC 7개 anon 실행 가능 (함수 안 암호 검증)',
+  select 'FAIL', 'V04 입장 직원 RPC 11개 anon 실행 가능 (함수 안 암호 검증)',
          count(*) filter (where exists (select 1 from fns f where f.nspname = 'public' and f.proname = v.f
-                                        and has_function_privilege('anon', f.oid, 'EXECUTE'))) = 7,
+                                        and has_function_privilege('anon', f.oid, 'EXECUTE'))) = 11,
          coalesce(string_agg(v.f, ', ') filter (where not exists (select 1 from fns f where f.nspname = 'public' and f.proname = v.f
                                         and has_function_privilege('anon', f.oid, 'EXECUTE'))), '')
   from visit_rpcs v

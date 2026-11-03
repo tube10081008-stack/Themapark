@@ -36,13 +36,14 @@ begin
       -- BEN-ENTRY-01
       'verify_visit_guardian_last4', 'confirm_visit_entry', 'search_visit_entries', 'get_visit_entry',
       'return_visit_wristbands', 'get_visit_occupancy', 'get_queue_call_notifications',
-      'claim_queue_call_notifications', 'report_queue_call_notification')
+      'claim_queue_call_notifications', 'report_queue_call_notification',
+      'get_visit_followups', 'resolve_visit_followup', 'record_emergency_evacuation', 'get_visit_evacuation')
   loop
     execute format('drop function if exists %s', r.sig);
   end loop;
 
   foreach t in array array[
-    'visit_entry_tickets', 'visit_entries', 'visit_identity_checks', 'visit_entry_requests', 'queue_call_notifications',
+    'visit_settlement_followups', 'visit_evacuations', 'visit_entry_tickets', 'visit_entries', 'visit_identity_checks', 'visit_entry_requests', 'queue_call_notifications',
     'ticket_queue_rate_limits', 'ticket_queue_desks', 'ticket_queue',
     'asset_maintenance_logs', 'asset_measurements', 'asset_usage_counters', 'closing_records', 'complaint_logs',
     'congestion_telemetry', 'customer_experience_surveys', 'equipment_assets', 'facility_operating_intervals',
