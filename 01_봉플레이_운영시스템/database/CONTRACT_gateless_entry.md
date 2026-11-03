@@ -154,8 +154,10 @@
   {"entry_id": "ve_…", "queue_id": "…", "formatted_number": "A-012", "guardian_masked": "홍*현", "last4": "1234",
    "business_date": "…", "past_business_date": false, "entered_at": "…", "status": "partial",
    "ticket_count": 3, "inside_count": 1, "returned_count": 2,
-   "tickets": [{"ticket_id": "…", "product_name": "어린이 기본이용권", "returned": true, "returned_at": "…"}],
-   "settlement": {"settled": false, "unsettled_orders": [{"order_id": "…", "item_total": 4000, "paid_total": 2500, "balance": 1500}]}}]}
+   "tickets": [{"ticket_id": "…", "product_name": "어린이 기본이용권", "returned": true, "returned_at": "…", "return_kind": "normal"}],
+   "settlement": {"return_blocked": true,
+     "blocking_orders": [{"order_id": "…", "ticket_total": 36000, "other_total": 0, "item_total": 36000, "paid_total": 18000, "balance": 18000, "attribution": "ticket"}],
+     "refund_due": [], "other_due": [], "open_followups": 0}}]}
 ```
 
 - `p_last4`가 없으면 오늘 체류 중인 팀 전체다. 있으면 숫자 4자리여야 한다(`LAST4_FORMAT`).
@@ -165,6 +167,11 @@
 - **돌려주지 않는 것:** 전화번호 전체, 보호자 실명, 자녀 정보, `consent_id`. 이름은 서버 마스킹(`private.mask_name`) 값만 준다.
 - 같은 뒷번호의 두 팀은 두 건으로 따로 나온다. 직원은 대기번호·인원·입장 시각으로 고르고, 반납은 `entry_id`로만 한다.
 - `settlement`는 서버가 조회 시점에 원장으로 계산한 **참고 표시**다(E6 7번과 같은 규칙). 화면은 이 값으로 반납 버튼을 막거나 안내할 수 있다. 하지만 반납 허용 여부는 E6이 같은 트랜잭션에서 다시 판정한다. 화면 표시를 서버 검증으로 쓰지 않는다.
+  - `blocking_orders`: 반납을 막는 입장권 주문 (E6 7번)
+  - `refund_due`: 돌려줄 돈이 남은 입장권 주문 (반납은 허용하고 후속 확인을 만든다)
+  - `other_due`: 입장권 주문 안에서 매점 품목에만 귀속되는 받을 돈 (막지 않음, 참고)
+  - `open_followups`: 이 방문의 미처리 후속 확인 수 (E8)
+- 티켓의 `return_kind`: `normal`(E6 반납) | `evacuation`(E9 비상 대피 사후 기록) | `null`(체류 중)
 
 ### E5. 입장 기록 단건 — `get_visit_entry`
 
@@ -177,7 +184,8 @@
 성공 응답:
 ```json
 {"ok": true, "entry_id": "ve_…", "returned_now": ["t1"], "ticket_count": 3, "inside_count": 2, "returned_count": 1,
- "status": "partial", "exited_at": null, "past_business_date": false, "already_exited": false, "replayed": false}
+ "status": "partial", "exited_at": null, "past_business_date": false, "already_exited": false, "replayed": false,
+ "refund_followups": [{"followup_id": "vf_…", "order_id": "…", "amount": 3000, "attribution": "ticket"}], "refund_completed": false}
 ```
 
 | 순서 | 검사 | 실패 코드 |
@@ -188,20 +196,31 @@
 | 4 | 입장 기록 (시설 범위) | `not_found` |
 | 5 | 지정 티켓이 이 입장 기록 소속 | `TICKET_NOT_IN_ENTRY` |
 | 6 | 지정 티켓 중 이미 반납된 것이 있음 | `TICKET_ALREADY_RETURNED` (`already_returned` 목록 포함, 하나도 반영하지 않음) |
-| 7 | **이 방문의 미정산 주문** (반납할 팔찌가 있을 때만) | `UNSETTLED_ORDERS` (`unsettled_orders` 목록 포함, 하나도 반영하지 않음) |
+| 7 | **이 방문의 입장권 주문에 받을 돈이 남음** (반납할 팔찌가 있을 때만) | `UNSETTLED_TICKET_ORDER` (`blocking_orders` 목록 포함, 하나도 반영하지 않음) |
 
-7번 미정산 판정 (같은 트랜잭션·시설 잠금 안에서 기존 원장을 다시 읽는다):
-- **대상 주문:** `order_items` 또는 `order_payments` 중 하나라도 이 방문에 연결된 주문
-  - 매표 주문: `consent_id`가 이 서약서
-  - 매점 POS 방문 연동 주문: `visit_id`가 서약서의 `visit_id` 또는 서약서 id
-- **판정:** 주문별로 활성 품목 금액(`paid_amount`, 0이면 `total_price`)과 유효 결제 합계(`status='paid'`, 미취소)를 비교해 다르면 미정산이다.
-  - `balance > 0`: 받을 돈. 품목은 서버에 있는데 결제가 없거나 모자람
-  - `balance < 0`: 돌려줄 돈. 품목은 취소됐는데 결제가 남음(환불 미처리)
+7번 판정 (2026-11-03 대표 결정, 같은 트랜잭션·시설 잠금 안에서 기존 원장을 다시 읽는다):
+- **입장권 주문:** 이 방문에 연결된 주문 중 입장권 품목(`product_category='ticket'`, 취소 포함)이 하나라도 있는 주문이다.
+  - 연결 기준: `order_items`·`order_payments`의 `consent_id`가 이 서약서이거나, `visit_id`가 서약서의 `visit_id` 또는 서약서 id
+  - **입장권 품목이 없는 매점·기타 단독 주문은 방문 ID가 연결돼 있어도 판정에서 제외한다.**
+- **주문별 금액** (활성 품목 = 미취소):
+  - `ticket_total`: 활성 입장권 금액(`paid_amount`, 0이면 `total_price`)
+  - `other_total`: 활성 비입장권 금액
+  - `paid_total`: 유효 결제 합계(`status='paid'`, 미취소)
+  - `balance`: `ticket_total + other_total − paid_total`
+- **귀속(`attribution`)** — 임의로 배분하지 않는다:
+  - `ticket`: 활성 비입장권 품목이 없다. 차액 전체가 입장권 몫이다.
+  - `other`: 활성 입장권 품목이 없다(입장권은 환불, 매점 품목만 남음). 차액은 매점 몫이다.
+  - `undeterminable`: 활성 입장권과 활성 매점 품목이 한 주문에 함께 있고 결제가 그 합계와 다르다. **귀속을 판정할 수 없다.**
+- **반납 차단:** `balance > 0`이고 귀속이 `ticket` 또는 `undeterminable`이면 `UNSETTLED_TICKET_ORDER`다.
+  - 귀속을 판정할 수 없는 주문은 매점 몫으로 보고 통과시키지 않는다. 그 주문은 `attribution_undeterminable:true`로 따로 보고한다(9절 결정 대기).
+  - 귀속이 `other`인 받을 돈은 막지 않는다(`settlement.other_due` 참고 표시).
+- **돌려줄 돈(`balance < 0`):** 반납을 **허용**하고 **환불 완료로 처리하지 않는다.**
+  - 같은 트랜잭션에서 후속 확인(E8, 종류 `refund_due`)을 만든다. 같은 방문·주문·종류의 미처리 건이 있으면 새로 만들지 않는다.
+  - 응답의 `refund_followups`에 목록을, `refund_completed:false`를 담는다.
 - **전액 환불:** 품목·결제·티켓을 함께 취소하면 0/0이라 정산 완료다.
-- **판정 대상이 아닌 것:**
-  - 방문과 연결되지 않은 매점 주문
-  - 단말에만 있고 서버에 올라오지 않은 아웃박스 건 (한계, 9절)
+- **판정 대상이 아닌 것:** 단말에만 있고 서버에 올라오지 않은 아웃박스 건 (한계, 9절)
 - **반납할 팔찌가 없을 때:** 전체 반납인데 남은 팔찌가 없으면 아무것도 쓰지 않으므로 7번을 보지 않는다(`already_exited`).
+- **비용 항목:** 초과시간·팔찌 분실·파손 비용은 두지 않는다(대표 결정).
 
 - **전체 반납:** `p_return_all=true`는 남은 티켓 전부를 반납한다. 남은 것이 없으면 `ok:true, returned_now:[], already_exited:true`이고 아무것도 바꾸지 않는다.
 - **두 단말 동시 처리:** 두 단말이 같은 팔찌를 동시에 반납하면 먼저 잠금을 얻은 쪽만 반영된다. 다른 쪽은 `TICKET_ALREADY_RETURNED`라 인원이 두 번 빠지지 않는다.
@@ -224,9 +243,56 @@
 | `partial_teams` | 일부만 반납한 팀 수 |
 | `past_unreturned_visitors` | 그 영업일 **이전** 입장분 중 미반납 티켓 수. 현재 체류에 더하지 않고 따로 보고한다 |
 | `refunded_after_entry_visitors` | 입장 뒤 티켓 원장이 취소(환불)된 입장 티켓 수. 참고값이다. 누적·체류에서 빼지 않는다 |
+| `evacuated_visitors` | 그 영업일 입장 티켓 중 비상 대피(E9)로 퇴장 기록된 수. `exited_visitors`에 포함된다 |
+| `open_followups` | 시설 전체의 미처리 후속 확인 수 (E8) |
 
 - 입장권이 없는 주문(매점 단독)은 입장 기록이 없어 어떤 값에도 들어가지 않는다.
 - 기존 `sales_records`·마감 정산의 결제 집계는 바꾸지 않는다.
+
+### E8. 정산 후속 확인 — `get_visit_followups`, `resolve_visit_followup`
+
+반납·대피를 막지 않은 차액을 직원이 나중에 확인하는 목록이다. 후속 확인 표는 `visit_settlement_followups`다.
+
+| 종류 | 생기는 때 |
+|---|---|
+| `refund_due` | E6 반납 또는 E9 대피 때 입장권 주문에 돌려줄 돈이 남음 |
+| `payment_due` | E9 대피 때 입장권 주문에 받을 돈이 남음 (대피는 정산과 독립이라 막지 않는다) |
+
+- **목록:** `get_visit_followups(p_access_code, p_status text default 'open', p_site_id)` → `{ok, items:[{followup_id, kind, source('return'|'evacuation'), entry_id, formatted_number, order_id, amount_at_detection, current_balance, attribution, detected_at, status, resolved_at}]}`
+  - `current_balance`는 조회 시점에 원장으로 다시 계산한 값이다.
+- **처리:** `resolve_visit_followup(p_access_code, p_followup_id, p_note, p_request_id, p_staff_id, p_site_id)`
+  - 같은 트랜잭션에서 그 주문의 원장을 다시 읽는다. **`balance = 0`일 때만** `resolved`로 바꾼다.
+  - 아니면 `FOLLOWUP_LEDGER_NOT_SETTLED`(`current_balance` 포함)이고 바뀌는 것이 없다.
+  - 직원 메모나 화면 확인만으로는 처리되지 않는다. 환불은 원장에 기록되어야 한다(결제 취소 등).
+  - 오류: `UNAUTHORIZED_STAFF`, `REQUEST_ID_REQUIRED`, `REQUEST_ID_CONFLICT`, `not_found`, `FOLLOWUP_ALREADY_RESOLVED`(같은 결과 재생은 `replayed`)
+
+### E9. 비상 대피 사후 기록 — `record_emergency_evacuation`, `get_visit_evacuation`
+
+대피가 끝난 뒤 직원이 기록한다. **정산·안전점검 인터록과 독립이다.**
+
+요청: `(p_access_code text, p_occurred_at timestamptz, p_reason text, p_request_id text, p_staff_id text default 'desk_staff', p_site_id text default 'bongplay_bonghwa')`
+
+```json
+{"ok": true, "evacuation_id": "vx_…", "occurred_at": "…", "recorded_at": "…",
+ "inside_at_event": {"teams": 3, "visitors": 7}, "closed_now_visitors": 6, "returned_after_event_visitors": 1,
+ "followups": [{"followup_id": "vf_…", "kind": "payment_due", "order_id": "…", "amount": 18000, "attribution": "ticket"}],
+ "already_recorded": false, "replayed": false}
+```
+
+- **대피 시점 체류 명단(스냅숏):** 이 시설 입장 티켓 중 `entered_at ≤ occurred_at`이고, 그 시각에 반납되지 않았던 티켓(`returned_at`이 없거나 `occurred_at`보다 뒤)이다. 영업일과 무관하다.
+  - 팀별 인원과 함께 대피 기록(`visit_evacuations.snapshot`)에 보존한다.
+- **퇴장 처리:** 아직 반납되지 않은 그 티켓들을 `returned_at = occurred_at`, `return_kind='evacuation'`으로 퇴장 처리한다.
+  - 대피 시각 뒤에 정상 반납된 티켓은 그대로 두고 `returned_after_event_visitors`로 센다.
+  - 입장 기록 상태와 `exited_at`도 갱신한다. 서약서 거울은 E6과 같은 규칙이다.
+- **정산 독립:** 입장권 주문의 받을 돈·돌려줄 돈이 있어도 막지 않는다. 대신 후속 확인(E8, 출처 `evacuation`)을 만든다.
+- **멱등:**
+  - 같은 `request_id`는 재생한다.
+  - 같은 시설·같은 `occurred_at` 대피가 이미 있으면 새로 만들지 않고 `already_recorded:true`로 그 기록을 돌려준다.
+- **검증:**
+  - `p_reason` 필수(`REASON_REQUIRED`)
+  - `occurred_at`은 지금부터 1분 뒤까지, 24시간 전 이후만 허용한다(`OCCURRED_AT_OUT_OF_RANGE`).
+- **조회:** `get_visit_evacuation(p_access_code, p_evacuation_id, p_site_id)` → 저장된 스냅숏·처리 수
+- **재입장 불가:** 대피로 퇴장 처리된 티켓은 다시 체류로 돌리지 않는다. 대피 후 재개장 때 다시 들어오는 고객은 새 접수·새 입장이다.
 
 ## 4. 재시도 규칙 (단말)
 
@@ -240,7 +306,8 @@
 | `PAYMENT_NOT_CONFIRMED`, `PARTIAL_PAYMENT_REJECTED`, `TICKET_LEDGER_INCOMPLETE` | 결제·발권 저장(기존 아웃박스)이 끝난 뒤 같은 `request_id`로 다시 E3. 입장 처리하지 않음 |
 | `REQUEST_ID_CONFLICT` | 단말 오류. 새 동작이면 새 `request_id` |
 | `TICKET_ALREADY_RETURNED`, `TICKET_ALREADY_ENTERED`, `ENTRY_EXISTS_OTHER_ORDER`, `ALREADY_ISSUED_OTHER_ORDER` | 재시도 금지. 화면을 새로 읽어(E4·E5) 현재 상태를 보여 줌 |
-| `UNSETTLED_ORDERS` | 자동 재시도 금지. `unsettled_orders`를 보여 주고 결제(또는 환불)를 원장에 기록한다. 매표 저장 대기 중이면 아웃박스 전송을 끝낸다. 그 뒤 직원이 다시 누를 때 같은 `request_id` 사용 (실패는 저장되지 않으므로 새로 판정) |
+| `UNSETTLED_TICKET_ORDER` | 자동 재시도 금지. `blocking_orders`를 보여 주고 받을 돈을 결제 원장에 기록한다. 매표 저장 대기 중이면 아웃박스 전송을 끝낸다. 그 뒤 직원이 다시 누를 때 같은 `request_id` 사용(실패는 저장되지 않으므로 새로 판정). 귀속 판정 불가(`attribution_undeterminable`)도 같다 |
+| `FOLLOWUP_LEDGER_NOT_SETTLED` | 자동 재시도 금지. 원장에 환불·결제를 기록한 뒤 다시 처리 |
 | 그 밖의 `ok:false` | 재시도 금지, 메시지 표시 |
 
 ## 5. 호출 알림 (발송 원장 분리)
@@ -269,7 +336,7 @@
 
 ## 6. 개인정보 노출 경계
 
-- **새 표 접근:** 새 표(`visit_entries`, `visit_entry_tickets`, `visit_identity_checks`, `visit_entry_requests`, `queue_call_notifications`)는 RLS를 켜고 정책을 두지 않는다. anon·authenticated의 표 권한도 회수한다.
+- **새 표 접근:** 새 표(`visit_entries`, `visit_entry_tickets`, `visit_identity_checks`, `visit_entry_requests`, `queue_call_notifications`, `visit_settlement_followups`, `visit_evacuations`)는 RLS를 켜고 정책을 두지 않는다. anon·authenticated의 표 권한도 회수한다.
 - **새 함수 권한:** 직원 함수는 anon에게 실행 권한이 있지만, 운영 암호 없이 `UNAUTHORIZED_STAFF`만 돌려준다. 작업자 함수는 `service_role`만 실행한다.
 - **기존 노출 위험 (이 작업에서 바꾸지 않음, 벤 결정 필요):**
   - `FINAL_SUPABASE_SETUP.sql`의 `consents_select_restricted`는 anon에게 **오늘 접수 서약서 행 직접 SELECT**를 허용한다. 보호자 이름·전화번호·자녀 정보가 포함된다.
@@ -284,6 +351,8 @@
 4. 반납 화면은 E4 결과에서 팀을 고르고 티켓(사람) 단위로 선택한다. 전체 반납은 `p_return_all`을 쓴다.
 5. 고객용 화면에 바우처 QR·카카오톡 확인 안내를 넣지 않는다. 출구 설문 QR은 방문 식별자 없는 공용 주소로 한다.
 6. 호출 알림 상태는 E1 화면에 보조 표시만 한다. 실패해도 다음 팀 호출을 자동으로 하지 않는다.
+7. 반납 결과의 `refund_completed:false`·`refund_followups`는 "환불 확인 필요"로 표시한다. 환불 완료로 표시하지 않는다. 후속 확인 목록(E8)은 원장 기록 뒤에만 처리된다.
+8. 비상 대피 사후 기록(E9)은 관리자 화면에서 대피 시각·사유를 받아 부른다. 대피 시점 체류 명단(`inside_at_event`)을 인원 확인용으로 보여 준다.
 
 ## 8. 적용 순서·호환 기간·복구 (요약, 상세는 구현 보고서)
 
@@ -296,14 +365,16 @@
 - **복구:** 새 표·함수·트리거만 삭제하면 원래 상태다(`test_supabase_install/90_reset_visit_entry.sql`, 시험 설치 전용 보호 있음). 결제·발권·대기열 원장은 이 마이그레이션이 바꾸지 않는다.
   - 예외: E3 성공 시의 대기열 `issued` 전환은 기존 발권 완료와 같은 결과로 남는다.
 
-## 9. 미정산 차단의 한계와 결정 사항 (2026-11-03 반납 계약 검토)
+## 9. 반납 정산 규칙 — 대표 결정(2026-11-03) 반영과 남은 결정
 
-- **서버가 확인하는 것:** 이 방문에 연결된 주문의 품목 금액과 결제 원장의 차이. 기존 원장(`order_items`·`order_payments`)으로 판정한다.
-  - 매표 `createOrder`는 품목과 결제를 따로 올리므로, 한쪽만 서버에 도착한 상태가 실제로 생긴다. 이 상태가 차단된다.
-- **서버가 확인하지 못하는 것 (화면 검사로 대신하지 않음, 결정 필요):**
-  1. **초과 이용 요금:** 기본권 2시간을 넘긴 경우의 요금 품목·금액·규칙이 카탈로그와 계약에 없다. 받는다면 반납 전에 `order_items`(방문 연동 `visit_id` 또는 `consent_id`, 새 품목 id)와 `order_payments`에 기록해야 7번이 판정한다.
-  2. **팔찌 분실·파손 배상:** 금액과 품목이 없다. 받는다면 1과 같은 방식으로 기록한다.
-  3. **방문과 연결하지 않은 매점 결제:** POS에서 방문을 고르지 않은 주문은 이 방문으로 판정할 수 없다. 체류 중 구매를 방문에 반드시 연동할지 정해야 한다.
-  4. **서버 미도착 아웃박스 건:** 단말에만 있는 주문·결제는 서버가 볼 수 없다. 근본 해결은 품목·결제를 한 RPC로 원자적으로 저장하는 것이다(별도 작업).
-  5. **비상 퇴장:** 미정산이어도 퇴장 기록이 필요한 경우(대피, 보호자 응급 이동 등)의 예외 절차와 권한을 정해야 한다. 현재는 예외가 없다.
-  6. **돌려줄 돈(`balance < 0`)도 차단할지:** 현재는 차단한다.
+- **반영한 대표 결정:**
+  - 일반 반납은 이 방문 입장권 주문에 받을 돈이 남은 경우에만 막는다.
+  - 매점 단독 주문은 방문 ID가 연결돼 있어도 제외한다.
+  - 돌려줄 돈은 반납을 허용하고 후속 확인을 만든다(환불 완료로 처리하지 않음).
+  - 비상 대피는 정산과 독립된 사후 기록이다(E9).
+  - 초과시간·팔찌 분실·파손 비용은 추가하지 않는다.
+- **남은 결정:**
+  1. **귀속 판정 불가 혼합 주문:** 입장권과 매점 품목이 한 주문에 섞여 받을 돈이 남은 경우, 현재는 임의 배분 없이 **반납을 막고** `attribution_undeterminable`로 보고한다. 막지 않으려면 대표 결정이 필요하다.
+     - 매표 `createOrder`는 입장권과 매점 품목을 한 주문으로 받을 수 있다(현행 화면).
+     - 근본 해결은 화면이 입장권 주문과 매점 주문을 나눠 저장하는 것이다.
+  2. **서버 미도착 아웃박스 건:** 단말에만 있는 주문·결제는 서버가 볼 수 없다. 품목·결제 원자 저장 RPC는 별도 작업이다.
