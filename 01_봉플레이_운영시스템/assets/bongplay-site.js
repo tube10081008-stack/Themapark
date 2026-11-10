@@ -73,6 +73,16 @@
       member_discount_categories: ['fnb', 'merchandise'] // 적용 품목군 (입장권·체험권 제외)
     },
 
+    // 회계 자동분개 정책 (pages/accounting.html) — 대표 결정 사항, 기기별로 바꾸지 않는다
+    //   auto_sales_start : 이 날짜(YYYY-MM-DD)부터 POS·매표 결제로 일일매출을 자동분개한다.
+    //                      그 전 매출은 엑셀 수기 전표가 원천이다. null 이면 자동매출·시재 자동분개·최종 마감을 모두 막는다
+    //                      (수기 장부 조회·백업은 가능).
+    accounting: {
+      auto_sales_start: null,                           // ★ 미정 — 대표 결정 후 기입
+      policy_version: 'acct-auto-sales/1',
+      source: '미정 — 대표 결정 대기 (CLAUDE-012, 2026-10-09)'
+    },
+
     // 시재금 (기초 준비금) 기준 설정 — 마감 시재의 기준치 (하드코딩 방지 SSOT)
     cash: {
       default_base_cash: 100000                         // 기본 개장 준비금 (시재 100,000원)
@@ -367,6 +377,10 @@
     partner: partner,
     capacity: capacity,
     area: function () { return SITE.area; },
+    accountingPolicy: function () {
+      var a = SITE.accounting || {};
+      return { auto_sales_start: a.auto_sales_start == null ? null : a.auto_sales_start, policy_version: a.policy_version || '', source: a.source || '' };
+    },
     digits: digits,
     apply: applyAll,
     applyLegacyReplacements: applyLegacyReplacements

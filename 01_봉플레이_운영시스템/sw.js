@@ -3,12 +3,13 @@
    ------------------------------------------------------------
    오프라인 정적 파일 캐싱 & 네트워크 단절 시 안정적 화면 서빙
    ============================================================ */
-const CACHE_NAME = 'bongplay-static-v2026-09-29r1';
+const CACHE_NAME = 'bongplay-static-v2026-10-08r1';
 const STATIC_ASSETS = [
   './index.html',
   './manifest.json',
   './pages/consent.html',
   './pages/survey.html',
+  './pages/accounting.html',
   './pages/consent-desk.html',
   './pages/gate.html',
   './pages/operations.html',
@@ -26,6 +27,7 @@ const STATIC_ASSETS = [
   './assets/bongplay-id-core.js',
   './assets/bongplay-sync.js',
   './assets/bongplay-id.js',
+  './assets/bongplay-accounting.js',
   './assets/bongplay-notify.js',
   './assets/bongplay-wakelock.js',
   './assets/print.css'
