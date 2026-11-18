@@ -66,6 +66,7 @@
 | ASIDE-001 | 지오 | `aside/ASIDE-001-institution-directory` (예정) | 착수 시 기록 | 공식 공개 기관 목록, 방법 보고서·본 행 | 9칸 커버리지, CSV는 저장소 밖 대표 전달 | GEO-001 PR 인계 후 착수 |
 | ASIDE-HIST-001 | 지오·대표 | 해당 없음 | 대표 보고 2026-09-29 | 네이버 블로그 자동화 기존 운영 | 대표 운영 성공 보고 기록 | 보고 기준 완료 / 벤 미검증 / 신규 게시 미배정 |
 | COORD-004 | Ben | `ben/COORD-004-chloe-review` | `bb0fcec` | PR #4~#6 이력 통합·작업표·결정문·추가 지시 | 원본 검증·작업행 보존·통합 PR | 검토 및 통합 |
+| ANT-006 | 아난티 | `antigravity/ANT-006-ticket-queue` | `892a061` (R3 기준 `c17318e`) | 01 운영 대기열 모듈·고객대기화면·공개호출판·서약/매표 UI·제안SQL·테스트 스위트 | 벤 R1/R2/R3 검토 필수 수정 완결 (다른 팀 주문 차단, 주문 수량 대비 티켓 수 대사, 결제 총액 대비 수납 합계 대사 및 부분 수납 거부, processing 상태 강제, search_path extensions 보완, 원장 부재 시 실패 강제, 멱등 재시도 및 접근코드 검증), 단위시험 19건 전수 PASS, 정적 RPC 서명 4/4 PASS, 회귀검증 57건 통과 (토큰 24시간 만료 vs 영업일 마감 기준 미확정 분리 보고) | R3 보완 완료 / 벤 재검토 대기 |
 
 새 작업은 이 표에 추가한다. 다른 에이전트의 폴더/브랜치 및 미푸시 변경은 이번 로컬 복제로 확인할 수 없으므로 담당자가 인계해야 한다.
 
@@ -147,3 +148,11 @@ COORD-007 / Ben / ben/COORD-007-live-targets / 기준 ed5a2ce / 운영 대상 �
 
 ## BEN-014 고객 홈페이지 편입
 벤 / ben/BEN-014-customer-homepage / 기준 c826316 / 06_봉플레이_고객홈페이지 및 배포 문서 / 원본 보존 복사·정적 검증·Netlify ZIP 준비 / 진행 중
+
+## BEN-022 발권 대기 시스템 구현 (2026-10-09)
+
+기준 master `892a06143ebe69e64a77761cd5793ab199c9755b` (R2 기준 `dd7dc19`).
+- ANT-006 / 아난티 / `antigravity/ANT-006-ticket-queue` / `01_봉플레이_운영시스템/assets/bongplay-queue.js`, `pages/queue-status.html`, `pages/queue-display.html`, `database/PROPOSED_MIGRATION_ticket_queue.sql`, `tests/ticket_queue.test.js`, `tests/e2e_ticket_queue_flows.js`, `pages/consent.html`, `pages/consent-desk.html`, `index.html` / R1 6대 수정 및 R2 4대 필수 수정(토큰전용 조회·만료·RateLimit, RPC 서명 일치, 서버측 직원·시설 인증, 결제·서약·티켓 원장 전수 대사 및 멱등 재시도) 완결. 단위 19건 통과(19.5ms), CDP 헤드리스 4세션 실사용 E2E 6단계 통과(19.32초), 기존 회귀 57건 전수 통과 / 보고서 `docs/qa/ANT-006_발권대기열.md` 갱신 및 벤 검토 대기.
+
+## BEN-ENTRY-01 게이트 없는 발권·입장·반납 (2026-11-03)
+BEN-ENTRY-01 | 클로이 | `claude/BEN-ENTRY-01-gateless-entry` | 기준 `8df36cf` (`claude/CLAUDE-011-queue-followup`, master `892a061` 에는 대기열 SQL 없음) | `01_…/database/CONTRACT_gateless_entry.md`, `PROPOSED_MIGRATION_visit_entry.sql`, 설치 묶음(ORDER·60·90·91)·설치 검증 스크립트, `tests/queue-contract/visit-entry/`, `docs/qa/BEN-ENTRY-01_게이트없는입장_서버구현.md`, 본 행 | 계약 `a96b801` 선커밋, 합성 PostgreSQL 시험 17/17·설치 검증 전체 통과, 화면·운영 DB·알림톡 발송 없음 | 벤 검토 대기 / 아난티 화면 착수 가능
