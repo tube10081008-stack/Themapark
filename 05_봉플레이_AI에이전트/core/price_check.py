@@ -75,6 +75,7 @@ def discount_rates(js: str) -> dict[str, float]:
 # ── 고지 (HTML, 구조 기반) ─────────────────────────────────────────
 
 _VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
+_NON_TEXT = {"script", "style", "noscript", "template"}
 _WON_ANY = re.compile(r"\d[\d,]*\s*원")
 _WON_FULL = re.compile(r"([\d,]+)\s*원")
 _LIST_FULL = re.compile(r"정가\s*([\d,]+)\s*원")
@@ -82,10 +83,11 @@ _PCT = re.compile(r"(\d+)\s*%")
 
 
 class _Node:
-    __slots__ = ("tag", "attrs", "children", "parent")
+    __slots__ = ("tag", "attrs", "children", "parent", "line")
 
-    def __init__(self, tag, attrs, parent):
+    def __init__(self, tag, attrs, parent, line=0):
         self.tag, self.attrs, self.children, self.parent = tag, dict(attrs), [], parent
+        self.line = line
 
     def classes(self) -> list[str]:
         return (self.attrs.get("class") or "").split()
@@ -123,7 +125,7 @@ class _Tree(HTMLParser):
         self.cur = self.root
 
     def handle_starttag(self, tag, attrs):
-        node = _Node(tag, attrs, self.cur)
+        node = _Node(tag, attrs, self.cur, self.getpos()[0])
         self.cur.children.append(node)
         if tag not in _VOID:
             self.cur = node
@@ -136,6 +138,12 @@ class _Tree(HTMLParser):
             self.cur = n.parent
 
     def handle_data(self, data):
+        # 스크립트·스타일 본문은 고객에게 보이는 문구가 아니다 (동적 문구는 G2 범위 밖 — 문서화)
+        n = self.cur
+        while n is not None:
+            if n.tag in _NON_TEXT:
+                return
+            n = n.parent
         if data.strip():
             self.cur.children.append(" ".join(data.split()))
 
@@ -144,13 +152,17 @@ def _amount(m: re.Match) -> int:
     return int(m.group(1).replace(",", ""))
 
 
-def _pricing_section(html: str) -> _Node:
+def _parse(html: str) -> tuple[_Node, _Node]:
     tree = _Tree()
     tree.feed(html)
     secs = [n for n in tree.root.walk() if n.attrs.get("id") == "sectionPricing"]
     if len(secs) != 1:
         raise ExtractError(f"section#sectionPricing 이 {len(secs)}개입니다")
-    return secs[0]
+    return tree.root, secs[0]
+
+
+def _pricing_section(html: str) -> _Node:
+    return _parse(html)[1]
 
 
 def _is_sale_anchor(node: _Node) -> bool:
@@ -158,6 +170,11 @@ def _is_sale_anchor(node: _Node) -> bool:
 
 
 def read_notice(html: str) -> tuple[dict[str, dict], list[str]]:
+    _, _, items, loose_pct, _ = _read(html)
+    return items, loose_pct
+
+
+def _read(html: str):
     """(품목 제목 → {sale, list, extras}, 카드 밖 할인율 문장 목록).
 
     카드: 판매가 앵커(<strong>N원</strong>)에서 위로 올라가며 앵커를 하나만 포함하는 가장 큰 요소.
@@ -166,7 +183,7 @@ def read_notice(html: str) -> tuple[dict[str, dict], list[str]]:
     않으면 run_checks 가 실패시킨다.
     추출 실패: 카드 밖의 금액, 제목 중복·빈 제목, 정가 표기 여러 개.
     """
-    sec = _pricing_section(html)
+    root, sec = _parse(html)
     anchors = [n for n in sec.walk() if _is_sale_anchor(n)]
     if not anchors:
         raise ExtractError("요금 영역에서 판매가(<strong>N원</strong>)를 하나도 찾지 못했습니다")
@@ -209,7 +226,116 @@ def read_notice(html: str) -> tuple[dict[str, dict], list[str]]:
             raise ExtractError(f"품목 카드로 분류되지 않은 금액: {t!r} — 미분류 가격 블록")
         if _PCT.search(t):
             loose_pct.append(t)
-    return items, loose_pct
+    return root, sec, items, loose_pct, cards
+
+
+# ── G1·G1b·G2: 혜택 문구와 요금 영역 밖 금액 (CLAUDE-006) ─────────────
+#
+# G1  요금 영역 안, 품목 카드 밖의 **혜택 선언 문장**(우대·할인·감면·면제·무료)은 계약의 할인
+#     라벨(notice_label)을 포함하거나 계약 필드 source.item 에 '문장' 그대로 인용돼 있어야 한다.
+#     금액·비율이 없는 우대 문구(예: 폐지된 '국가유공자·장애인 우대')도 여기서 잡힌다.
+#     제외: 제목(h1~h6, 예: '이용 요금 및 우대 혜택'), 품목 카드 안 설명(카드는 품목 대조가 담당).
+# G1b 페이지 전체에서 공공 주체(봉화군·군청·지자체 등)와 지원·보조·인센티브가 한 문장에 함께 나오면
+#     실패 — BEN-010/011 '군 지원 확정 안내 금지'. 계약에 이를 허용하는 근거 필드가 없다.
+#     '봉화군민'(주민 우대 대상)은 공공 주체로 보지 않는다.
+# G2  요금 영역 밖의 금액(N원, N만 원, 범위)은 confirmed 요금과 같아야 한다. 범위·만 원 단위는
+#     요금이 아니므로 실패, 한글 단위가 섞인 표기(1만5천원 등)는 해석 불가로 실패.
+#     숫자라도 ㎡·평·시각·전화·날짜·인원 등 '원'이 붙지 않은 것은 금액이 아니다.
+#     대상: 텍스트 노드와 placeholder·title·alt·aria-label 속성. script 안의 동적 문구는 범위 밖.
+
+_BENEFIT = re.compile(r"우대|할인|감면|면제|무료")
+_PUBLIC = re.compile(r"봉화군(?!민)|군청|지자체|시청|도청|정부|공공기관|국비|도비|군비")
+_SUPPORT = re.compile(r"지원|보조|인센티브")
+_HEADINGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
+_ATTRS = ("placeholder", "title", "alt", "aria-label")
+_AFTER_WON = "에은는이을의으과와도만부씩대짜권선까상어미초"
+_MONEY = re.compile(r"(\d[\d,]*)(?:\s*[~\-–]\s*(\d[\d,]*))?\s*(만\s*)?원(?=$|[^가-힣]|[" + _AFTER_WON + "])")
+_KR_MONEY = re.compile(r"\d+\s*만\s*\d+\s*천?\s*원|\d+\s*천\s*원")
+
+
+def _under(node: _Node, tags: set) -> bool:
+    n = node
+    while n is not None:
+        if n.tag in tags:
+            return True
+        n = n.parent
+    return False
+
+
+def _phrases(root: _Node):
+    """(문장, 소유 노드, 출처) — 텍스트 노드와 지정 속성. script 등은 트리에서 이미 빠짐."""
+    for t, owner in root.texts():
+        yield t, owner, "text"
+    for n in root.walk():
+        if _under(n, _NON_TEXT):
+            continue
+        for a in _ATTRS:
+            v = (n.attrs.get(a) or "").strip()
+            if v:
+                yield v, n, f"@{a}"
+
+
+def _money(t: str):
+    """[(원문, 값 또는 None, 사유)] — 값이 None 이면 요금으로 해석할 수 없는 금액."""
+    out, taken = [], []
+    for m in _KR_MONEY.finditer(t):
+        out.append((m.group(0), None, "한글 단위가 섞인 금액 표기 — 해석 불가"))
+        taken.append(m.span())
+    for m in _MONEY.finditer(t):
+        if any(a <= m.start() < b for a, b in taken):
+            continue
+        lo, hi, man = m.group(1), m.group(2), m.group(3)
+        if hi or man:
+            out.append((m.group(0), None, "범위·만 원 단위 금액 — 요금이 아님(지원금·견적 등)"))
+            continue
+        out.append((m.group(0), int(lo.replace(",", "")), ""))
+    return out
+
+
+def _coverage_checks(profile: Profile, root: _Node, sec: _Node, cards, js_prices) -> list[CheckResult]:
+    res: list[CheckResult] = []
+    pricing = [profile.field(k) for k in profile.keys() if k.startswith(("price.", "discount."))]
+    mapped = " ".join(f.source.get("item") or "" for f in pricing)
+    labels = [x for x in ((f.price_check or {}).get("notice_label") for f in pricing) if x]
+
+    # G1
+    for t, owner in sec.texts():
+        if any(owner.within(c) for c in cards) or _under(owner, _HEADINGS) or not _BENEFIT.search(t):
+            continue
+        ok = any(lb in t for lb in labels) or f"'{t}'" in mapped
+        res.append(CheckResult("(G1 혜택 고지)", ok,
+                               "계약 대응 확인" if ok else
+                               f"{owner.line}행 부근 계약에 없는 혜택 문구: {t!r}"))
+
+    # G1b
+    for t, owner, src in _phrases(root):
+        if _PUBLIC.search(t) and _SUPPORT.search(t):
+            res.append(CheckResult("(G1b 공적 지원 주장)", False,
+                                   f"{owner.line}행 부근 {src} 공공 재원 지원 주장 — 계약 근거 없음"
+                                   f" (군 지원 확정 안내 금지): {t!r}"))
+
+    # G2
+    confirmed = {f.value: f.key for f in pricing if f.key.startswith("price.") and f.status == "confirmed"}
+    other = {f.value: f"{f.key}({f.status})" for f in pricing
+             if f.key.startswith("price.") and f.status != "confirmed" and f.value is not None}
+    for t, owner, src in _phrases(root):
+        if owner.within(sec):
+            continue
+        for raw, val, why in _money(t):
+            where = f"{owner.line}행 부근 {src} {raw!r}"
+            if val is None:
+                res.append(CheckResult("(G2 영역 밖 금액)", False, f"{where}: {why} — 문장 {t!r}"))
+            elif val in confirmed:
+                res.append(CheckResult("(G2 영역 밖 금액)", True, f"{where} = {confirmed[val]}"))
+            elif val in other or val in js_prices.values():
+                cat = [k for k, v in js_prices.items() if v == val]
+                ref = other.get(val) or f"카탈로그 {', '.join(cat)} 와 같은 값이지만 계약 confirmed 요금 아님"
+                res.append(CheckResult("(G2 영역 밖 금액)", False,
+                                       f"{where}: 확정되지 않은 금액 ({ref}) — 문장 {t!r}"))
+            else:
+                res.append(CheckResult("(G2 영역 밖 금액)", False,
+                                       f"{where}: 계약에 없는 금액 — 문장 {t!r}"))
+    return res
 
 
 def notice_items(html: str) -> dict[str, dict]:
@@ -275,7 +401,7 @@ def run_checks(profile: Profile, js: str, html: str) -> list[CheckResult]:
     try:
         prices = catalog_prices(js)
         rates = discount_rates(js)
-        notices, loose_pct = read_notice(html)
+        root, sec, notices, loose_pct, cards = _read(html)
     except ExtractError as e:
         return [CheckResult("(추출)", False, f"추출 실패: {e}")]
 
@@ -309,6 +435,7 @@ def run_checks(profile: Profile, js: str, html: str) -> list[CheckResult]:
     for t in loose_pct:
         if not any(lb in t for lb in labels):
             results.append(CheckResult("(고지 할인)", False, f"계약에 없는 할인 고지: {t!r}"))
+    results.extend(_coverage_checks(profile, root, sec, cards, prices))
     return results
 
 
@@ -318,6 +445,7 @@ def main(argv: list[str] | None = None) -> int:
     html = NOTICE_PATH.read_text(encoding="utf-8")
     results = run_checks(profile, js, html)
     failed = [r for r in results if not r.ok]
+    print("※ 코드 대조 결과 — 저장소 파일 기준. 운영 배포(라이브 사이트) 확인이 아니다.\n")
     for r in results:
         print(f"[{'통과' if r.ok else '실패'}] {r.key}: {r.message}")
     pending = profile.with_status("unresolved")
