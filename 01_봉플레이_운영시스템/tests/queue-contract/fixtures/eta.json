@@ -1,0 +1,66 @@
+{
+  "contract": "docs/design/CLAUDE-011_발권대기열_계약.md §10 (v1)",
+  "note": "합성 표본(초). 실제 운영 처리시간이 아니다. 기대값은 계약 계산식으로 손계산했다. base 정렬 [240,270,300,330,360] → P25=270, P75=330.",
+  "cases": [
+    {
+      "id": "E1_one_counter_idle_none_ahead",
+      "input": { "samples": [240, 270, 300, 330, 360], "counterWork": [{ "kind": "idle" }], "aheadWaiting": 0 },
+      "expect": { "state": "range", "min_minutes": 0, "max_minutes": 0, "sample_count": 5 },
+      "why": "빈 창구, 앞선 대기 없음 → 즉시"
+    },
+    {
+      "id": "E2_one_counter_serving_two_ahead",
+      "input": { "samples": [240, 270, 300, 330, 360], "counterWork": [{ "kind": "serving", "elapsed_seconds": 60 }], "aheadWaiting": 2 },
+      "expect": { "state": "range", "min_minutes": 12, "max_minutes": 16, "sample_count": 5 },
+      "why": "P25: 210+270+270=750s→12분(내림). P75: 270+330+330=930s→16분(올림)"
+    },
+    {
+      "id": "E3_two_counters_three_ahead",
+      "input": { "samples": [240, 270, 300, 330, 360], "counterWork": [{ "kind": "serving", "elapsed_seconds": 60 }, { "kind": "idle" }], "aheadWaiting": 3 },
+      "expect": { "state": "range", "min_minutes": 8, "max_minutes": 10, "sample_count": 5 },
+      "why": "P25 가용 [210,0]→[210,270]→[480,270]→[480,540], 시작 480s=8분. P75 [270,0]→[270,330]→[600,330]→[600,660], 시작 600s=10분"
+    },
+    {
+      "id": "E4_insufficient_samples",
+      "input": { "samples": [240, 270, 300, 330], "counterWork": [{ "kind": "idle" }], "aheadWaiting": 1 },
+      "expect": { "state": "estimating", "sample_count": 4 },
+      "why": "유효 표본 4 < N_MIN 5 → 예상시간 집계 중"
+    },
+    {
+      "id": "E5_simultaneous_completion_two_counters",
+      "input": { "samples": [240, 270, 300, 330, 360], "counterWork": [{ "kind": "idle" }, { "kind": "idle" }], "aheadWaiting": 2 },
+      "expect": { "state": "range", "min_minutes": 4, "max_minutes": 6, "sample_count": 5 },
+      "why": "두 창구가 동시에 비어 앞선 2팀이 동시에 시작 → 내 시작은 d 뒤. 270s→4분, 330s→6분"
+    },
+    {
+      "id": "E6_all_counters_paused",
+      "input": { "samples": [240, 270, 300, 330, 360], "counterWork": [], "aheadWaiting": 3 },
+      "expect": { "state": "paused" },
+      "why": "활성 창구 0 → 발권 일시 중지 (표본과 무관)"
+    },
+    {
+      "id": "E7_outliers_and_too_short_excluded",
+      "input": { "samples": [5, 240, 270, 300, 330, 360, 3600], "counterWork": [{ "kind": "serving", "elapsed_seconds": 60 }], "aheadWaiting": 2 },
+      "expect": { "state": "range", "min_minutes": 12, "max_minutes": 16, "sample_count": 5 },
+      "why": "5s는 30s 미만 제외. 남은 6개 중앙값 315, MAD 45, 상한 450 → 3600 제외. E2와 같은 결과"
+    },
+    {
+      "id": "E8_counter_called_not_yet_serving",
+      "input": { "samples": [240, 270, 300, 330, 360], "counterWork": [{ "kind": "called" }], "aheadWaiting": 0 },
+      "expect": { "state": "range", "min_minutes": 4, "max_minutes": 6, "sample_count": 5 },
+      "why": "호출된 팀은 아직 처리 전 → 남은 작업 d 전체. 270s→4분, 330s→6분"
+    },
+    {
+      "id": "E9_serving_longer_than_typical",
+      "input": { "samples": [240, 270, 300, 330, 360], "counterWork": [{ "kind": "serving", "elapsed_seconds": 400 }], "aheadWaiting": 0 },
+      "expect": { "state": "range", "min_minutes": 0, "max_minutes": 0, "sample_count": 5 },
+      "why": "경과가 P75보다 길면 남은 작업 0 (음수 금지). 실제로는 곧 끝날 것으로 표시"
+    },
+    {
+      "id": "E10_only_recent_20_samples",
+      "input": { "samples": [900, 900, 900, 900, 900, 240, 270, 300, 330, 360, 240, 270, 300, 330, 360, 240, 270, 300, 330, 360, 240, 270, 300, 330, 360], "counterWork": [{ "kind": "idle" }], "aheadWaiting": 1 },
+      "expect": { "state": "range", "min_minutes": 4, "max_minutes": 6, "sample_count": 20 },
+      "why": "오래된 900s 5건은 최근 20건 밖. 최근 20건 P25=270, P75=330"
+    }
+  ]
+}
